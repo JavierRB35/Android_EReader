@@ -39,6 +39,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.readium.r2.navigator.Decoration
+import org.readium.r2.navigator.DecorableNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.epub.EpubPreferences
@@ -133,6 +134,21 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     created
                 }
                 navigator = fragment
+                // Decorations are interactive: tapping a saved NOTE opens
+                // the existing edit/delete dialog instead of leaving an
+                // unresponsive coloured fragment in the Readium WebView.
+                fragment.addDecorationListener("annotations",
+                    object : DecorableNavigator.Listener {
+                        override fun onDecorationActivated(
+                            event: DecorableNavigator.OnActivatedEvent
+                        ): Boolean {
+                            val mark = annotations.firstOrNull {
+                                it.id == event.decoration.id
+                            } ?: return false
+                            showSavedTextMark(mark)
+                            return true
+                        }
+                    })
                 loading.visibility = View.GONE
                 if (nativeMode) {
                     val initialIndex = opened.readingOrder.indexOfFirst {
@@ -318,7 +334,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             range != null && at in range
                         }
                         if (mark == null) false else {
-                            showNativeMark(mark)
+                            showSavedTextMark(mark)
                             true
                         }
                     }
@@ -491,7 +507,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeText.setText(text, TextView.BufferType.SPANNABLE)
     }
 
-    private fun showNativeMark(note: AnnotationEntity) {
+    private fun showSavedTextMark(note: AnnotationEntity) {
         val choices = if (note.kind == "HIGHLIGHT")
             arrayOf("Quitar subrayado", "Cerrar")
         else arrayOf("Editar", "Eliminar", "Cerrar")
