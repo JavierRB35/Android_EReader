@@ -149,6 +149,14 @@
             android:textSize="13sp"
             android:textColor="#E0D6CC" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReadBook"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
+            android:layout_marginTop="20dp"
+            android:text="@string/action_read_book" />
+
         <Button
             android:id="@+id/btnFavorite"
             android:layout_width="match_parent"
