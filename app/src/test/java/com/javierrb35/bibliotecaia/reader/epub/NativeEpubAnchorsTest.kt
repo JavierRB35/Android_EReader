@@ -48,4 +48,32 @@ class NativeEpubAnchorsTest {
         assertNotNull(NativeEpubAnchors.validatedRange(json, quote, href, source))
         assertEquals(second, NativeEpubAnchors.point(json)?.offset)
     }
+
+    @Test fun uniqueOldReadiumAnnotationRemainsVisibleAfterNativeModeUpgrade() {
+        val old = org.json.JSONObject()
+            .put("href", href).put("type", "application/xhtml+xml")
+            .put("text", org.json.JSONObject().put("highlight", "única palabra"))
+            .toString()
+        val text = "Aquí aparece única palabra y nada más."
+        val range = requireNotNull(
+            NativeEpubAnchors.uniqueLegacyReadiumRange(old, "única palabra", href, text)
+        )
+        assertEquals(text.indexOf("única palabra"), range.first)
+        assertEquals("única palabra", text.substring(range.first, range.last + 1))
+    }
+
+    @Test fun oldReadiumQuoteNeverMarksRepeatedTextOrWrongChapter() {
+        val old = org.json.JSONObject()
+            .put("href", href).put("type", "application/xhtml+xml")
+            .put("text", org.json.JSONObject().put("highlight", "Palabra"))
+            .toString()
+        assertNull(NativeEpubAnchors.uniqueLegacyReadiumRange(old, "Palabra", href, text))
+        assertNull(NativeEpubAnchors.uniqueLegacyReadiumRange(
+            old, "Palabra", "$href-other", "Palabra aislada"))
+        assertNull(NativeEpubAnchors.uniqueLegacyReadiumRange(
+            old, "texto diferente", href, "texto diferente"))
+        assertNull(NativeEpubAnchors.uniqueLegacyReadiumRange(
+            old, "Palabra", href, "No se reconoce el contenido"))
+    }
+
 }
