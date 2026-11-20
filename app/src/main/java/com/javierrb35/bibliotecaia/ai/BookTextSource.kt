@@ -21,7 +21,7 @@ object BookTextSource {
     const val MAX_TOTAL_CHARS = 40_000
 
     fun chapters(file: File, format: String, ocrDir: File?): List<Fragment> = when (format) {
-        "EPUB" -> epubChapters(file).ifEmpty { listOf(Fragment(1, file.name, readWhole(file))) }
+        "EPUB" -> epubChapters(file)
         "MOBI" -> try {
             listOf(Fragment(1, file.nameWithoutExtension, MobiDocument.readHtml(file)))
         } catch (_: Exception) {
@@ -40,10 +40,16 @@ object BookTextSource {
             val opf = readText(zip, opfPath) ?: return emptyList()
             val manifest = Regex("""<manifest\b.*?</manifest>""", RegexOption.DOT_MATCHES_ALL).find(opf)?.value ?: return emptyList()
             val spine = Regex("""<spine\b.*?</spine>""", RegexOption.DOT_MATCHES_ALL).find(opf)?.value ?: return emptyList()
-            val hrefs = Regex("""<item\b[^>]*\bid="([^"]+)"[^>]*\bhref="([^"]+)"[^>]*>""").findAll(manifest)
-                .associate { it.groupValues[1] to it.groupValues[2] }
-            val order = Regex("""<itemref\b[^>]*\bidref="([^"]+)"[^>]*>""").findAll(spine)
-                .mapNotNull { hrefs[it.groupValues[1]] }.toList()
+            // XML attributes are unordered and may use either quote style.
+            // Keep the order from the spine, not the order of manifest items.
+            val hrefs = Regex("""<item\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(manifest)
+                .mapNotNull { match ->
+                    val id = xmlAttribute(match.value, "id")?.takeIf { it.isNotBlank() }
+                    val href = xmlAttribute(match.value, "href")?.takeIf { it.isNotBlank() }
+                    if (id == null || href == null) null else id to href
+                }.toMap()
+            val order = Regex("""<itemref\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(spine)
+                .mapNotNull { match -> xmlAttribute(match.value, "idref")?.let(hrefs::get) }.toList()
             if (order.isEmpty()) return emptyList()
 
             val base = opfPath.substringBeforeLast('/', "")
@@ -77,20 +83,45 @@ object BookTextSource {
         return parts.joinToString("/")
     }
 
+    /** Only simple, quoted XML attributes are read; never resolve external entities. */
+    private fun xmlAttribute(tag: String, name: String): String? =
+        Regex("""\s${Regex.escape(name)}\s*=\s*(['"])(.*?)\1""", RegexOption.DOT_MATCHES_ALL)
+            .find(tag)?.groupValues?.get(2)
+
     private fun containerRootfile(zip: ZipFile): String? {
-        val entry = zip.getEntry("META-INF/container.xml") ?: return null
         val doc = readText(zip, "META-INF/container.xml") ?: return null
-        return Regex("""full-path="([^"]+)"""").find(doc)?.groupValues?.get(1)
+        val tag = Regex("""<rootfile\b[^>]*>""", RegexOption.IGNORE_CASE)
+            .find(doc)?.value ?: return null
+        val path = xmlAttribute(tag, "full-path") ?: return null
+        return path.takeIf { resolve("", it) == it }
     }
 
+    /**
+     * Strict decompressed-byte cap, including ZIP entries whose header size is
+     * missing/incorrect. Never call readBytes() on untrusted EPUB entries.
+     */
     private fun readText(zip: ZipFile, path: String): String? = try {
         zip.getEntry(path)?.let { entry ->
-            val bytes = zip.getInputStream(entry).use { it.readBytes() }
-            if (bytes.size > 2_000_000) null else String(bytes, Charsets.UTF_8)
+            if (entry.isDirectory || entry.size > MAX_EPUB_ENTRY_BYTES) null
+            else {
+                val output = java.io.ByteArrayOutputStream()
+                zip.getInputStream(entry).use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (output.size() > MAX_EPUB_ENTRY_BYTES - count) return null
+                        output.write(buffer, 0, count)
+                    }
+                }
+                output.toString(Charsets.UTF_8.name())
+            }
         }
     } catch (_: Exception) {
         null
     }
+
+    private const val MAX_EPUB_ENTRY_BYTES = 2_000_000
 
     /** Retira etiquetas y descodifica entidades básicas; sin ejecutar nada. */
     fun stripTags(html: String): String = html
@@ -147,10 +178,4 @@ object BookTextSource {
             .sortedBy { it.index }
     }
 
-    /** Lectura completa (MOBI) recortada al máximo de contexto enviado. */
-    private fun readWhole(file: File): String = try {
-        stripTags(MobiDocument.readHtml(file)).take(MAX_TOTAL_CHARS)
-    } catch (_: Exception) {
-        ""
-    }
 }
