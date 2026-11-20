@@ -12,10 +12,8 @@ import java.io.File
  * por id/hash); posiciones solo avanzan si la copia es más reciente (§15.5); recuentos
  * reales de inserciones y omisiones.
  *
- * Límite honesto de la V1: la copia incluye metadatos y anotaciones; los archivos
- * originales NO se incluyen (exportación con archivos: mejora futura). Un libro
- * restaurado conserva su fila pero debe revincularse/reimportarse si falta su archivo
- * (ver OriginalLinker).
+ * exportJson/restoreJson support legacy metadata-only backups. A complete portable
+ * backup including every imported original is handled by CompleteBackupManager.
  */
 class BackupManager(private val db: AppDatabase, private val appVersion: String) {
 
@@ -38,7 +36,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
     }
 
-    suspend fun restoreJson(json: String): RestoreReport {
+    suspend fun restoreJson(json: String, availableOriginals: Map<String, String> = emptyMap()): RestoreReport {
         // Validación ANTES de tocar la base (Issue #10.4): estructura, versión y entradas.
         val snapshot = BackupCodec.fromJson(json)
         return db.withTransaction {
@@ -60,6 +58,19 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
             val tagsRestored = countInserted(dao.insertTagsIgnore(tagsToInsert))
             val collectionsRestored = countInserted(dao.insertCollectionsIgnore(snapshot.collections))
 
+            // A complete archive verified and materialized its originals BEFORE
+            // this transaction. Link paths atomically together with all metadata.
+            if (availableOriginals.isNotEmpty()) {
+                for (book in dao.booksAll()) {
+                    val verifiedPath = availableOriginals[book.contentHash] ?: continue
+                    require(File(verifiedPath).isFile) {
+                        "El original restaurado ha desaparecido antes de guardar la biblioteca."
+                    }
+                    if (book.localPath.isBlank() || !File(book.localPath).isFile) {
+                        db.bookDao().update(book.copy(localPath = verifiedPath))
+                    }
+                }
+            }
             val knownBooks = dao.booksAll().map { it.id }.toSet()
             val knownCategories = dao.categoriesAll().map { it.id }.toSet()
             val knownTags = dao.tagsAll().map { it.id }.toSet()

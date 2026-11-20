@@ -49,6 +49,14 @@ internal object UpdateRuntime : Application.ActivityLifecycleCallbacks {
     }
 
     override fun onActivityResumed(activity: Activity) {
+        // Resume the user's explicitly requested install after Android has
+        // authorized this app as an installer. No background/silent installs.
+        UpdateInstaller.resumeAfterPermission(activity)
+        val forcePrompt = activity.intent?.getBooleanExtra(UpdateNotice.EXTRA_SHOW_UPDATE, false) == true
+        if (forcePrompt) {
+            activity.intent?.removeExtra(UpdateNotice.EXTRA_SHOW_UPDATE)
+            lastCheckUptime = -FOREGROUND_INTERVAL_MS
+        }
         active = WeakReference(activity)
         job?.cancel()
         job = scope.launch {
@@ -70,7 +78,7 @@ internal object UpdateRuntime : Application.ActivityLifecycleCallbacks {
                     null
                 }
                 if (release != null && isActive && active?.get() === activity)
-                    UpdateNotice.showIfNew(activity, release)
+                    UpdateNotice.showIfNew(activity, release, force = forcePrompt)
                 delay(FOREGROUND_INTERVAL_MS)
             }
         }

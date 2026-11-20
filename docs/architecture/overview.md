@@ -14,27 +14,32 @@ Androdi_EReader/
 └── AGENTS.md
 ```
 
-## Arquitectura objetivo (Prompt Maestro §6)
+## Arquitectura objetivo vigente (directriz 20-11-2026)
 
 ```text
-ANDROID: UI/navegación · Motor EPUB · Motor PDF · Importador MOBI · OCR
-         Room/SQLite local · Motor de sincronización · Google Identity
-         Autorización Drive · Cliente IA (abstracción de proveedores)
-SUPABASE: Auth · PostgreSQL + RLS · metadatos y sincronización · índices
-          Edge Functions → Gemini / Groq (claves nunca en cliente)
-DRIVE (usuario): originales EPUB/MOBI/PDF y copias autorizadas
+ANDROID: Biblioteca local · EPUB/PDF/MOBI · OCR · Cuaderno · IA BYOK opcional
+         Room/SQLite · Originales internos · SAF CreateDocument/OpenDocument
+COPIA ZIP: biblioteca.json + libros físicos originales, hash SHA-256 verificable
+DESTINO: ubicación elegida por el usuario (Drive/USB/almacenamiento local/otro proveedor)
 GITHUB: código · pruebas · documentación · releases
 ```
 
-## Principios
+No existen cuentas de usuario, registro con Gmail/Google, OAuth, Drive API ni sincronización
+obligatoria de datos. **La app usa el selector de Android para el único documento autorizado
+por el usuario**, no necesita iniciar sesión en Google. La sesión que una app externa
+Drive pueda pedir no es una sesión de Biblioteca IA.
 
-Offline-first; persistencia local inmediata; sincronización eventual verificable; separación de datos por usuario desde el diseño; seguridad por defecto; contratos entre módulos; migraciones explícitas; operaciones recuperables; dependencias justificadas; bajo consumo energético.
+## Persistencia y seguridad
 
-## Persistencia (reparto)
-
-- **Google Drive:** archivos originales de libros. Nunca como base de datos transaccional.
-- **Supabase:** usuarios, catálogo, clasificaciones, posiciones, anotaciones, relaciones, historial IA, metadatos, información de sincronización.
-- **Room/SQLite (local):** catálogo, posiciones, marcadores, anotaciones, preferencias, operaciones pendientes, índices locales.
+- **Room/SQLite**: única fuente de verdad de catálogo, localizadores, notas, versiones,
+  marcadores, categorías, etiquetas y colecciones.
+- **Almacenamiento privado de Android**: originales EPUB/PDF/MOBI disponibles offline.
+- **ZIP transportable elegido mediante SAF**: originales + datos; exportación aborta si falta
+  alguno; restauración comprueba hashes antes de actualizar la base.
+- **IA BYOK**: credenciales cifradas localmente y excluidas del backup. El ZIP no está cifrado,
+  por lo que debe guardarse en una ubicación privada.
+- **Supabase/Google OAuth heredados**: fuera de alcance y desconectados de la navegación V1;
+  no eliminarlos del servidor sin una nueva autorización explícita.
 
 ## Roadmap de incrementos (detalle en Prompt Maestro §22)
 
@@ -43,8 +48,8 @@ Offline-first; persistencia local inmediata; sincronización eventual verificabl
 2. Motor EPUB (Readium, verificar compatibilidad — ADR-005)
 3. PDF y MOBI (prueba técnica temprana de MOBI)
 4. Conocimiento (notas, relaciones, cuaderno global)
-5. Identidad Google + Drive (Supabase Auth)
-6. Sincronización + aislamiento multiusuario
+5. Sin cuentas: selector SAF para guardar/leer la copia completa
+6. Restauración verificable de binarios + Room con idempotencia
 7. IA textual (Gemini/Groq, RAG, referencias, anti-spoilers)
 8. IA visual (PDF/imágenes/tablas)
 9. Protección (copias, versiones, papelera, restauración verificada)

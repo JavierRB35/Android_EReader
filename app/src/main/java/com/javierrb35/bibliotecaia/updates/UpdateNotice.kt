@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationCompat
@@ -27,14 +26,15 @@ internal object UpdateNotice {
     private const val LAST_NOTIFIED = "last_background_tag"
     private const val CHANNEL = "bibliotecaia_updates"
     private const val NOTIFICATION_ID = 4102
+    const val EXTRA_SHOW_UPDATE = "bibliotecaia.show_update_from_notification"
 
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun showIfNew(activity: Activity, release: UpdateChecker.ReleaseInfo) {
+    fun showIfNew(activity: Activity, release: UpdateChecker.ReleaseInfo, force: Boolean = false) {
         if (activity.isFinishing || activity.isDestroyed) return
         val prefs = preferences(activity)
-        if (prefs.getString(LAST_SHOWN, null) == release.tagName) return
+        if (!force && prefs.getString(LAST_SHOWN, null) == release.tagName) return
 
         // Persist only when actually surfaced to the user; never consume a new
         // version on network errors or before the Activity is visible.
@@ -45,11 +45,8 @@ internal object UpdateNotice {
                 AlertDialog.Builder(activity)
                     .setTitle("Actualización disponible")
                     .setMessage(message)
-                    .setPositiveButton("Descargar APK") { _, _ ->
-                        openOfficialAsset(activity, release.apkUrl)
-                    }
-                    .setNeutralButton("Ver novedades") { _, _ ->
-                        openOfficialAsset(activity, release.htmlUrl)
+                    .setPositiveButton("Instalar actualización") { _, _ ->
+                        UpdateInstaller.start(activity, release)
                     }
                     .setNegativeButton("Más tarde", null)
                     .show()
@@ -57,20 +54,13 @@ internal object UpdateNotice {
                 val root = activity.findViewById<android.view.View>(android.R.id.content)
                 Snackbar.make(root, "Biblioteca IA ${release.versionName} disponible",
                     Snackbar.LENGTH_LONG)
-                    .setAction("Descargar") { openOfficialAsset(activity, release.apkUrl) }
+                    .setAction("Instalar") { UpdateInstaller.start(activity, release) }
                     .show()
             }
             prefs.edit().putString(LAST_SHOWN, release.tagName).apply()
         } catch (_: RuntimeException) {
             // A destroyed foreground screen should never crash reading.
         }
-    }
-
-    /** Only URLs parsed and pinned to the official GitHub repo reach this point. */
-    private fun openOfficialAsset(context: Context, url: String) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            .addCategory(Intent.CATEGORY_BROWSABLE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     fun notifyIfNew(context: Context, release: UpdateChecker.ReleaseInfo) {
@@ -86,15 +76,17 @@ internal object UpdateNotice {
             NotificationChannel(CHANNEL, "Actualizaciones de Biblioteca IA",
                 NotificationManager.IMPORTANCE_DEFAULT)
         )
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl))
-            .addCategory(Intent.CATEGORY_BROWSABLE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Open the app, not GitHub; show the same verified in-app install action.
+        val intent = Intent(context, MainActivity::class.java)
+            .putExtra(EXTRA_SHOW_UPDATE, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pending = PendingIntent.getActivity(context, release.versionName.hashCode(),
             intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("Nueva versión: Biblioteca IA ${release.versionName}")
-            .setContentText("Pulsa para descargar la actualización firmada.")
+            .setContentText("Pulsa para instalarla desde Biblioteca IA.")
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
