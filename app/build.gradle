@@ -20,6 +20,23 @@ if (publicSupabaseKey && !publicSupabaseKey.startsWith('sb_publishable_')) {
 }
 def javaString = { value -> groovy.json.JsonOutput.toJson(value) }
 
+// Version overrides are allowed only when BOTH values are supplied by the
+// protected GitHub auto-release job. Local AndroidIDE builds keep their stable
+// version and signing configuration; never store release secrets in Gradle.
+def releaseVersionNameOverride = project.findProperty('BIBLIOTECA_VERSION_NAME')?.toString()
+def releaseVersionCodeOverride = project.findProperty('BIBLIOTECA_VERSION_CODE')?.toString()
+if ((releaseVersionNameOverride == null) != (releaseVersionCodeOverride == null)) {
+    throw new GradleException('Specify both BIBLIOTECA_VERSION_NAME and BIBLIOTECA_VERSION_CODE')
+}
+if (releaseVersionNameOverride != null &&
+    !(releaseVersionNameOverride ==~ /[0-9]+\.[0-9]+\.[0-9]+/)) {
+    throw new GradleException('Invalid semantic release version')
+}
+def configuredVersionCode = releaseVersionCodeOverride == null ? 1 : Integer.parseInt(releaseVersionCodeOverride)
+if (configuredVersionCode < 1 || configuredVersionCode > 2100000000) {
+    throw new GradleException('Release versionCode is outside Android limits')
+}
+
 android {
     namespace 'com.javierrb35.bibliotecaia'
     compileSdk 34
@@ -28,8 +45,8 @@ android {
         applicationId "com.javierrb35.bibliotecaia"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "0.1.0"
+        versionCode configuredVersionCode
+        versionName (releaseVersionNameOverride ?: "0.1.0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField 'String', 'SUPABASE_URL', javaString(publicAuthValue('BIBLIOTECA_SUPABASE_URL'))
         buildConfigField 'String', 'SUPABASE_PUBLIC_KEY', javaString(publicSupabaseKey)
