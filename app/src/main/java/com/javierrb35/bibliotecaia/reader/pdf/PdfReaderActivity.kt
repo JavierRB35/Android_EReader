@@ -215,26 +215,27 @@ class PdfReaderActivity : AppCompatActivity() {
     /** Reconstruct from Room; deleted annotations are excluded by the DAO. */
     private fun refreshHighlights() {
         if (!::image.isInitialized || renderedPage < 0 || contentHash.isBlank()) return
-        image.showMarks(marks.filter { it.kind == "HIGHLIGHT" }.flatMap { mark ->
-            PdfOcrAnchors.overlayBoxes(mark.locator, renderedPage,
-                mark.quote, contentHash, ocrSnapshot).map {
-                PdfPaintedMark(mark.id, it)
-            }
-        })
+        image.showMarks(PdfOcrAnnotationMarks.forPage(
+            marks, renderedPage, contentHash, ocrSnapshot
+        ))
     }
 
     private fun showSavedMark(mark: AnnotationEntity) {
         MaterialAlertDialogBuilder(this)
             .setTitle(if (mark.kind == "HIGHLIGHT") "Subrayado PDF" else "Anotación")
-            .setMessage(mark.quote.take(1_200))
+            .setMessage(buildString {
+                append(mark.quote.take(900))
+                if (mark.body.isNotBlank()) append("\n\nNota: ").append(mark.body.take(900))
+            })
             .setNegativeButton("Cerrar", null)
             .setNeutralButton("Editar nota") { _, _ ->
                 AnnotationEditor.edit(this, mark)
             }
-            .setPositiveButton("Quitar subrayado") { _, _ ->
+            .setPositiveButton(if (mark.kind == "NOTE") "Eliminar anotación"
+                else "Quitar subrayado") { _, _ ->
                 MaterialAlertDialogBuilder(this)
-                    .setTitle("Eliminar subrayado")
-                    .setMessage("¿Quitar este subrayado sin modificar el PDF original?")
+                    .setTitle(if (mark.kind == "NOTE") "Eliminar anotación" else "Eliminar subrayado")
+                    .setMessage("¿Quitar esta marca sin modificar el PDF original?")
                     .setNegativeButton("Cancelar", null)
                     .setPositiveButton("Eliminar") { _, _ ->
                         lifecycleScope.launch {
