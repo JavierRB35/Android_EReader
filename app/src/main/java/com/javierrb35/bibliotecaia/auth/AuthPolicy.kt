@@ -15,6 +15,21 @@ object AuthPolicy {
     } catch (_: Exception) { false }
 
     fun validClientId(value: String) = value.matches(Regex("[0-9]+-[a-zA-Z0-9_-]+\\.apps\\.googleusercontent\\.com"))
+    /** Conservative UI validation; server remains the authority for account creation. */
+    fun validEmail(value: String): Boolean {
+        if (value.length !in 6..254 || value.any { it.isWhitespace() }) return false
+        val at = value.indexOf('@')
+        if (at !in 1..63 || at != value.lastIndexOf('@')) return false
+        val local = value.substring(0, at)
+        val domain = value.substring(at + 1)
+        return local.first() != '.' && local.last() != '.' && ".." !in local &&
+            domain.length in 4..253 && domain.contains('.') &&
+            domain.split('.').all { it.length in 1..63 && it.first().isLetterOrDigit() &&
+                it.last().isLetterOrDigit() && it.all { ch -> ch.isLetterOrDigit() || ch == '-' } } &&
+            local.all { it.isLetterOrDigit() || it in ".!#$%&'*+-/=?^_`{|}~" }
+    }
+    fun validPassword(value: String): Boolean = value.length in 8..128
+
     fun needsRefresh(expiresAtSeconds: Long, nowSeconds: Long): Boolean = expiresAtSeconds <= nowSeconds + 60
     fun nonce(): String = ByteArray(32).also { SecureRandom().nextBytes(it) }.let {
         Base64.getUrlEncoder().withoutPadding().encodeToString(it)
