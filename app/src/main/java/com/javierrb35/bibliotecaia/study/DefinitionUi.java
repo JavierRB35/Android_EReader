@@ -21,10 +21,27 @@ public final class DefinitionUi {
     /** Reuse exactly the Scriptura study actions with EPUB's Readium selection callback. */
     public static void populateSelectionMenu(Menu menu) {
         if(menu==null)return;
-        addIfAbsent(menu,DEFINE_ACTION_ID,"Definir",MenuItem.SHOW_AS_ACTION_ALWAYS);
+        // Readium 3.0 custom ActionMode replaces the WebView's default menu.
+        // Supply the Android IDs explicitly; EPUB handlers implement their behavior.
+        preserveNativeTextActions(menu);
+        addIfAbsent(menu,DEFINE_ACTION_ID,"Definir",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,ANNOTATE_ACTION_ID,"Anotar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,UNDERLINE_ACTION_ID,"Subrayar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,GEMINI_FRAGMENT_ACTION_ID,"Interpretar con IA",MenuItem.SHOW_AS_ACTION_NEVER);
+    }
+    /** Maintain native IDs: TextView delegates to Android; Readium implements the actions. */
+    public static void preserveNativeTextActions(Menu menu){
+        if(menu==null)return;
+        nativeAction(menu,android.R.id.copy,"Copiar",MenuItem.SHOW_AS_ACTION_ALWAYS);
+        nativeAction(menu,android.R.id.selectAll,"Seleccionar todo",MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        nativeAction(menu,android.R.id.shareText,"Compartir",MenuItem.SHOW_AS_ACTION_NEVER);
+        // Read-only book content cannot be pasted into. Editable fields retain
+        // Android's native Paste/Cut menu; we do not add unusable actions here.
+    }
+    private static void nativeAction(Menu menu,int id,String title,int show){
+        MenuItem item=menu.findItem(id);
+        if(item==null)item=menu.add(Menu.NONE,id,Menu.CATEGORY_SYSTEM,title);
+        item.setShowAsAction(show);
     }
     private static void addIfAbsent(Menu menu,int id,String title,int show) {
         if(menu.findItem(id)==null)menu.add(Menu.NONE,id,Menu.CATEGORY_SECONDARY,title).setShowAsAction(show);
@@ -94,8 +111,8 @@ public final class DefinitionUi {
             private void ensureDefine(Menu menu){
                 if(menu.findItem(DEFINE_ACTION_ID)==null){
                     MenuItem define=menu.add(Menu.NONE,DEFINE_ACTION_ID,Menu.CATEGORY_SECONDARY,"Definir");
-                    // Prioridad visible: en muchos móviles IF_ROOM la esconde bajo el desbordamiento.
-                    define.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+                    // Copy is the primary Android action; custom study actions use free room.
+                    define.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
                 }
             }
             private void ensureAnnotate(Menu menu){
@@ -119,6 +136,7 @@ public final class DefinitionUi {
                 }
             }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
+                preserveNativeTextActions(menu);
                 ensureDefine(menu);
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
@@ -132,6 +150,7 @@ public final class DefinitionUi {
                         textView.getSelectionEnd());
             }
             @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu){
+                preserveNativeTextActions(menu);
                 ensureDefine(menu);
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
@@ -165,10 +184,10 @@ public final class DefinitionUi {
                     return true;
                 }
                 if(item.getItemId()!=DEFINE_ACTION_ID)return false;
-                final String selected=WordMeaning.selection(textView.getText().toString(),
+                final String selected=WordMeaning.searchSelection(textView.getText().toString(),
                     textView.getSelectionStart(),textView.getSelectionEnd());
                 if(selected==null){
-                    delegate.showError("Selecciona una sola palabra para consultar su significado.");
+                    delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
                     return true;
                 }
                 mode.finish();
@@ -182,8 +201,9 @@ public final class DefinitionUi {
     }
 
     public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate){
-        if(!WordMeaning.oneWord(word)){
-            delegate.showError("La consulta debe contener una sola palabra.");
+        final String query=WordMeaning.searchPhrase(word);
+        if(query==null){
+            delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
             return;
         }
         int pad=dp(activity,16);
@@ -192,14 +212,14 @@ public final class DefinitionUi {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(pad,pad,pad,pad);
         content.setBackgroundColor(Color.WHITE);
-        addText(activity,content,word,22,NAVY,true,0);
-        String local=WordMeaning.local(word);
+        addText(activity,content,query,22,NAVY,true,0);
+        String local=WordMeaning.oneWord(query)?WordMeaning.local(query):null;
         addText(activity,content,local!=null?local:
-            "Este término no figura todavía en el glosario local. Puedes consultar las fuentes externas que aparecen abajo.",
+            "Esta palabra o expresión no figura en el glosario local. Puedes consultar las fuentes externas que aparecen abajo.",
             15,NAVY,false,9);
         addText(activity,content,local!=null?
             "Glosario orientativo de Biblioteca IA. El sentido varía según el pasaje.":
-            "Las consultas externas solo envían la palabra elegida; requieren conexión.",
+            "Las consultas externas solo envían la expresión seleccionada; requieren conexión.",
             12,MUTED,false,8);
         final ScrollView scroll=new ScrollView(activity);
         scroll.setFillViewport(false);
@@ -210,21 +230,21 @@ public final class DefinitionUi {
             .setView(scroll)
             .setNegativeButton("Cerrar",(d,w)->d.dismiss())
             .create();
-        String catholic=WordMeaning.catholicArticleUrl(word);
+        String catholic=WordMeaning.oneWord(query)?WordMeaning.catholicArticleUrl(query):null;
         if(catholic!=null){
             addLink(activity,content,"Enciclopedia Católica · Abrir artículo",catholic,dialog,delegate);
         } else {
             addText(activity,content,"Enciclopedia Católica: no hay un artículo verificado para este término.",12,MUTED,false,10);
         }
-        addLink(activity,content,"Wikipedia · Buscar «"+word+"»",
-            WordMeaning.wikipediaSearchUrl(word),dialog,delegate);
-        addLink(activity,content,"Wikcionario · Buscar «"+word+"»",
-            WordMeaning.wiktionarySearchUrl(word),dialog,delegate);
+        addLink(activity,content,"Wikipedia · Buscar «"+query+"»",
+            WordMeaning.wikipediaSearchUrl(query),dialog,delegate);
+        addLink(activity,content,"Wikcionario · Buscar «"+query+"»",
+            WordMeaning.wiktionarySearchUrl(query),dialog,delegate);
         if(geminiEnabled){
-            TextView ai=addText(activity,content,"✦ Explicar esta palabra en su pasaje con Gemini",14,GOLD,true,12);
+            TextView ai=addText(activity,content,"✦ Explicar esta expresión en su pasaje con IA",14,GOLD,true,12);
             ai.setMinHeight(dp(activity,48));
             ai.setGravity(Gravity.CENTER_VERTICAL);
-            ai.setOnClickListener(v->{dialog.dismiss();delegate.explainWithGemini(word);});
+            ai.setOnClickListener(v->{dialog.dismiss();delegate.explainWithGemini(query);});
         }
         // Medida segura: nunca acceder a LayoutParams sin comprobar que existe.
         // El contenido es desplazable incluso cuando la ventana se limita a
