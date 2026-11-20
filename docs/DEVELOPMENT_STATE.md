@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (coordinación reconciliada con el agente de integración; lectores PDF/MOBI integrados)
-**Fase actual:** Incremento 1 COMPLETO · Incremento 2 en curso (diseño+portadas+organizador integrados; lectores PDF/MOBI integrados; EPUB/auth/wiring pendientes de sus agentes)
+**Última actualización:** 2026-11-20 (adopción y finalización del Incremento 2 por el canal ZCode)
+**Fase actual:** Incremento 2 — Lectura: **NÚCLEO COMPLETADO** (catálogo → ficha → lector EPUB/PDF/MOBI funcionando; cuaderno Conocimiento operativo; Google Auth compilado y registrado)
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -14,12 +14,12 @@ Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
 
 | Worktree | Rama | Área | Estado 2026-11-20 |
 |---|---|---|---|
-| `biblioteca-ux/` | `feature/design-system` | **Diseño — AGENTE ABANDONÓ el proyecto** | Terminó y publicó `cd19d25`. **INTEGRADO en `main` y verificado visualmente por el coordinador.** Sus tareas pendientes las retoma el coordinador (ver «Plan de diseño») |
-| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB (Readium) | Activo; a punto de commitear (`EpubOpeningTest`, EPUB de prueba en `androidTest/assets`). Sin push aún |
-| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | Activo; commit local `c1b3b29` «isolated PDF viewer and bounded MOBI text reader» + ajustes en curso. Sin push aún |
-| `biblioteca-integration/` | `feature/reader-integration` | Integración entre áreas (chat Codex; reserva Room/migraciones/manifest/navegación/cuaderno) | Checkpoint publicado e **integrado en main** (`70484ee`): su COORDINATION.md ratificado + identificación del canal ZCode respondida in situ. Cableado de navegación aún en curso (21 ficheros sin commit en su worktree) |
-| `biblioteca-auth/` | `feature/google-auth` | Google Auth + Drive | Activo (dependencias y schema v3 en curso). Sin push aún |
-| `Androdi_EReader/` | `main` | Coordinador: integra ramas verificadas y fusiona | El commit directo `ce402d8` (locators + anotaciones versionadas) se integró aquí |
+| `biblioteca-ux/` | `feature/design-system` | **Diseño — agente abandonó; trabajo INTEGRADO** (`cd19d25` + restyle organizador + PdfCoverSource por el canal ZCode) | Cerrado |
+| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB | **ADOPTADO** → `integration/epub-adopted` → main (`789c163`): Readium 3.0.3, EpubOpener/Safety/Reader, 6 tests seguridad + test instrumentado VERDE en emulador |
+| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | **INTEGRADO** (`4c577f0`) + refinamiento PalmDOC **ADOPTADO** (`2ea9980`) |
+| `biblioteca-integration/` | `feature/reader-integration` | Wiring (chat Codex) | **ADOPTADO** → `integration/wiring-adopted` → main (`3ab0159`): ficha→«Abrir lector»→ReaderRouter, navegación 3 espacios, KnowledgeActivity, BoundedZipInputStream; **verificado en emulador leyendo el Quijote real con Readium** |
+| `biblioteca-auth/` | `feature/google-auth` | Google Auth | **ADOPTADO** → `integration/auth-adopted` → main (`35120b3`): auth/ (Credential Manager, SecureSessionStore), AccountActivity registrada, guardia de clave pública anón en build.gradle, docs/setup/google-cloud.md; 58/58 tests |
+| `Androdi_EReader/` | `main` | Coordinador canal ZCode | Integra, verifica y publica; adopciones anunciadas en COORDINATION.md |
 
 **Reglas:** 1 worktree = 1 agente = 1 rama; no tocar el worktree ajeno ni cambiar su rama; no duplicar investigaciones; push frecuentes en la propia rama; fusiones a `main` solo de trabajos verificados y coordinados. El push a `main` puede chocar con otros coordinadores: `git fetch` + merge antes de push.
 
@@ -34,8 +34,8 @@ Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
   - ✅ **Locators de lectura y anotaciones versionadas INTEGRADOS en `main`** (`ce402d8`): tablas `reading_positions`, `annotations`, `annotation_versions` con **migración 2→3 no destructiva verificada sobre datos reales** en emulador (solo `CREATE TABLE IF NOT EXISTS`; el libro y sus datos sobrevivieron). El esquema v3 (`app/schemas/.../3.json`) queda ahora commiteado por el coordinador (omisión del autor original).
   - ⏳ Motores de lectura EPUB/PDF/MOBI: en desarrollo por los agentes de sus ramas (ver tabla).
   - ⏳ Google Auth + Drive: en desarrollo (rama `feature/google-auth`).
-- **Verificación integrada de `main` (dbc7b19 + merge de `1ee628e`):** BUILD SUCCESSFUL; **23/23 tests JVM** (9 formatos + 6 metadatos + 8 portadas); revisión visual en emulador correcta (biblioteca Material 3: encabezado editorial, chips con acento cálido, ficha tipográfica «SIN PORTADA», contador «1 libros», ★ favorito), datos preservados tras la migración.
-- Etiqueta honesta: todo lo anterior es **Verificado localmente (escritorio + emulador x86_64)**. AndroidIDE ARM64 en teléfono sigue **Pendiente**.
+- **Verificación integrada final (main @ adopción auth):** BUILD SUCCESSFUL; **58/58 tests JVM** (9 formatos + 6 metadatos + 8 portadas + 3 límites import + 21 MobiDocument + 6 EpubSafety + 5 AuthPolicy) + **1/1 test instrumentado** (EpubOpeningTest: Readium abre EPUB real con búsqueda de localizadores estables). Emulador: catálogo→ficha→**«Abrir lector»→Readium leyendo el Quijote real** (Capítulo 1 renderizado, OLED, progreso 0%, marcador), navegación 3 espacios con Conocimiento operativo, sin crashes.
+- Etiqueta honesta: **Verificado localmente (escritorio + emulador x86_64)**. Sin verificación con servicio: Google Auth real (requiere config del propietario). AndroidIDE ARM64 en teléfono: **Pendiente**.
 
 ## Revisión visual del diseño (tarea del agente de diseño, completada por el coordinador)
 
