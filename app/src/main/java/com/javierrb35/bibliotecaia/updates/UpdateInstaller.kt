@@ -164,7 +164,8 @@ internal object UpdateInstaller {
             return@withContext destination to expected
         }
 
-        val temp = File.createTempFile(".downloading-", ".part", dir)
+        // PackageManager parses the staged APK before it is promoted to cache.
+        val temp = File.createTempFile(".downloading-", ".apk", dir)
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             val connection = openOfficialConnection(release.apkUrl)
