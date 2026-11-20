@@ -29,6 +29,8 @@ import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -310,37 +312,18 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             override fun onSelectionFinished() = Unit
         })
 
-        // Short taps on a saved underline open its detail, but never consume
-        // long-press, drag or the native text selection handles.
-        val slop = ViewConfiguration.get(this).scaledTouchSlop
-        nativeText.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    nativeTouchX = event.x
-                    nativeTouchY = event.y
-                    false
-                }
-                MotionEvent.ACTION_UP -> {
-                    val quickTap = event.eventTime - event.downTime <
-                        ViewConfiguration.getLongPressTimeout() / 2 &&
-                        abs(event.x - nativeTouchX) <= slop &&
-                        abs(event.y - nativeTouchY) <= slop
-                    if (!quickTap) false else {
-                        val chapter = nativeChapter
-                        val at = nativeText.getOffsetForPosition(event.x, event.y)
-                        val mark = if (chapter == null) null else annotations.firstOrNull {
-                            val range = nativeMarkRange(it, chapter)
-                            range != null && at in range
-                        }
-                        if (mark == null) false else {
-                            showSavedTextMark(mark)
-                            true
-                        }
-                    }
-                }
-                else -> false
+        // Scriptura parity: short tap opens all annotations at the character,
+        // long-press/drag remains owned by TextView's native selection mode.
+        MarkedTextTap.attach(nativeText, marksAt = { at ->
+            val chapter = nativeChapter
+            if (chapter == null) emptyList()
+            else annotations.filter { mark ->
+                mark.kind in setOf("NOTE", "HIGHLIGHT") &&
+                    nativeMarkRange(mark, chapter)?.contains(at) == true
             }
-        }
+        }, onMarks = { overlapping ->
+            SavedAnnotationSheet.show(this, repository, overlapping)
+        })
         nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (nativeMode && nativeChapter != null) {
                 updateNativeProgress()
@@ -514,31 +497,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     }
 
     private fun showSavedTextMark(note: AnnotationEntity) {
-        val choices = if (note.kind == "HIGHLIGHT")
-            arrayOf("Quitar subrayado", "Cerrar")
-        else arrayOf("Editar", "Eliminar", "Cerrar")
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (note.kind == "HIGHLIGHT") "Subrayado" else "Anotación")
-            .setMessage(note.body.ifBlank { note.quote }.take(1200))
-            .setItems(choices) { _, index ->
-                when {
-                    note.kind == "HIGHLIGHT" && index == 0 -> lifecycleScope.launch {
-                        try { repository.setDeleted(note.id, true) }
-                        catch (_: Exception) { toast("No se pudo quitar el subrayado.") }
-                    }
-                    note.kind != "HIGHLIGHT" && index == 0 -> AnnotationEditor.edit(this, note)
-                    note.kind != "HIGHLIGHT" && index == 1 ->
-                        MaterialAlertDialogBuilder(this)
-                            .setMessage("¿Eliminar esta anotación?")
-                            .setNegativeButton("Cancelar", null)
-                            .setPositiveButton("Eliminar") { _, _ ->
-                                lifecycleScope.launch {
-                                    try { repository.setDeleted(note.id, true) }
-                                    catch (_: Exception) { toast("No se pudo eliminar.") }
-                                }
-                            }.show()
-                }
-            }.show()
+        SavedAnnotationSheet.show(this, repository, listOf(note))
     }
 
     private fun button(label: String, action: () -> Unit) = MaterialButton(this, null,
