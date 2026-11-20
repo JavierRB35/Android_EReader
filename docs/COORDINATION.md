@@ -103,4 +103,4 @@ Aborta por falta de original/hash; restauración sin sobreescrituras destructiva
 `backup/CompleteBackup*`, `backup/BackupManager.kt`, `ui/SettingsActivity.kt`,
 textos de Ajustes, documentación y pruebas de backup. Los agentes de EPUB/PDF y
 anotaciones continúan en ramas separadas; **NO sobrescribir estos archivos reservados**.
-El coordinador ZCode integrará solo tras revisión y CI. No publicar release por esta PR.
+**Entrega al integrador:** [PR #23](https://github.com/JavierRB35/Android_EReader/pull/23) disponible para revisión; código `5334ca51` pasó [CI #44803507753](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507753), [16 pruebas Android #44803508024](https://github.com/JavierRB35/Android_EReader/actions/runs/44803508024) y [arranque #44803507780](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507780). **No se fusiona sin coordinación** ni se publica release por esta PR. QA Drive SAF en teléfono y restauración de libro real siguen pendientes.
