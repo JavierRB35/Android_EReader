@@ -71,32 +71,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var searchJob: Job? = null
     private var latest: Locator? = null
     private var annotations = emptyList<AnnotationEntity>()
-    private data class SelectedExcerpt(val locator: String, val quote: String)
-    private var selectionEpoch = 0
-    private var lastSelectedExcerpt: SelectedExcerpt? = null
-    private var selectionProbe: Deferred<SelectedExcerpt?>? = null
-
-    /** Readium fetches WebView selection through suspended JavaScript.
-     * Capture while ActionMode is visible: Android may clear selection
-     * immediately after an action is clicked, before its coroutine resumes.
-     */
-    private suspend fun readSelectedExcerpt(): SelectedExcerpt? {
-        val selected = navigator?.currentSelection()?.locator ?: return null
-        val quote = selected.text.highlight.orEmpty()
-        if (quote.isBlank()) return null
-        return SelectedExcerpt(selected.toJSON().toString(), quote)
-    }
-
-    private fun prefetchSelectedExcerpt() {
-        val epoch = selectionEpoch
-        selectionProbe = lifecycleScope.async(start = CoroutineStart.UNDISPATCHED) {
-            val selected = try { readSelectedExcerpt() }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { null }
-            if (selected != null && selectionEpoch == epoch) lastSelectedExcerpt = selected
-            selected
-        }
-    }
     private lateinit var root: LinearLayout
     private lateinit var controls: LinearLayout
     private lateinit var footer: LinearLayout
@@ -388,36 +362,27 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     /** The native copy/share/select-all actions are intentionally preserved. */
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-            selectionEpoch++
-            lastSelectedExcerpt = null
-            selectionProbe = null
             DefinitionUi.populateSelectionMenu(menu)
-            prefetchSelectedExcerpt()
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
             DefinitionUi.populateSelectionMenu(menu)
-            // Handles may be dragged after initial word selection.
-            prefetchSelectedExcerpt()
             return true
         }
 
         override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
             if (item == null || !DefinitionUi.isStudyAction(item.itemId)) return false
-            // Keep the pending result even if the framework destroys ActionMode
-            // before the suspended WebView query returns.
-            val pending = selectionProbe
-            val cached = lastSelectedExcerpt
-            lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            lifecycleScope.launch {
                 try {
-                    val excerpt = readSelectedExcerpt() ?: pending?.await()
-                        ?: lastSelectedExcerpt ?: cached
-                    if (excerpt == null) {
-                        toast("No se pudo recuperar la selección. Vuelve a seleccionar el texto.")
+                    // Capture the Readium selection BEFORE closing its ActionMode.
+                    val selection = navigator?.currentSelection()
+                    val quote = selection?.locator?.text?.highlight.orEmpty()
+                    val locator = selection?.locator?.toJSON()?.toString()
+                    if (locator == null || quote.isBlank()) {
+                        toast("Selecciona un fragmento válido.")
                         return@launch
                     }
-                    val (locator, quote) = excerpt
                     when {
                         DefinitionUi.isDefinition(item.itemId) -> {
                             if (!WordMeaning.oneWord(quote)) {
@@ -448,11 +413,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             return true
         }
 
-        override fun onDestroyActionMode(mode: ActionMode?) {
-            selectionEpoch++
-            selectionProbe = null
-            lastSelectedExcerpt = null
-        }
+        override fun onDestroyActionMode(mode: ActionMode?) {}
     }
 
     override fun onExternalLinkActivated(url: AbsoluteUrl) { toast("Los enlaces externos están desactivados durante la lectura.") }
