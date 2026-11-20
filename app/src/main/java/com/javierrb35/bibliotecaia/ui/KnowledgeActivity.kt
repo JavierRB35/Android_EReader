@@ -2,6 +2,9 @@ package com.javierrb35.bibliotecaia.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.view.Gravity
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -15,7 +18,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputLayout
+import com.google.android.material.textfield.TextInputEditText
+import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +38,7 @@ class KnowledgeActivity : AppCompatActivity() {
     private val repository by lazy { ReadingRepository(this) }
     private val query = MutableStateFlow("")
     private val trash = MutableStateFlow(false)
+    private val kindFilter = MutableStateFlow("ALL")
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -62,36 +70,167 @@ class KnowledgeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(12), dp(20), 0); setBackgroundColor(0xFF000000.toInt()) }
-        val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        header.addView(button("‹", "Volver a la biblioteca") { finish() }, LinearLayout.LayoutParams(dp(56), dp(56)))
-        header.addView(TextView(this).apply { text = "Conocimiento"; textSize = 26f; setTextColor(0xFFE8DFCE.toInt()) }, LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(header)
-        root.addView(TextView(this).apply { text = "Tus ideas, siempre contigo"; textSize = 14f; setTextColor(0xFFAAA79E.toInt()); setPadding(0, 0, 0, dp(12)) })
-        val search = EditText(this).apply { hint = "Buscar notas y fragmentos"; isSingleLine = true; doOnTextChanged { text, _, _, _ -> query.value = text.toString() } }
-        root.addView(search)
-        val actions = LinearLayout(this)
-        actions.addView(button("Nueva nota") { AnnotationEditor.show(this, null, null, "", "NOTE") }, LinearLayout.LayoutParams(0, -2, 1f))
-        actions.addView(button("Exportar") { export.launch("BibliotecaIA-cuaderno.md") }, LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(actions)
-        root.addView(com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
-            text = "Mostrar papelera"; setTextColor(0xFFE8DFCE.toInt())
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.bia_background))
+        }
+
+        val brand = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), 0, dp(12), 0)
+        }
+        brand.addView(TextView(this).apply {
+            text = "◫  BibliotecaAI"
+            textSize = 22f
+            typeface = Typeface.SERIF
+            setTextColor(getColor(R.color.bia_text))
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { gravity = Gravity.CENTER_VERTICAL })
+        brand.addView(button("⚙", "Abrir ajustes") {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        root.addView(brand)
+
+        val intro = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(10))
+        }
+        intro.addView(TextView(this).apply {
+            text = "Conocimiento"
+            textSize = 33f
+            typeface = Typeface.SERIF
+            setTextColor(getColor(R.color.bia_text))
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+        })
+        intro.addView(TextView(this).apply {
+            text = "Tus ideas, notas y reflexiones de lectura"
+            textSize = 12f
+            setTextColor(getColor(R.color.bia_text_secondary))
+        })
+        root.addView(intro)
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(18), 0, dp(18), dp(7))
+        }
+        val tabButtons = listOf("ALL" to "Notas", "QUOTE" to "Fragmentos", "IDEAS" to "Ideas").map { (kind, title) ->
+            button(title) { kindFilter.value = kind }.also {
+                tabs.addView(it, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    marginStart = dp(3)
+                    marginEnd = dp(3)
+                })
+            }
+        }
+        fun updateTabs(value: String) {
+            tabButtons.forEachIndexed { index, tab ->
+                val active = when (index) { 0 -> value == "ALL"; 1 -> value == "QUOTE"; else -> value == "IDEAS" }
+                tab.backgroundTintList = ColorStateList.valueOf(
+                    getColor(if (active) R.color.bia_accent else R.color.bia_surface))
+                tab.setTextColor(getColor(if (active) R.color.bia_background else R.color.bia_text))
+            }
+        }
+        updateTabs(kindFilter.value)
+        tabButtons.forEachIndexed { index, tab ->
+            tab.setOnClickListener {
+                kindFilter.value = when (index) { 0 -> "ALL"; 1 -> "QUOTE"; else -> "IDEAS" }
+                updateTabs(kindFilter.value)
+            }
+        }
+        root.addView(tabs)
+
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+        }
+        val searchBox = TextInputLayout(this, null,
+            com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+            hint = "Buscar notas y fragmentos"
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxBackgroundColor = getColor(R.color.bia_surface)
+            boxStrokeColor = getColor(R.color.bia_outline)
+            setBoxCornerRadii(dp(17).toFloat(), dp(17).toFloat(),
+                dp(17).toFloat(), dp(17).toFloat())
+            setStartIconDrawable(R.drawable.ic_premium_search)
+        }
+        searchBox.addView(TextInputEditText(searchBox.context).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            isSingleLine = true
+            textSize = 14f
+            doOnTextChanged { text, _, _, _ -> query.value = text.toString() }
+        })
+        controls.addView(searchBox)
+
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(9), 0, dp(2))
+        }
+        actionsRow.addView(button("✎  Nueva nota") {
+            AnnotationEditor.show(this, null, null, "", "NOTE")
+        }.apply {
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_accent))
+            setTextColor(getColor(R.color.bia_background))
+        }, LinearLayout.LayoutParams(0, dp(52), 1.25f).apply { marginEnd = dp(6) })
+        actionsRow.addView(button("⇧  Exportar") {
+            export.launch("BibliotecaIA-cuaderno.md")
+        }.apply {
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_surface_high))
+            setTextColor(getColor(R.color.bia_text))
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(6) })
+        controls.addView(actionsRow)
+
+        controls.addView(com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
+            text = "Mostrar papelera"
+            textSize = 13f
+            setTextColor(getColor(R.color.bia_text_secondary))
+            isChecked = savedInstanceState?.getBoolean("premium_trash") ?: false
+            trash.value = isChecked
             setOnCheckedChangeListener { _, checked -> trash.value = checked }
         })
-        val empty = TextView(this).apply { textSize = 18f; setTextColor(0xFFAAA79E.toInt()); setPadding(0, dp(28), 0, 0) }
+        root.addView(controls)
+
+        val empty = TextView(this).apply {
+            textSize = 15f
+            setTextColor(getColor(R.color.bia_text_secondary))
+            setPadding(dp(24), dp(24), dp(24), 0)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
         root.addView(empty)
-        val list = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@KnowledgeActivity) }
+        val list = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@KnowledgeActivity)
+            clipToPadding = false
+            setPadding(dp(16), dp(3), dp(16), dp(10))
+        }
         val adapter = NotesAdapter { note -> actions(note) }
         list.adapter = adapter
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+        val nav = layoutInflater.inflate(R.layout.premium_bottom_navigation, root, false)
+        root.addView(nav)
+        PremiumBottomBar.bind(this, nav, R.id.navKnowledge) {
+            PremiumBottomBar.launchImportFromKnowledge(this)
+        }
         setContentView(root)
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(query, trash) { q, t -> db.readingDao().notebook(q, t) }.flatMapLatest { it }.collect { notes ->
-                    adapter.submit(notes)
-                    empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
-                    empty.text = if (query.value.isNotEmpty()) "No hay resultados para esta búsqueda." else if (trash.value) "La papelera está vacía." else "Tu cuaderno empieza con una idea.\nCrea una nota o guarda un fragmento al leer."
-                }
+                combine(query, trash, kindFilter) { q, t, kind -> Triple(q, t, kind) }
+                    .flatMapLatest { (q, t, kind) ->
+                        db.readingDao().notebook(q, t).map { notes ->
+                            when (kind) {
+                                "QUOTE" -> notes.filter { it.quote.isNotBlank() }
+                                "IDEAS" -> notes.filter { it.kind == "NOTE" && it.bookId == null }
+                                else -> notes
+                            }
+                        }
+                    }.collect { notes ->
+                        adapter.submit(notes)
+                        empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
+                        empty.text = when {
+                            query.value.isNotEmpty() -> "No hay resultados para esta búsqueda."
+                            trash.value -> "La papelera está vacía."
+                            kindFilter.value == "QUOTE" -> "Aquí aparecerán los fragmentos que guardes al leer."
+                            kindFilter.value == "IDEAS" -> "Aquí aparecerán tus notas independientes."
+                            else -> "Tu cuaderno empieza con una idea. Crea una nota o guarda un fragmento al leer."
+                        }
+                    }
             }
         }
     }
@@ -133,31 +272,109 @@ class KnowledgeActivity : AppCompatActivity() {
     }
 
     private fun button(title: String, description: String = title, action: () -> Unit) = MaterialButton(this).apply {
-        text = title; contentDescription = description; minHeight = dp(48); setOnClickListener { action() }
+        text = title; contentDescription = description; minHeight = dp(48)
+        isAllCaps = false; cornerRadius = dp(16)
+        setOnClickListener { action() }
     }
     private fun dp(value: Int) = (resources.displayMetrics.density * value).toInt()
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
-    private class NotesAdapter(val click: (AnnotationEntity) -> Unit) : RecyclerView.Adapter<NotesAdapter.Holder>() {
+    private class NotesAdapter(val click: (AnnotationEntity) -> Unit) :
+        RecyclerView.Adapter<NotesAdapter.Holder>() {
+
         private var notes = emptyList<AnnotationEntity>()
-        fun submit(value: List<AnnotationEntity>) { notes = value; notifyDataSetChanged() }
-        class Holder(val view: TextView) : RecyclerView.ViewHolder(view)
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(TextView(parent.context).apply {
-            setPadding(24, 24, 24, 24); textSize = 17f; setTextColor(0xFFE8DFCE.toInt()); minHeight = 64
-            layoutParams = RecyclerView.LayoutParams(-1, -2)
-        })
-        override fun getItemCount() = notes.size
+        fun submit(value: List<AnnotationEntity>) {
+            notes = value
+            notifyDataSetChanged()
+        }
+
+        class Holder(
+            val card: MaterialCardView,
+            val title: TextView,
+            val quote: TextView,
+            val body: TextView,
+            val date: TextView,
+        ) : RecyclerView.ViewHolder(card)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val ctx = parent.context
+            val density = ctx.resources.displayMetrics.density
+            fun d(value: Int) = (value * density).toInt()
+            val card = MaterialCardView(ctx).apply {
+                radius = d(18).toFloat()
+                strokeColor = ctx.getColor(R.color.bia_accent_low)
+                strokeWidth = d(1)
+                setCardBackgroundColor(ctx.getColor(R.color.bia_surface))
+                cardElevation = 0f
+                isClickable = true
+                isFocusable = true
+                layoutParams = RecyclerView.LayoutParams(-1, -2).apply {
+                    setMargins(d(3), d(7), d(3), d(7))
+                }
+            }
+            val box = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(d(18), d(17), d(18), d(15))
+            }
+            val heading = TextView(ctx).apply {
+                textSize = 20f
+                typeface = Typeface.SERIF
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(ctx.getColor(R.color.bia_text))
+            }
+            val quote = TextView(ctx).apply {
+                textSize = 14f
+                maxLines = 3
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(ctx.getColor(R.color.bia_text))
+                setPadding(0, d(10), 0, 0)
+            }
+            val body = TextView(ctx).apply {
+                textSize = 13f
+                maxLines = 3
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(ctx.getColor(R.color.bia_text_secondary))
+                setPadding(0, d(8), 0, d(8))
+            }
+            val date = TextView(ctx).apply {
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.bia_accent))
+                setPadding(0, d(8), 0, 0)
+            }
+            box.addView(heading)
+            box.addView(quote)
+            box.addView(body)
+            val divider = View(ctx).apply {
+                setBackgroundColor(ctx.getColor(R.color.bia_outline))
+            }
+            box.addView(divider, LinearLayout.LayoutParams(-1, d(1)))
+            box.addView(date)
+            card.addView(box)
+            return Holder(card, heading, quote, body, date)
+        }
+
+        override fun getItemCount(): Int = notes.size
+
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val note = notes[position]
-            holder.view.text = buildString {
-                append(label(note.kind)); append("  ·  "); append(DateFormat.getDateInstance().format(Date(note.updatedAt)))
-                if (note.quote.isNotBlank()) append("\n“${note.quote.take(220)}”")
-                if (note.body.isNotBlank()) append("\n${note.body.take(300)}")
-                if (note.bookId == null) append("\nNota independiente")
-            }
-            holder.view.setOnClickListener { click(note) }
+            val firstLine = note.body.lineSequence().firstOrNull { it.isNotBlank() }
+                ?: note.quote.lineSequence().firstOrNull { it.isNotBlank() }
+                ?: label(note.kind)
+            holder.title.text = firstLine.take(80)
+            holder.quote.text = if (note.quote.isNotBlank()) "“${note.quote}”" else ""
+            holder.quote.visibility = if (note.quote.isNotBlank()) View.VISIBLE else View.GONE
+            holder.body.text = if (note.body.isNotBlank() && note.quote.isNotBlank())
+                note.body else if (note.body.isNotBlank() && firstLine != note.body.trim())
+                note.body else ""
+            holder.body.visibility = if (holder.body.text.isNotBlank()) View.VISIBLE else View.GONE
+            holder.date.text = "${label(note.kind)}  ·  ${DateFormat.getDateInstance().format(Date(note.updatedAt))}" +
+                if (note.deletedAt != null) "  ·  Papelera" else ""
+            holder.card.contentDescription = "${label(note.kind)}: ${firstLine.take(80)}"
+            holder.card.setOnClickListener { click(note) }
         }
     }
+
     companion object {
         fun start(context: Context) = context.startActivity(Intent(context, KnowledgeActivity::class.java))
         private fun label(kind: String) = when (kind) { "HIGHLIGHT" -> "Subrayado"; "BOOKMARK" -> "Marcador"; else -> "Nota" }
