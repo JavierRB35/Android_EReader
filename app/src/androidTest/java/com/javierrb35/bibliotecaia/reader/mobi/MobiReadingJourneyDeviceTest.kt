@@ -1,6 +1,10 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
 import android.content.Intent
+import android.os.SystemClock
+import android.view.MotionEvent
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
@@ -160,6 +164,30 @@ class MobiReadingJourneyDeviceTest {
                 annotationId = saved?.id
                 saved != null && exactMark((scroll.getChildAt(0) as TextView).text, quote)
             }
+
+            // Use an actual short tap on the highlighted TextView, not a
+            // direct dialog call. Scriptura opens the complete saved note.
+            val displayedText = scroll.getChildAt(0) as TextView
+            instrumentation.runOnMainSync {
+                val layout = requireNotNull(displayedText.layout)
+                val at = quoteOffset + 2
+                val line = layout.getLineForOffset(at)
+                val x = displayedText.totalPaddingLeft + layout.getPrimaryHorizontal(at)
+                val y = displayedText.totalPaddingTop +
+                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                val down = SystemClock.uptimeMillis()
+                val eventDown = MotionEvent.obtain(down, down,
+                    MotionEvent.ACTION_DOWN, x, y, 0)
+                val eventUp = MotionEvent.obtain(down, down + 70,
+                    MotionEvent.ACTION_UP, x, y, 0)
+                displayedText.dispatchTouchEvent(eventDown)
+                displayedText.dispatchTouchEvent(eventUp)
+                eventDown.recycle()
+                eventUp.recycle()
+            }
+            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Primera reflexión")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
 
             instrumentation.runOnMainSync { scroll.scrollTo(0, 610) }
             waitUntil("MOBI scrolling did not move the reading viewport") { scroll.scrollY > 0 }
