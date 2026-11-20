@@ -12,6 +12,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import kotlinx.coroutines.flow.collect
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.CancellationException
@@ -78,8 +79,9 @@ class PdfReaderActivity : AppCompatActivity() {
         }
         root.addView(status)
         image = PdfPageView(this)
-        image.onMarkedTap { annotationId ->
-            marks.firstOrNull { it.id == annotationId }?.let(::showSavedMark)
+        image.onMarkedTap { ids ->
+            val selected = ids.mapNotNull { id -> marks.firstOrNull { it.id == id } }
+            SavedAnnotationSheet.show(this, repository, selected)
         }
         root.addView(image, LinearLayout.LayoutParams(-1, 0, 1f))
         val nav = LinearLayout(this)
@@ -218,35 +220,6 @@ class PdfReaderActivity : AppCompatActivity() {
         image.showMarks(PdfOcrAnnotationMarks.forPage(
             marks, renderedPage, contentHash, ocrSnapshot
         ))
-    }
-
-    private fun showSavedMark(mark: AnnotationEntity) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (mark.kind == "HIGHLIGHT") "Subrayado PDF" else "Anotación")
-            .setMessage(buildString {
-                append(mark.quote.take(900))
-                if (mark.body.isNotBlank()) append("\n\nNota: ").append(mark.body.take(900))
-            })
-            .setNegativeButton("Cerrar", null)
-            .setNeutralButton("Editar nota") { _, _ ->
-                AnnotationEditor.edit(this, mark)
-            }
-            .setPositiveButton(if (mark.kind == "NOTE") "Eliminar anotación"
-                else "Quitar subrayado") { _, _ ->
-                MaterialAlertDialogBuilder(this)
-                    .setTitle(if (mark.kind == "NOTE") "Eliminar anotación" else "Eliminar subrayado")
-                    .setMessage("¿Quitar esta marca sin modificar el PDF original?")
-                    .setNegativeButton("Cancelar", null)
-                    .setPositiveButton("Eliminar") { _, _ ->
-                        lifecycleScope.launch {
-                            try { repository.setDeleted(mark.id, true) }
-                            catch (_: Exception) {
-                                Toast.makeText(this@PdfReaderActivity,
-                                    "No se pudo quitar el subrayado.", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }.show()
-            }.show()
     }
 
     private fun controls(ready: Boolean) {
