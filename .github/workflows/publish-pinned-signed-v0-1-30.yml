@@ -1,0 +1,66 @@
+name: Publish already verified signed BibliotecaAI v0.1.30
+
+on:
+  push:
+    branches:
+      - release/pinned-v0-1-30-signed-20261120
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: bibliotecaai-pinned-v0-1-30
+  cancel-in-progress: false
+
+jobs:
+  publish-existing-signed-artifact:
+    if: github.repository == 'JavierRB35/Android_EReader'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: 3b320cf67081bcaee8f584f3e131f0e36c37ea73
+      VERIFIED_RUN_ID: '44821661607'
+      RELEASE_TAG: v0.1.30
+    steps:
+      - name: Verify provenance of previously signed main build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN_ID"
+          test "$(gh api "$api" --jq '.head_sha')" = "$SOURCE_SHA"
+          test "$(gh api "$api" --jq '.run_number')" = 30
+          test "$(gh api "$api" --jq '.conclusion')" = success
+          built="$(gh api -X GET "$api/jobs?per_page=100" --jq '[.jobs[] | select(.name == "Build signed update with the pinned owner certificate" and .conclusion == "success")] | length')"
+          test "$built" = 1
+          echo "Verified original CI signing run $VERIFIED_RUN_ID for $SOURCE_SHA"
+
+      - name: Download exact verified signed APK and SHA-256 from original run
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-auto-release
+          run-id: 44821661607
+          github-token: ${{ github.token }}
+          path: dist
+
+      - name: Validate checksum and publish without changing APK bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="dist/BibliotecaIA-$RELEASE_TAG.apk"
+          test -s "$apk"
+          test -s "$apk.sha256"
+          (cd dist && sha256sum -c "BibliotecaIA-$RELEASE_TAG.apk.sha256")
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG exists; will not overwrite it"
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" "$apk" "$apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "Biblioteca IA 0.1.30" --latest \
+            --notes "APK de desarrollo firmada y verificada (SHA-256 y certificado) del commit $SOURCE_SHA, ya fusionado en main. Incluye corrección de búsquedas Wikipedia de varias palabras y menú Android Copiar/Compartir/Seleccionar todo. Publicación desde el artefacto original del workflow $VERIFIED_RUN_ID porque el auto-release descartó la publicación al avanzar main. No implica aceptación física en Samsung."
+          echo "Published exact signed artifact $RELEASE_TAG from $SOURCE_SHA"
