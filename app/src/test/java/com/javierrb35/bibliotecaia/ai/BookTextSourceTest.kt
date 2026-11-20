@@ -97,4 +97,14 @@ class BookTextSourceTest {
         assertEquals("Quijote Sancho acompaña.", fragments.single().text)
     }
 
+    @Test fun pdfOcrPagesUseNumericOrderAndIgnoreUnexpectedFiles() {
+        val directory = temporary.newFolder("ocr")
+        File(directory, "page-10.txt").writeText("Más adelante")
+        File(directory, "page-2.txt").writeText("Al principio")
+        File(directory, "page-1-copy.txt").writeText("No debe entrar")
+        val fragments = BookTextSource.chapters(temporary.newFile("sample.pdf"), "PDF", directory)
+        assertEquals(listOf(2, 10), fragments.map { it.index })
+        assertEquals(listOf("Al principio", "Más adelante"), fragments.map { it.text })
+    }
+
 }
