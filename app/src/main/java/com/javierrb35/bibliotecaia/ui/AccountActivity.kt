@@ -3,6 +3,8 @@ package com.javierrb35.bibliotecaia.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
+import android.widget.EditText
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -30,6 +32,10 @@ class AccountActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var signIn: MaterialButton
     private lateinit var signOut: MaterialButton
+    private lateinit var email: EditText
+    private lateinit var password: EditText
+    private lateinit var registerEmail: MaterialButton
+    private lateinit var loginEmail: MaterialButton
     private lateinit var forget: MaterialButton
     private lateinit var progress: ProgressBar
     private var session: AccountSession? = null
@@ -53,6 +59,29 @@ class AccountActivity : AppCompatActivity() {
         signOut = button(R.string.account_sign_out) { logout() }
         forget = button(R.string.account_forget) { confirmForget() }
         column.addView(signIn)
+        column.addView(text(R.string.account_email_detail, 15f))
+        email = EditText(this).apply {
+            setHint(R.string.account_email_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine(true)
+            setTextColor(0xFFE8DFCE.toInt())
+            setHintTextColor(0xFFA9A49C.toInt())
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        }
+        password = EditText(this).apply {
+            setHint(R.string.account_password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            setTextColor(0xFFE8DFCE.toInt())
+            setHintTextColor(0xFFA9A49C.toInt())
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        }
+        column.addView(email)
+        column.addView(password)
+        registerEmail = button(R.string.account_register_email) { registerWithEmail() }
+        loginEmail = button(R.string.account_login_email) { loginWithEmail() }
+        column.addView(registerEmail)
+        column.addView(loginEmail)
         column.addView(signOut)
         column.addView(forget)
         column.addView(button(R.string.account_back) { finish() })
@@ -69,6 +98,10 @@ class AccountActivity : AppCompatActivity() {
 
     private fun authenticate() {
         if (busy) return
+        if (!repository.configuration.googleConfigured) {
+            status.setText(R.string.account_google_setup_needed)
+            return
+        }
         busy = true; render()
         lifecycleScope.launch {
             try {
@@ -82,6 +115,38 @@ class AccountActivity : AppCompatActivity() {
                 if (e.reason == AccountFailure.Reason.REJECTED || e.reason == AccountFailure.Reason.NO_SESSION) session = null
                 if (e.reason == AccountFailure.Reason.SECURE_STORAGE) forget.visibility = View.VISIBLE
             } catch (_: Exception) { status.setText(R.string.account_provider_error) }
+            finally { busy = false; renderControls() }
+        }
+    }
+
+    private fun registerWithEmail() {
+        if (busy) return
+        busy = true; renderControls()
+        lifecycleScope.launch {
+            try {
+                repository.registerWithEmail(email.text?.toString().orEmpty(),
+                    password.text?.toString().orEmpty())
+                password.text?.clear()
+                status.setText(R.string.account_registration_pending)
+            } catch (e: CancellationException) { throw e }
+            catch (e: AccountFailure) { status.setText(message(e)) }
+            catch (_: Exception) { status.setText(R.string.account_service_error) }
+            finally { busy = false; renderControls() }
+        }
+    }
+
+    private fun loginWithEmail() {
+        if (busy) return
+        busy = true; renderControls()
+        lifecycleScope.launch {
+            try {
+                session = repository.signInWithEmail(email.text?.toString().orEmpty(),
+                    password.text?.toString().orEmpty())
+                password.text?.clear()
+                status.text = getString(R.string.account_verified, session?.email.orEmpty())
+            } catch (e: CancellationException) { throw e }
+            catch (e: AccountFailure) { status.setText(message(e)) }
+            catch (_: Exception) { status.setText(R.string.account_service_error) }
             finally { busy = false; renderControls() }
         }
     }
@@ -122,8 +187,9 @@ class AccountActivity : AppCompatActivity() {
 
     private fun render() {
         status.text = when {
-            !repository.configuration.configured -> getString(R.string.account_config_missing)
+            !repository.configuration.backendConfigured -> getString(R.string.account_config_missing)
             session != null -> getString(R.string.account_saved, session?.email.orEmpty())
+            !repository.configuration.googleConfigured -> getString(R.string.account_email_ready)
             else -> getString(R.string.account_ready)
         }
         renderControls()
@@ -131,8 +197,12 @@ class AccountActivity : AppCompatActivity() {
 
     private fun renderControls() {
         progress.visibility = if (busy) View.VISIBLE else View.GONE
-        signIn.isEnabled = !busy && repository.configuration.configured
+        signIn.isEnabled = !busy
         signIn.setText(if (session == null) R.string.account_sign_in else R.string.account_verify)
+        registerEmail.isEnabled = !busy && repository.configuration.backendConfigured
+        loginEmail.isEnabled = !busy && repository.configuration.backendConfigured
+        email.isEnabled = !busy
+        password.isEnabled = !busy
         signOut.visibility = if (session != null) View.VISIBLE else View.GONE
         signOut.isEnabled = !busy
         forget.isEnabled = !busy
@@ -146,6 +216,7 @@ class AccountActivity : AppCompatActivity() {
         AccountFailure.Reason.NETWORK -> R.string.account_network_error
         AccountFailure.Reason.RATE_LIMIT -> R.string.account_rate_limit
         AccountFailure.Reason.SECURE_STORAGE -> R.string.account_storage_error
+        AccountFailure.Reason.INVALID_INPUT -> R.string.account_invalid_email_password
         else -> R.string.account_service_error
     }
 
