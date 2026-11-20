@@ -2,81 +2,61 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (coordinación multiagente)
-**Fase actual:** Incremento 1 — Biblioteca local: **COMPLETADO y fusionado a `main`** · Incremento 2 en curso por agentes paralelos
-**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; usar la URL canónica)
+**Última actualización:** 2026-11-20 (integración del diseño + locators/anotaciones)
+**Fase actual:** Incremento 1 COMPLETO · Incremento 2 en curso (lectores por agentes paralelos; diseño integrado y verificado)
+**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
 
 ## ⚠️ Coordinación multiagente activa (leer antes de tocar nada)
 
-El proyecto está organizado en **worktrees paralelos** (uno = un agente = una rama), todos creados desde `main` @ `b2e95df`:
+Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
 
-| Worktree (raíz compartida del proyecto) | Rama | Área asignada | Estado observado 2026-11-20 |
+| Worktree | Rama | Área | Estado 2026-11-20 |
 |---|---|---|---|
-| `Androdi_EReader/` | `main` (el agente coordinador/bootstrap trabajó aquí) | Integración y coordinación; trabajos terminados se fusionan aquí | Libre; **contiene ficheros sin commit ajenos** (ver nota) |
-| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB (Readium; verificar compatibilidad AGP 8.7.3/Gradle 8.9/SDK 34/Kotlin 2.0.21 antes de fijar versión) | `app/build.gradle` modificado (en curso) |
-| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI + OCR | paquete `reader/` nuevo (en curso) |
-| `biblioteca-ux/` | `feature/design-system` | Sistema de diseño/portadas | layouts + `BookCoverLoader.kt`, `EpubCoverSource.kt` (en curso) |
-| `biblioteca-integration/` | `feature/reader-integration` | Integración entre áreas | Creado recién; limpio |
+| `biblioteca-ux/` | `feature/design-system` | **Diseño — AGENTE ABANDONÓ el proyecto** | Terminó y publicó `cd19d25`. **INTEGRADO en `main` y verificado visualmente por el coordinador.** Sus tareas pendientes las retoma el coordinador (ver «Plan de diseño») |
+| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB (Readium) | Activo; a punto de commitear (`EpubOpeningTest`, EPUB de prueba en `androidTest/assets`). Sin push aún |
+| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | Activo; commit local `c1b3b29` «isolated PDF viewer and bounded MOBI text reader» + ajustes en curso. Sin push aún |
+| `biblioteca-integration/` | `feature/reader-integration` | Integración entre áreas | Activo; commit local `655dbda` (absorbe el trabajo de formats) + cableado de lectura (Manifest, Daos, ReadingRepository, BookDetailActivity) en curso. Sin push aún |
+| `biblioteca-auth/` | `feature/google-auth` | Google Auth + Drive | Activo (dependencias y schema v3 en curso). Sin push aún |
+| `Androdi_EReader/` | `main` | Coordinador: integra ramas verificadas y fusiona | El commit directo `ce402d8` (locators + anotaciones versionadas) se integró aquí |
 
-**Reglas de coordinación:**
-1. Cada agente trabaja SOLO en su worktree/rama. Nunca cambiar de rama ni ejecutar operaciones git en el worktree de otro.
-2. No duplicar investigaciones (p. ej. la compatibilidad de Readium es del agente EPUB).
-3. **Nota crítica:** en el worktree `Androdi_EReader/` hay cambios SIN COMMIT que no son del coordinador (`data/ReadingDao.kt`, `data/ReadingModels.kt`, `AppDatabase.kt` modificado): pertenecen presumiblemente al agente de integración. **No borrar ni commitear**: si el agente los reclama, migrarlos; si el propietario confirma que son huérfanos, eliminar con autorización.
-4. Al terminar cada unidad funcional: push en la rama propia + actualizar este documento (desde el propio worktree, no desde el de otro).
-5. Fusión a `main`: solo incrementos verificados y sin conflictos con otras ramas; coordinar antes de fusionar si varias ramas tocan los mismos ficheros.
+**Reglas:** 1 worktree = 1 agente = 1 rama; no tocar el worktree ajeno ni cambiar su rama; no duplicar investigaciones; push frecuentes en la propia rama; fusiones a `main` solo de trabajos verificados y coordinados. El push a `main` puede chocar con otros coordinadores: `git fetch` + merge antes de push.
 
 ---
 
 ## Estado del proyecto
 
 - **Incremento 0 — Auditoría y base: COMPLETADO** (en `main`).
-- **Incremento 1 — Biblioteca local: COMPLETADO** (rebanadas 1 y 2; `feature/library` fusionada a `main` tras verificación).
-- Biblioteca utilizable offline: importación real (EPUB/PDF/MOBI), catálogo con búsqueda y estantes, categorías/etiquetas/colecciones, ficha editable básica, favoritos, esquema Room v2 con migración explícita.
+- **Incremento 1 — Biblioteca local: COMPLETADO** (importación real EPUB/PDF/MOBI, catálogo con búsqueda/estantes/cuadrícula, organizador, ficha, favoritos, Room con migraciones explícitas 1→2).
+- **Incremento 2 (lectura) en curso:**
+  - ✅ **Sistema de diseño Material 3 INTEGRADO en `main`** (`cd19d25`): tema oscuro con tokens en `res/values/design.xml`, biblioteca editorial con portadas EPUB reales (EPUB2 `meta name=cover` / EPUB3 `cover-image`) con extracción acotada y segura (anti-traversal, límites de tamaño, sin red), cuadrícula adaptativa 2–6 columnas, estados vacíos diferenciados, importación anti doble-toque. 8 tests focalizados de portadas.
+  - ✅ **Locators de lectura y anotaciones versionadas INTEGRADOS en `main`** (`ce402d8`): tablas `reading_positions`, `annotations`, `annotation_versions` con **migración 2→3 no destructiva verificada sobre datos reales** en emulador (solo `CREATE TABLE IF NOT EXISTS`; el libro y sus datos sobrevivieron). El esquema v3 (`app/schemas/.../3.json`) queda ahora commiteado por el coordinador (omisión del autor original).
+  - ⏳ Motores de lectura EPUB/PDF/MOBI: en desarrollo por los agentes de sus ramas (ver tabla).
+  - ⏳ Google Auth + Drive: en desarrollo (rama `feature/google-auth`).
+- **Verificación integrada de `main` (dbc7b19 + merge de `1ee628e`):** BUILD SUCCESSFUL; **23/23 tests JVM** (9 formatos + 6 metadatos + 8 portadas); revisión visual en emulador correcta (biblioteca Material 3: encabezado editorial, chips con acento cálido, ficha tipográfica «SIN PORTADA», contador «1 libros», ★ favorito), datos preservados tras la migración.
+- Etiqueta honesta: todo lo anterior es **Verificado localmente (escritorio + emulador x86_64)**. AndroidIDE ARM64 en teléfono sigue **Pendiente**.
 
-## Funcionalidades implementadas (Incremento 1)
+## Revisión visual del diseño (tarea del agente de diseño, completada por el coordinador)
 
-| Elemento | Estado |
-|---|---|
-| Room v2 con migración explícita 1→2 (`favorite INTEGER NOT NULL DEFAULT 0`); esquemas versionados en `app/schemas/` | **Implementado** |
-| Importación real vía SAF: hash SHA-256 en streaming, detección por contenido (mimetype EPUB / `%PDF-` / `BOOKMOBI`), duplicados por hash, metadatos OPF/PDB | **Implementado** |
-| Catálogo: búsqueda (título/autor/categoría/etiqueta/colección con JOINs), estantes (Todos/Favoritos/Pendientes/En lectura/Terminados/Abandonados), cuadrícula/lista persistente | **Implementado** |
-| Organizador: categorías con subcategorías (crear/renombrar/mover/eliminar sin borrar libros), etiquetas, colecciones (crear/renombrar/eliminar/abrir) | **Implementado** |
-| Ficha: favorito ortogonal, edición manual título/autor, asignaciones N:M (categorías/etiquetas/colecciones), ciclo de estado | **Implementado** |
-| Semilla de 17 categorías iniciales (§7.3) | **Implementado** |
+El agente de diseño dejó pendiente la «revisión visual real… hasta disponer de dispositivo/emulador». El coordinador la ejecutó en emulador: biblioteca Material 3 verificada conforme a `docs/design-system.md` (fondo OLED, superficies grafito, acento cálido, ficha tipográfica sin imágenes ficticias, jerarquía limpia). Pendiente de esa lista: TalkBack, fuente ampliada, tablet y compilación AndroidIDE.
 
-## Evidencias de verificación
+## Plan de diseño asumido por el coordinador (el agente de diseño abandonó)
 
-| Verificación | Resultado | Etiqueta honesta |
-|---|---|---|
-| `gradlew :app:assembleDebug :app:testDebugUnitTest` (JDK 17) | **BUILD SUCCESSFUL**, 15/15 tests JVM | **Verificado localmente** |
-| **Migración v1→v2 en real**: `install -r` sobre instalación con datos; app abre sin crash y el libro/estado sobreviven | Correcto | **Verificado localmente (emulador)** |
-| Estante «En lectura» filtra; estante «Favoritos» muestra el libro con ★ en catálogo | Correcto | **Verificado localmente (emulador)** |
-| Organizador: 17 categorías visibles; creación de etiqueta «Clasicos» y colección «Verano 2026» | Correcto | **Verificado localmente (emulador)** |
-| Ficha: Categorías=Novela, Etiquetas=Clasicos, Colecciones=Verano 2026, favorito ortogonal (botón «Quitar de favoritos») | Correcto | **Verificado localmente (emulador)** |
-| Búsqueda «Clasicos» localiza por **etiqueta** (JOIN) y combina con estante Favoritos; cuadrícula 2 columnas | Correcto | **Verificado localmente (emulador)** |
-| Importación/duplicados (rebanada 1): evidencias anteriores siguen vigentes | Correcto | **Verificado localmente (emulador)** |
-| Compilación en AndroidIDE-Rv2 (teléfono ARM64) | — | **Pendiente** (`sh ./build-on-phone.sh`) |
+1. **Extractor de portada PDF** (`PdfCoverSource`, primera página vía `android.graphics.pdf.PdfRenderer`, sin dependencias nuevas, límites análogos a `EpubCoverSource` + test) — en curso por el coordinador.
+2. Portada MOBI: bloqueada hasta que el agente de formats defina el extractor de texto («SIN PORTADA» aceptable de momento).
+3. Restyle de `BookDetailActivity`/`OrganizeActivity` a los tokens de `design.xml` — **BLOQUEADO temporalmente**: el agente de integración está modificando `BookDetailActivity.kt` en su worktree; evitar conflictos evitables. Retomar tras su push.
+4. Accesibilidad (TalkBack, fuente ampliada) y tablet: tras integrar los lectores.
+5. El «leer» del catálogo apuntará al motor cuando `feature/reader-epub`/`feature/reader-pdf-mobi` se integren (el diseño ya lo anticipó: «el coordinador integra el acceso a motores de lectura»).
 
-**Bugs capturados y corregidos durante el incremento:**
-1. Xerces cierra el stream recibido en `DocumentBuilder.parse` → al parsear desde un `ZipInputStream` compartido, el recorrido ZIP moría («Stream closed»). Fix + test de regresión (rebanada 1).
-2. TextViews creados por código heredaban `textColorPrimary` del modo día (negro) → invisibles sobre fondo OLED. Fix: colores explícitos en `OrganizeActivity` (rebanada 2).
+## Problemas abiertos / bloqueos
 
-## Limitaciones conocidas (declaradas)
+- Ninguno bloqueante para `main`.
+- Los commits `c1b3b29` (formats) y `655dbda` (integration) comparten mensaje pero distinto SHA: el agente de integración ya está absorbiendo el trabajo de formats; al fusionar, revisar duplicación.
+- Los agentes activos aún no han hecho push de sus ramas: la integración de los lectores espera a sus commits públicos.
 
-- No hay lectura de contenido aún (EPUB/PDF/MOBI abren solo en ficha): Incremento 2.
-- MOBI soporta importación/validación/metadatos mínimos (nombre PDB); la conversión/lectura completa es del Incremento 3. No se ha probado con un MOBI real todavía.
-- Búsqueda de texto completo dentro del libro: llega con los motores (§7.5).
-- Papelera/backup: Incremento 9 (por eso no hay borrado de libros aún).
-- Sin prueba con MOBI/EPUB reales de gran tamaño ni PDF escaneado (OCR: Incremento 3).
+## Siguiente acción concreta
 
-## Siguiente acción concreta (Incremento 2 — Motor EPUB)
-
-1. **Verificación técnica temprana** de Readium Kotlin Toolkit (ADR-005): versiones compatibles con AGP 8.7.3/Gradle 8.9/SDK 34/minSdk 26/teléfono; evaluar tamaño y memoria con `-Xmx768m`.
-2. Si es compatible: abrir EPUB, navegar capítulos, guardar posición; si no, documentar alternativas antes de decidir.
-3. Compilar en teléfono (AndroidIDE) para validar el entorno completo y registrar resultado aquí.
-
-## Roadmap restante
-
-Ver `docs/architecture/overview.md` (incrementos 2–10) y `docs/product/master-prompt.md` §22.
+1. Coordinador: implementar `PdfCoverSource` + test y publicar.
+2. Vigilar pushes de `feature/reader-epub`, `feature/reader-pdf-mobi`, `feature/google-auth`, `feature/reader-integration`; integrar en orden: lectores → integración → auth; puntos calientes compartidos: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`.
+3. Actualizar este documento en cada integración. AndroidIDE-Rv2 en teléfono sigue pendiente de disponibilidad.
