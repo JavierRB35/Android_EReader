@@ -25,6 +25,7 @@ android {
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -39,6 +40,12 @@ ksp {
 }
 
 dependencies {
+    // Readium 3.0.x is the last release line targeting SDK 34.
+    implementation 'org.readium.kotlin-toolkit:readium-shared:3.0.3'
+    implementation 'org.readium.kotlin-toolkit:readium-streamer:3.0.3'
+    implementation 'org.readium.kotlin-toolkit:readium-navigator:3.0.3'
+    implementation 'org.jsoup:jsoup:1.17.2'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
