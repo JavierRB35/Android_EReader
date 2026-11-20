@@ -1,5 +1,7 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
+import com.javierrb35.bibliotecaia.R
+
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -333,8 +335,17 @@ class MobiReaderActivity : AppCompatActivity() {
         window.statusBarColor = backgrounds[theme]; window.navigationBarColor = backgrounds[theme]
         window.decorView.systemUiVisibility = if (theme >= 2) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
     }
-    private fun button(label: String, action: () -> Unit) = Button(this).apply {
-        text = label; minHeight = dp(48); setOnClickListener { action() }
-    }
+    private fun button(label: String, action: () -> Unit) =
+        com.google.android.material.button.MaterialButton(this).apply {
+            text = label
+            isAllCaps = false
+            minHeight = dp(48)
+            cornerRadius = dp(14)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_surface_high))
+            setTextColor(getColor(R.color.bia_text))
+            strokeWidth = dp(1)
+            strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_accent_low))
+            setOnClickListener { action() }
+        }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }

@@ -206,7 +206,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun createLayout() {
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        controls = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.bia_background))
+        }
         val heading = LinearLayout(this)
         heading.addView(button("Volver") { finish() })
         heading.addView(TextView(this).apply {
@@ -509,8 +512,17 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun button(label: String, action: () -> Unit) = MaterialButton(this, null,
         com.google.android.material.R.attr.borderlessButtonStyle).apply {
-        text = label; isAllCaps = false; minWidth = 48.dp; minimumWidth = 48.dp; minHeight = 48.dp
-        setTextColor(Color.parseColor("#D4B483")); setOnClickListener { action() }
+        text = label
+        isAllCaps = false
+        minWidth = 48.dp
+        minimumWidth = 48.dp
+        minHeight = 48.dp
+        cornerRadius = 14.dp
+        backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_surface_high))
+        setTextColor(getColor(R.color.bia_accent))
+        strokeWidth = 1.dp
+        strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_accent_low))
+        setOnClickListener { action() }
     }
 
     private fun palette(): Pair<Int, Int> = when (themeIndex) {
