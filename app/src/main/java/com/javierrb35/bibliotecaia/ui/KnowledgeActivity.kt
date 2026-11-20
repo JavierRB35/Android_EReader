@@ -163,13 +163,13 @@ class KnowledgeActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(9), 0, dp(2))
         }
-        actionsRow.addView(button("✎  Nueva nota") {
+        actionsRow.addView(button("Nueva nota") {
             AnnotationEditor.show(this, null, null, "", "NOTE")
         }.apply {
             backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_accent))
             setTextColor(getColor(R.color.bia_background))
         }, LinearLayout.LayoutParams(0, dp(52), 1.25f).apply { marginEnd = dp(6) })
-        actionsRow.addView(button("⇧  Exportar") {
+        actionsRow.addView(button("Exportar") {
             export.launch("BibliotecaIA-cuaderno.md")
         }.apply {
             backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_surface_high))
