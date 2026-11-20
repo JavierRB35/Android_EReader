@@ -66,6 +66,8 @@ dependencies {
     implementation 'org.readium.kotlin-toolkit:readium-streamer:3.0.3'
     implementation 'org.readium.kotlin-toolkit:readium-navigator:3.0.3'
     implementation 'org.jsoup:jsoup:1.17.2'
+    // Bundled on-device Latin-script OCR: no network or Google account required.
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 
     // Native Google identity; pinned to retain the SDK34 baseline.
