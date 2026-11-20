@@ -38,6 +38,9 @@ interface BackupDao {
     @Query("SELECT * FROM reading_positions")
     suspend fun positionsAll(): List<ReadingPositionEntity>
 
+    @Query("SELECT * FROM annotation_versions")
+    suspend fun versionsAll(): List<AnnotationVersionEntity>
+
     // ---------- Restauración (aditiva; jamás borra ni sobrescribe libros existentes) ----------
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -63,6 +66,9 @@ interface BackupDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAnnotationsIgnore(annotations: List<AnnotationEntity>): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertVersionsIgnore(versions: List<AnnotationVersionEntity>): List<Long>
 
     /** Posiciones: la más reciente de la copia gana solo si es más nueva que la local. */
     @Query(

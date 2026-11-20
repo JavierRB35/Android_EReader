@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.backup
 
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookTagCrossRef
@@ -22,6 +23,7 @@ data class LibrarySnapshot(
     val bookTags: List<BookTagCrossRef>,
     val collectionBooks: List<CollectionBookCrossRef>,
     val annotations: List<AnnotationEntity>,
+    val versions: List<AnnotationVersionEntity>,
     val positions: List<ReadingPositionEntity>,
 )
 
@@ -62,6 +64,7 @@ object BackupCodec {
         root.put("bookTags", JSONArray().apply { snapshot.bookTags.forEach { put(refJson(it.bookId, it.tagId)) } })
         root.put("collectionBooks", JSONArray().apply { snapshot.collectionBooks.forEach { put(refJson(it.collectionId, it.bookId)) } })
         root.put("annotations", JSONArray().apply { snapshot.annotations.forEach { put(annotationJson(it)) } })
+        root.put("annotationVersions", JSONArray().apply { snapshot.versions.forEach { put(versionJson(it)) } })
         root.put("readingPositions", JSONArray().apply { snapshot.positions.forEach { put(positionJson(it)) } })
         return root.toString(2)
     }
@@ -105,6 +108,10 @@ object BackupCodec {
         .put("updatedAt", a.updatedAt)
         .put("deletedAt", a.deletedAt ?: JSONObject.NULL)
 
+    private fun versionJson(v: AnnotationVersionEntity): JSONObject = JSONObject()
+        .put("id", v.id).put("annotationId", v.annotationId)
+        .put("body", v.body).put("color", v.color).put("savedAt", v.savedAt)
+
     private fun positionJson(p: ReadingPositionEntity): JSONObject = JSONObject()
         .put("bookId", p.bookId).put("locator", p.locator)
         .put("progress", p.progress).put("updatedAt", p.updatedAt)
@@ -137,6 +144,7 @@ object BackupCodec {
             collectionBooks = root.optJSONArray("collectionBooks").mapList { refPair(it) }
                 .map { CollectionBookCrossRef(it.first, it.second) },
             annotations = root.optJSONArray("annotations").mapList { annotationFrom(it) },
+            versions = root.optJSONArray("annotationVersions").mapList { versionFrom(it) },
             positions = root.optJSONArray("readingPositions").mapList { positionFrom(it) },
         )
     }
@@ -190,6 +198,14 @@ object BackupCodec {
         createdAt = o.optLong("createdAt", System.currentTimeMillis()),
         updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
         deletedAt = if (o.isNull("deletedAt")) null else o.optLong("deletedAt"),
+    )
+
+    private fun versionFrom(o: JSONObject): AnnotationVersionEntity = AnnotationVersionEntity(
+        id = o.getString("id"),
+        annotationId = o.getString("annotationId"),
+        body = o.optString("body"),
+        color = o.optInt("color", 0),
+        savedAt = o.optLong("savedAt", 0),
     )
 
     private fun positionFrom(o: JSONObject): ReadingPositionEntity = ReadingPositionEntity(

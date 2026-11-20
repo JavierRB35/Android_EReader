@@ -11,6 +11,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.R
@@ -20,7 +21,9 @@ import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
 import com.javierrb35.bibliotecaia.data.BookTagCrossRef
 import com.javierrb35.bibliotecaia.data.CollectionBookCrossRef
 import com.javierrb35.bibliotecaia.data.ReadingStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Date
 
 /**
@@ -40,6 +43,12 @@ class BookDetailActivity : AppCompatActivity() {
     }
 
     private val db by lazy { AppDatabase.get(this) }
+    private val linker = com.javierrb35.bibliotecaia.backup.OriginalLinker(java.io.File(filesDir, "books"))
+    private val linkLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) linkOriginal(uri)
+    }
     private var book: BookEntity? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +67,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { cycleStatus() }
         findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
+        findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener { promptAssignCategories() }
         findViewById<View>(R.id.btnEditTags).setOnClickListener { promptAssignTags() }
@@ -70,6 +80,34 @@ class BookDetailActivity : AppCompatActivity() {
             .any { com.javierrb35.bibliotecaia.ai.AiKeyStore.getKey(this, it) != null }
         if (keyStored) com.javierrb35.bibliotecaia.ai.AiChatActivity.start(this, current.id)
         else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
+    }
+
+    /** Revinculación por hash (ADR-008): nunca por nombre; sin duplicar fichas. */
+    private fun linkOriginal(uri: android.net.Uri) {
+        val current = book ?: return
+        lifecycleScope.launch {
+            try {
+                val temp = java.io.File(cacheDir, "link_${'$'}{System.currentTimeMillis()}.tmp")
+                contentResolver.openInputStream(uri)?.use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw IllegalStateException("Sin lectura")
+                val linked: com.javierrb35.bibliotecaia.data.BookEntity? =
+                    withContext(Dispatchers.IO) { linker.link(temp, listOf(current)) }
+                temp.delete()
+                if (linked == null) {
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.detail_link_nomatch, Toast.LENGTH_LONG).show()
+                } else {
+                    db.bookDao().update(linked)
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.detail_link_ok, Toast.LENGTH_SHORT).show()
+                    load(current.id)
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this@BookDetailActivity,
+                    getString(R.string.detail_link_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun load(bookId: String) {
@@ -101,7 +139,11 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.txtDetailAdded).text =
             DateFormat.getDateFormat(this).format(Date(b.addedAt))
         findViewById<TextView>(R.id.txtDetailStatus).text = statusLabel(b.readingStatus)
-        findViewById<TextView>(R.id.txtDetailFile).text = b.fileName
+        val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).exists()
+        findViewById<TextView>(R.id.txtDetailFile).text =
+            if (fileAvailable) b.fileName else getString(R.string.detail_file_missing)
+        findViewById<View>(R.id.btnLink).visibility =
+            if (fileAvailable) View.GONE else View.VISIBLE
         findViewById<TextView>(R.id.btnFavorite).setText(
             if (b.favorite) R.string.btn_unfavorite else R.string.btn_favorite
         )

@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia.backup
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import java.io.File
 
+
 /**
  * Copia de seguridad local (Prompt Maestro §16): exportación completa de metadatos y
  * restauración **aditiva** — jamás borra ni sobrescribe libros existentes; las posiciones
@@ -12,7 +13,8 @@ import java.io.File
  * originales NO se incluyen (exportación completa con archivos: mejora futura). Un libro
  * restaurado conserva su fila pero debe reimportarse si falta su archivo.
  */
-class BackupManager(private val db: AppDatabase, private val appVersion: String) {
+class BackupManager(private val db: AppDatabase, private val appVersion: String,
+                    private val filesDir: File? = null) {
 
     suspend fun exportJson(exportedAt: Long = System.currentTimeMillis()): String {
         val dao = db.backupDao()
@@ -26,6 +28,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 bookTags = dao.bookTagPairs(),
                 collectionBooks = dao.collectionBookPairs(),
                 annotations = dao.annotationsAll(),
+                versions = dao.versionsAll(),
                 positions = dao.positionsAll(),
             ),
             appVersion,
@@ -48,6 +51,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
         dao.insertBookTagsIgnore(snapshot.bookTags)
         dao.insertCollectionBooksIgnore(snapshot.collectionBooks)
         dao.insertAnnotationsIgnore(snapshot.annotations)
+        dao.insertVersionsIgnore(snapshot.versions)
 
         var positionsUpdated = 0
         snapshot.positions.forEach {
