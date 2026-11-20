@@ -21,11 +21,16 @@ import java.util.UUID
         BookCategoryCrossRef::class,
         BookTagCrossRef::class,
         CollectionBookCrossRef::class,
+        ReadingPositionEntity::class,
+        AnnotationEntity::class,
+        AnnotationVersionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
+
+    abstract fun readingDao(): ReadingDao
 
     abstract fun bookDao(): BookDao
     abstract fun categoryDao(): CategoryDao
@@ -55,6 +60,16 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS reading_positions (bookId TEXT NOT NULL PRIMARY KEY, locator TEXT NOT NULL, progress REAL NOT NULL, updatedAt INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS annotations (id TEXT NOT NULL PRIMARY KEY, bookId TEXT, locator TEXT, quote TEXT NOT NULL, body TEXT NOT NULL, kind TEXT NOT NULL, color INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, deletedAt INTEGER)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_annotations_bookId ON annotations (bookId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS annotation_versions (id TEXT NOT NULL PRIMARY KEY, annotationId TEXT NOT NULL, body TEXT NOT NULL, color INTEGER NOT NULL, savedAt INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_annotation_versions_annotationId ON annotation_versions (annotationId)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: build(context.applicationContext).also { instance = it }
@@ -62,7 +77,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
