@@ -40,20 +40,22 @@ internal object NativeEpubAnchors {
         return root.toString()
     }
 
-    fun point(json: String?): Point? = try {
+    fun point(json: String?): Point? {
         if (json == null) return null
-        val obj = JSONObject(json)
-        val native = obj.optJSONObject(KEY) ?: return null
-        val href = obj.optString("href")
-        val version = native.optInt("version", -1)
-        val offset = native.optInt("offset", -1)
-        val length = native.optInt("length", -1)
-        val mirroredHref = native.optString("href")
-        if (href.isBlank() || mirroredHref != href || offset < 0 ||
-            length < 0 || version != VERSION) null
-        else Point(href, offset, length, version)
-    } catch (_: Exception) {
-        null
+        return try {
+            val obj = JSONObject(json)
+            val native = obj.optJSONObject(KEY) ?: return null
+            val href = obj.optString("href")
+            val version = native.optInt("version", -1)
+            val offset = native.optInt("offset", -1)
+            val length = native.optInt("length", -1)
+            val mirroredHref = native.optString("href")
+            if (href.isBlank() || mirroredHref != href || offset < 0 ||
+                length < 0 || version != VERSION) null
+            else Point(href, offset, length, version)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun validatedRange(locator: String?, quote: String, chapterHref: String,
