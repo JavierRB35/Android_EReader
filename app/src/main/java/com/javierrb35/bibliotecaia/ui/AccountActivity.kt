@@ -98,7 +98,7 @@ class AccountActivity : AppCompatActivity() {
 
     private fun authenticate() {
         if (busy) return
-        if (!repository.configuration.googleConfigured) {
+        if (session == null && !repository.configuration.googleConfigured) {
             status.setText(R.string.account_google_setup_needed)
             return
         }
