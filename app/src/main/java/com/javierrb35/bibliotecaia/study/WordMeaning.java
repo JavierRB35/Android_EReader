@@ -104,6 +104,34 @@ public final class WordMeaning {
     }
     /** La búsqueda genérica anterior no era una URL comprobada y no se utiliza. */
     public static String catholicSearchUrl(String word){ return catholicArticleUrl(word); }
+    /**
+     * Selección para fuentes de búsqueda: permite expresiones de varias palabras,
+     * conservando los acentos y limitando longitud y caracteres de control.
+     * El glosario y los artículos católicos verificados siguen siendo monopalabra.
+     */
+    public static String searchPhrase(String selection){
+        if(selection==null)return null;
+        String phrase=selection.trim().replaceAll("\\s+"," ");
+        if(phrase.isEmpty()||phrase.codePointCount(0,phrase.length())>160)return null;
+        if(phrase.split(" ").length>20)return null;
+        if(!Character.isLetterOrDigit(phrase.codePointAt(0)))return null;
+        for(int i=0;i<phrase.length();){
+            int cp=phrase.codePointAt(i);
+            int kind=Character.getType(cp);
+            if(!Character.isLetterOrDigit(cp)
+                && kind!=Character.NON_SPACING_MARK
+                && kind!=Character.COMBINING_SPACING_MARK
+                && kind!=Character.ENCLOSING_MARK
+                && cp!=' ' && cp!='\'' && cp!='’'
+                && cp!='-' && cp!='–' && cp!='.' && cp!=',')return null;
+            i+=Character.charCount(cp);
+        }
+        return phrase;
+    }
+    public static String searchSelection(String original,int start,int end){
+        if(original==null||start<0||end>original.length()||start>=end)return null;
+        return searchPhrase(original.substring(start,end));
+    }
     /** Página de búsqueda oficial, evita suponer que todo término tiene artículo directo. */
     public static String wikipediaSearchUrl(String word){
         return "https://es.wikipedia.org/wiki/Especial:Buscar?search="+encodeSearchTerm(word);
@@ -115,8 +143,9 @@ public final class WordMeaning {
         return encodeUtf8(title);
     }
     private static String encodeSearchTerm(String word){
-        if(!oneWord(word))throw new IllegalArgumentException("Se requiere una sola palabra");
-        return encodeUtf8(word.trim());
+        String phrase=searchPhrase(word);
+        if(phrase==null)throw new IllegalArgumentException("Se requiere una palabra o expresión válida");
+        return encodeUtf8(phrase);
     }
     private static String encodeUtf8(String value){
         // Este overload existe desde Android 1; URLEncoder.encode(String, Charset)
