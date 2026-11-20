@@ -49,6 +49,10 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 4. Accesibilidad (TalkBack, fuente ampliada) y tablet: tras integrar los lectores.
 5. El «leer» del catálogo apuntará al motor cuando el agente de integración cablee las actividades aisladas (`reader/` llegó a `main` sin registro en Manifest — trabajo suyo en curso).
 
+## Distribución (Incremento 10 adelantado)
+
+✅ **Workflow de releases firmados integrado** (`d41d5eb`, revisado): `.github/workflows/release-apk.yml` — solo se activa con tags `vX.Y.Z` que sean ancestros de `main` y coincidan con `versionName`; build en 2 jobs con privilegios mínimos; firma vía secretos (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); zipalign + apksigner verify + checksum SHA256; idempotente. **Prerrequisitos pendientes (acción exclusiva del propietario):** crear el keystore de release (nunca en repo) y configurar los 4 secretos en GitHub. **No etiquetar versiones hasta que los incrementos estén revisados.**
+
 ## Problemas abiertos / bloqueos
 
 - Ninguno bloqueante para `main`.
@@ -58,6 +62,6 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 ## Siguiente acción concreta
 
 1. ✅ `PdfCoverSource` publicado (`81a1746`); ✅ `feature/reader-pdf-mobi` integrado (`4c577f0`); ✅ restyle del organizador publicado (`5fbd07c`); ✅ checkpoint de `feature/reader-integration` integrado (`70484ee`) con su `docs/COORDINATION.md` y **reconciliación de coordinación publicada** (identificación del canal ZCode, corrección del estado real de main, protocolo de anuncios y fusiones). 44/44 tests tras cada merge.
-2. Vigilar pushes de `feature/reader-epub` (Readium), `feature/reader-integration` (wiring de navegación), `feature/google-auth`; integrar en orden: lectores → integración → auth; puntos calientes: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`, `BookDetailActivity.kt`.
+2. Vigilar pushes de `feature/reader-epub` (EPUB staged: EpubOpener/EpubReaderActivity/EpubSafety + test instrumentado), `feature/reader-integration` (wiring: ReaderRouter, KnowledgeActivity, navegación 3 espacios §9.1, endurecimiento de importación con BoundedZipInputStream), `feature/google-auth` (10 ficheros en curso). **Conflicto anticipado ya analizado:** su wiring edita MainActivity/activity_main desde base pre-diseño → al integrar, aplicar su cableado funcional sobre las versiones de diseño de main. Puntos calientes: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`, `BookDetailActivity.kt`.
 3. Los lectores integrados (`reader/`) están **aislados** (sin registro en Manifest): el cableado en ficha/catálogo lo completa el agente de integración; el coordinador lo verificará al llegar a `main`.
 4. Actualizar este documento en cada integración. AndroidIDE-Rv2 en teléfono sigue pendiente de disponibilidad.
