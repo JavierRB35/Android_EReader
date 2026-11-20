@@ -44,9 +44,29 @@ public class WordMeaningTest {
         assertEquals("https://es.wikipedia.org/wiki/Especial:Buscar?search=Jes%C3%BAs",
             WordMeaning.wikipediaSearchUrl("Jesús"));
     }
-    @Test(expected=IllegalArgumentException.class)
-    public void blocksMultipleWords(){
-        WordMeaning.wikipediaSearchUrl("la gracia");
+    @Test public void searchesMultipleWordsWithAccentsAndSpaces(){
+        assertEquals("https://es.wikipedia.org/wiki/Especial:Buscar?search=Santiago%20Casares",
+            WordMeaning.wikipediaSearchUrl("Santiago Casares"));
+        assertEquals("https://es.wikipedia.org/wiki/Especial:Buscar?search=guerra%20civil%20espa%C3%B1ola",
+            WordMeaning.wikipediaSearchUrl("guerra   civil española"));
+        assertEquals("https://es.wiktionary.org/wiki/Especial:Buscar?search=La%20Mancha",
+            WordMeaning.wiktionarySearchUrl("La Mancha"));
+        assertEquals("Santiago Casares",
+            WordMeaning.searchSelection("Santiago Casares informó",0,16));
+        assertNull(WordMeaning.searchSelection("Santiago Casares",-1,9));
+    }
+    @Test public void preservesOneWordOnlyForVerifiedCatholicArticles(){
+        assertFalse(WordMeaning.oneWord("Santiago Casares"));
+        try {
+            WordMeaning.catholicArticleUrl("Santiago Casares");
+            fail("Never synthesize unknown Catholic encyclopedia paths");
+        } catch (IllegalArgumentException expected) { /* deliberate */ }
+    }
+    @Test public void rejectsUnsafeOrOverlongPhrases(){
+        assertNull(WordMeaning.searchPhrase("fariseo?redirect=https://evil.test"));
+        assertNull(WordMeaning.searchPhrase("abc\\n\\u0000def"));
+        assertNull(WordMeaning.searchPhrase(new String(new char[170]).replace('\\0','a')));
+        assertEquals("Martín Luther King Jr.",WordMeaning.searchPhrase("Martín Luther King Jr."));
     }
     @Test(expected=IllegalArgumentException.class)
     public void blocksUnsafePunctuation(){
