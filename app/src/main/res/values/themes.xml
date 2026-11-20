@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base OLED-first (Prompt Maestro §10.2): fondo negro puro, texto cálido de contraste cómodo.
+         Los temas de lectura completos (OLED/oscuro/sepia/claro) llegan con el Incremento 2. -->
+    <style name="Theme.BibliotecaIA" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="colorPrimary">#D7CCC8</item>
+        <item name="colorOnPrimary">#000000</item>
+        <item name="android:textColorPrimary">#E0D6CC</item>
+        <item name="android:textColorSecondary">#A89C90</item>
+    </style>
+</resources>

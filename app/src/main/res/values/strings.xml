@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Biblioteca IA</string>
+    <string name="library_title">Biblioteca</string>
+    <string name="library_empty">Tu biblioteca está vacía.\nImporta tu primer libro para empezar a leer.</string>
+    <string name="action_import">Importar libro</string>
+</resources>
