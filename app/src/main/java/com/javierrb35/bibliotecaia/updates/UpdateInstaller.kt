@@ -218,27 +218,39 @@ internal object UpdateInstaller {
     }
 
     private fun openOfficialConnection(url: String): HttpURLConnection {
-        val parsed = URL(url)
-        require(parsed.protocol == "https" &&
-            UpdatePayloadPolicy.allowedDownloadHost(parsed.host)) {
-            "La descarga no utiliza una conexión oficial segura."
-        }
-        val connection = parsed.openConnection() as HttpURLConnection
-        connection.connectTimeout = TIMEOUT_MS
-        connection.readTimeout = TIMEOUT_MS
-        connection.setRequestProperty("User-Agent", "BibliotecaIA-Android-Installer")
-        connection.setRequestProperty("Accept-Encoding", "identity")
-        try {
-            if (connection.responseCode != HttpURLConnection.HTTP_OK ||
-                connection.url.protocol != "https" ||
-                !UpdatePayloadPolicy.allowedDownloadHost(connection.url.host)) {
-                throw IOException("GitHub no ha devuelto la APK oficial.")
+        var next = URL(url)
+        // Follow redirects explicitly to avoid even contacting an untrusted host.
+        repeat(6) {
+            require(next.protocol == "https" &&
+                UpdatePayloadPolicy.allowedDownloadHost(next.host)) {
+                "La descarga no utiliza un dominio GitHub autorizado."
             }
-            return connection
-        } catch (e: Exception) {
-            connection.disconnect()
-            throw e
+            val connection = next.openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+            connection.setRequestProperty("User-Agent", "BibliotecaIA-Android-Installer")
+            connection.setRequestProperty("Accept-Encoding", "identity")
+            try {
+                when (connection.responseCode) {
+                    HttpURLConnection.HTTP_OK -> return connection
+                    HttpURLConnection.HTTP_MOVED_PERM,
+                    HttpURLConnection.HTTP_MOVED_TEMP,
+                    HttpURLConnection.HTTP_SEE_OTHER,
+                    307, 308 -> {
+                        val location = connection.getHeaderField("Location")
+                            ?: throw IOException("GitHub no ha indicado el destino de descarga.")
+                        next = URL(next, location)
+                        connection.disconnect()
+                    }
+                    else -> throw IOException("No se ha podido descargar la APK oficial.")
+                }
+            } catch (e: Exception) {
+                connection.disconnect()
+                throw e
+            }
         }
+        throw IOException("Demasiadas redirecciones de GitHub.")
     }
 
     private fun downloadText(url: String): String {
