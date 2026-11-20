@@ -16,6 +16,7 @@
     <string name="account_registration_pending">Solicitud recibida. Si el servicio permite el registro, recibirás un correo para confirmarlo. Revisa Gmail (también spam) y después inicia sesión con tu correo y contraseña. Por seguridad no se indica si la dirección ya existía.</string>
     <string name="account_google_setup_needed">El botón «Continuar con Google» requiere configurar el cliente OAuth de Google para esta aplicación y la firma del APK. Mientras tanto puedes registrarte con tu correo y contraseña debajo.</string>
     <string name="account_invalid_email_password">Comprueba el correo y utiliza una contraseña de entre 8 y 128 caracteres.</string>
+    <string name="account_email_delivery_unavailable">Supabase no permite enviar el correo de confirmación a esta dirección con su servicio de prueba. Para habilitar cualquier Gmail debe configurarse SMTP propio o utilizar acceso con Google OAuth.</string>
     <string name="account_sign_in">Continuar con Google</string>
     <string name="account_verify">Verificar cuenta</string>
     <string name="account_sign_out">Cerrar sesión</string>
