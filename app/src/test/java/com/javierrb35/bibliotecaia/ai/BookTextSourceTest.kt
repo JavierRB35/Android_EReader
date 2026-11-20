@@ -107,4 +107,37 @@ class BookTextSourceTest {
         assertEquals(listOf("Al principio", "Más adelante"), fragments.map { it.text })
     }
 
+
+    @Test fun mobiSpoilerSafeRetrievalNeverReturnsUnreadWindowOrTail() {
+        val chapters = listOf(
+            BookTextSource.Fragment(1, "MOBI parte 1", "abcdefghij", 0.0, 0.5),
+            BookTextSource.Fragment(2, "MOBI parte 2", "SECRETOMAS", 0.5, 1.0)
+        )
+        val early = BookTextSource.retrieve(chapters, "secreto",
+            spoilerSafe = true, progress = .25f)
+        assertEquals(listOf("abcde"), early.map { it.text })
+        assertTrue(early.none { it.text.contains("SECRETO") })
+        assertTrue(BookTextSource.retrieve(chapters, "secreto", true, 0f).isEmpty())
+
+        val end = BookTextSource.retrieve(chapters, "secreto",
+            spoilerSafe = true, progress = 1f)
+        assertEquals("SECRETOMAS", end.last().text)
+        val noSpoilersDisabled = BookTextSource.retrieve(chapters, "secreto",
+            spoilerSafe = false, progress = 0f)
+        assertEquals("SECRETOMAS", noSpoilersDisabled.single().text)
+    }
+
+    @Test fun realMobiExtractionHasFractionsAndRespectsReadingProgress() {
+        val html = "<p>" + "inicio ".repeat(200) + "DESENLACE OCULTO</p>"
+        val fragments = BookTextSource.chapters(mobi(html), "MOBI", null)
+        assertEquals(1, fragments.size)
+        assertTrue(fragments.single().endFraction != null)
+        val first10Percent = BookTextSource.retrieve(fragments, "desenlace",
+            spoilerSafe = true, progress = .1f)
+        assertTrue(first10Percent.none { it.text.contains("DESENLACE") })
+        val fullyRead = BookTextSource.retrieve(fragments, "desenlace",
+            spoilerSafe = true, progress = 1f)
+        assertTrue(fullyRead.any { it.text.contains("DESENLACE") })
+    }
+
 }
