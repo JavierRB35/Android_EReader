@@ -2,6 +2,10 @@
 
 El workflow `.github/workflows/release-apk.yml` compila el APK `release` **sin firmar** en un runner Linux y lo alinea y firma con `zipalign` y `apksigner`. No modifica la compilación de AndroidIDE-Rv2 ni publica versiones al hacer push a `main`.
 
+**Memoria de compilación en GitHub Actions:** el build Linux de release utiliza `-Dorg.gradle.jvmargs=-Xmx3g` y Kotlin in-process, porque la primera compilación CI con heap predeterminado produjo `OutOfMemoryError` en Readium/Kotlin. Este valor es exclusivo del runner alojado y **no modifica** los límites del Gradle de AndroidIDE. Antes de emplear la firma definitiva, [PR #7](https://github.com/JavierRB35/Android_EReader/pull/7) prueba también `assembleRelease` y exige la existencia de `app-release-unsigned.apk`.
+
+**Criterio de bloqueo:** aunque `assembleRelease` sea satisfactorio, la APK resultante está **sin firmar**. La firma release requiere el keystore auténtico, sus secretos y comprobación de huella; no publicar etiquetas basándose solo en CI.
+
 ## Preparación de la firma
 
 1. **Reutilizar la clave de publicación existente** si ya se distribuyó alguna APK firmada con el mismo `applicationId` (`com.javierrb35.bibliotecaia`). Verificar localmente su alias y huella SHA-256 con `keytool -list -v -keystore ruta/a/clave.jks`. No subir la clave ni las contraseñas al repositorio, a un issue o al chat.

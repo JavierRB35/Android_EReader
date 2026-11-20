@@ -64,7 +64,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build unsigned release APK
-        run: sh ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Readium/Kotlin requires a larger heap on GitHub's Linux runner.
+          # CI-only override; never alter AndroidIDE's memory-limited gradle.properties.
+          sh ./gradlew :app:assembleRelease \
+            --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Dorg.gradle.vfs.watch=false
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Sign and verify release APK
         shell: bash
