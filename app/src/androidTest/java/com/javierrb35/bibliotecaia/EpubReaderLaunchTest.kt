@@ -11,6 +11,7 @@ import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.reader.epub.EpubReaderActivity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
@@ -72,6 +73,32 @@ class EpubReaderLaunchTest {
                 Thread.sleep(200)
             }
             assertTrue("EPUB reader never mounted its Readium navigator", ready)
+            instrumentation.runOnMainSync {
+                val nativeText = activity.findViewById<android.widget.TextView>(R.id.epub_native_text)
+                assertNotNull("Scriptura native text reader must exist", nativeText)
+                assertTrue("EPUB must use native TextView selection by default",
+                    nativeText.isTextSelectable)
+            }
+            var nativeReady = false
+            for (step in 0 until 100) {
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    val selectionView = activity.findViewById<android.widget.TextView>(
+                        R.id.epub_native_text)
+                    nativeReady = selectionView.visibility == android.view.View.VISIBLE &&
+                        selectionView.text.isNotBlank() && selectionView.isTextSelectable
+                }
+                if (nativeReady) break
+                Thread.sleep(200)
+            }
+            assertTrue("EPUB should display real native selectable text, not only a hidden TextView",
+                nativeReady)
+            instrumentation.runOnMainSync {
+                val selectionView = activity.findViewById<android.widget.TextView>(
+                    R.id.epub_native_text)
+                assertTrue("Default selected-text highlight must not be bright cyan",
+                    selectionView.highlightColor == 0x66D4B483)
+            }
             assertTrue("EPUB reader closed during opening", !activity.isFinishing && !activity.isDestroyed)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }

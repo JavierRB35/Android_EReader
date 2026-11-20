@@ -59,6 +59,13 @@ object EpubSafety {
         document.select("script, iframe, frame, frameset, object, embed, form, input, button, textarea, base, foreignObject, animate, set, animateMotion, animateTransform, discard").remove()
         if (svg) document.select("style").remove()
         document.select("meta[http-equiv]").remove()
+        // Readium uses WebView's browser selection when the original layout
+        // is enabled. Replace the default bright cyan with subdued warm amber.
+        // The native Scriptura-style TextView has its own highlight color.
+        if (!svg) document.head().appendElement("style")
+            .attr("data-biblioteca-selection", "amber")
+            .text("::selection { background-color: rgba(212,180,131,0.32) !important; " +
+                  "color: inherit !important; }")
         for (element in document.allElements) {
             for (attribute in element.attributes().asList()) {
                 val name = attribute.key.lowercase(Locale.ROOT)
