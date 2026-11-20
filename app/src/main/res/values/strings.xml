@@ -49,6 +49,24 @@
     <string name="detail_assign_tags">Etiquetas del libro</string>
     <string name="detail_assign_collections">Colecciones del libro</string>
     <string name="detail_no_items_to_assign">No hay elementos todavía. Créalos en Organizar.</string>
+    <string name="detail_organization_title">Organización</string>
+    <string name="detail_organization_hint">Toca para editar o crear</string>
+    <string name="detail_assignment_empty">Sin asignar · toca para añadir</string>
+    <string name="detail_favorite_short">☆ Favorito</string>
+    <string name="detail_favorite_selected">★ Favorito</string>
+    <string name="detail_file_compact">Archivo · %1$s</string>
+    <string name="detail_assignment_existing">Selecciona las opciones existentes</string>
+    <string name="detail_assignment_none_available">Aún no hay elementos. Crea uno ahora.</string>
+    <string name="detail_assignment_new_category">Crear y asignar categoría…</string>
+    <string name="detail_assignment_new_tag">Crear y asignar etiqueta…</string>
+    <string name="detail_assignment_new_collection">Crear y asignar colección…</string>
+    <string name="detail_assignment_save">Guardar</string>
+    <string name="detail_assignment_failed">No se pudo guardar: %1$s</string>
+    <string name="detail_assignment_content">Editar %1$s. Seleccionadas: %2$s</string>
+    <string name="detail_status_content">Estado: %1$s. Toca para cambiar.</string>
+    <string name="detail_added_content">Añadido: %1$s</string>
+    <string name="detail_size_content">Tamaño: %1$s</string>
+    <string name="detail_new_item_hint">También puedes escribir un nuevo nombre para crearlo y asignarlo.</string>
 
     <string name="status_pending">Pendiente</string>
     <string name="status_reading">En lectura</string>
