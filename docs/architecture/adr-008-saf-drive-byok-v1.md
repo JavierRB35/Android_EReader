@@ -1,36 +1,27 @@
-# ADR-008 propuesta: BibliotecaIA V1 local, Drive mediante SAF y claves IA propias
-Fecha: 2026-11-20. **Requisito del propietario** posterior al prompt maestro. Revisión/integración: coordinador de main.
+# ADR-008 (revisada) — Biblioteca IA sin cuentas y copia íntegra mediante SAF
 
-## Decisión: experiencia sin cuentas
+**Estado: DECISIÓN VINCULANTE, 20/11/2026.** Sustituye la propuesta anterior de guardar solo metadatos con originales separados, y cualquier previsión de autenticación Google/Gmail/Supabase en la versión Android.
 
-- No exigir registro ni login Google/Supabase para leer, importar, organizar, anotar, consultar IA con clave propia o hacer backups.
-- El propietario confirma que **los originales EPUB, PDF y MOBI se guardan en Google Drive**, igual que en Nexo Android y Scriptura. Google Drive es el repositorio de originales elegido por el usuario, **no** la base Supabase ni un ZIP duplicado obligatorio. La app mantiene una copia local para lectura offline y enlaza con el original de Drive cuando el permiso y proveedor lo permitan.
-- Las copias **de los datos de BibliotecaIA** —catálogo, etiquetas, colecciones, anotaciones y posiciones— se guardan/restauran con el selector de archivos Android (SAF), eligiendo el usuario Drive u otro destino. El flujo actual de `SettingsActivity` usa `ActivityResultContracts.CreateDocument` / `OpenDocument`; completar QA y explicaciones, no sustituir por API Drive.
-- El permiso SAF autoriza documentos elegidos, **no acceso global automático** a Drive. Si el usuario importa un archivo almacenado en Drive, su URI podrá persistirse solo donde el proveedor y Android lo permitan; un URI de un teléfono NO se puede asumir válido tras reinstalar o cambiar de dispositivo. Restaurar la biblioteca debe permitir **volver a vincular los originales de Drive** por nombre/hash (SHA-256), con selección manual múltiple y un árbol de carpeta solo si el DocumentsProvider realmente admite ese árbol. Mostrar cuáles están disponibles y cuáles faltan, sin ocultar errores ni inventar sincronización.
-- Si el usuario **ya tiene originales en Drive**, **no subir duplicados**. Si importa desde un archivo local y decide conservarlo en Drive, ofrecer exportación del original mediante selector del sistema y verificarla; no afirmar subida automática a carpeta sin prueba en Android real.
-- El modo lectura offline requiere caché local de los libros importados; la caché no autoriza borrar originales ni conservar referencias rotas como archivos disponibles.
-- Supabase existente `krxdcfyvksjhpohxxvcf` y sus 11 tablas quedan **conservados sin uso obligatorio** en V1. No borrar proyecto/migraciones ni desplegar sincronización automática; OAuth de Google/Supabase deja de ser bloqueo para V1. El motor SyncEngine requiere decisión separada sobre identidad y aislamiento antes de activarse.
+## Decisiones irrevocables sin nueva orden del propietario
 
-## Copia de metadatos existente y restauración
+1. **No usar OAuth ni registro/inicio de sesión con Gmail/Google ni cuentas Supabase.** Ninguna lectura, importación, nota, subrayado, IA BYOK ni copia solicita iniciar sesión. La PR #20 se cerró sin merge; los adaptadores de autenticación o sincronización heredados quedan deshabilitados/inaccesibles y no forman parte de V1.
+2. **El usuario decide dónde guardar cada copia.** La app abre el selector del sistema mediante `ACTION_CREATE_DOCUMENT` / `ActivityResultContracts.CreateDocument("application/zip")`. Puede seleccionar Drive, memoria interna, USB u otro DocumentsProvider instalado. **Esto no pide OAuth a la aplicación ni permite recorrer toda la unidad Drive**; los permisos SAF se limitan al documento elegido. No presuponer que Drive estará instalado/disponible.
+3. **Una copia completa contiene todo:** archivos físicos originales de **cada libro importado** (EPUB, PDF, MOBI), catálogo, categorías/etiquetas/colecciones, relaciones, favoritos, historial de notas, subrayados, marcadores, localizadores y posiciones. También incluye lápidas/historial de anotaciones en el JSON versionado; nunca incluir secretos, claves IA, tokens, sesiones ni credenciales.
+4. **Formato transportable:** ZIP `BibliotecaIA-completa-YYYYMMDD-HHmm.zip`, con `biblioteca.json` y `books/<id>.bin` para cada libro. Se calcula/contrasta el **SHA-256** y tamaño originales en exportación y lectura antes de tocar Room. Se rechaza la copia si falta **un solo libro**. Los datos JSON siguen siendo el contrato histórico `BackupCodec`; la copia JSON antigua queda disponible únicamente como **importación heredada incompleta**, con advertencia.
+5. **Restauración segura y aditiva:** leer ZIP al almacenamiento temporal con límites de expansión y validación de hashes; materializar originales sin sobrescribir ficheros distintos; restaurar Room en una transacción incluyendo asociación de rutas locales según hash. Si algo falla antes del commit, se limpian solo los archivos nuevos de ese intento. La operación debe ser reintentable y no destruir notas, marcados ni libros previos.
+6. **La copia no es sincronización automática ni está cifrada**: el usuario controla frecuencia/ubicación. Advertir que el ZIP contiene íntegramente sus libros y anotaciones en claro; elegir ubicación privada. Drive/otro proveedor podrían requerir iniciar sesión **en su propia app**, no en Biblioteca IA.
 
-`BackupManager.exportJson()` ya guarda registros de libros, categorías, etiquetas, colecciones, relaciones, anotaciones y posiciones, **no los binarios**; esta omisión es correcta **si los originales están íntegros en Drive**, pero hay que documentar que **una copia JSON sola NO recupera los libros**.
+## Criterios de aceptación
 
-1. Guardar copia: usuario elige destino y nombre en selector (Drive si disponible). Guardar JSON, comprobar finalización y explicar qué protege; cancelar sin alterar datos.
-2. Restaurar copia: seleccionar JSON, validar manifest/version/entradas, confirmar y restaurar aditivamente; presentar inventario de originales por resolver.
-3. Recuperar originales: usuario selecciona en Drive uno o varios EPUB/PDF/MOBI; comparar SHA-256 del original con `BookEntity.contentHash`, vincular localmente sin duplicar fichas ni alterar anotaciones/locators; exigir consentimiento específico por archivo/carpeta cuando el proveedor lo requiera. Nunca confiar solo en nombre.
-4. Caso de uso: móvil nuevo → importar JSON desde Drive → seleccionar libros originales en Drive → restaurar disponibilidad de lectura y notas sin perder datos.
-5. Probar en un Android real con proveedor Google Drive: `CreateDocument` JSON, `OpenDocument` JSON, importación de EPUB/PDF/MOBI de Drive, reinicio, revocación, error de nube y reconexión. No afirmar acceso a carpetas si `ACTION_OPEN_DOCUMENT_TREE` no es soportado por ese proveedor.
+- Exportar e importar una copia que incluya **todos** los libros originales y sus anotaciones/versiones/locators, con ZIP situado mediante SAF donde el usuario elija.
+- Ante PDF/EPUB/MOBI ausente, cambiado, truncado, hash erróneo, ZIP de rutas ajenas o bomba de descompresión, abortar sin restaurar parcialmente la base.
+- Restaurar en otro dispositivo después de reinstalar: lectura de todos los originales sin revinculación manual, y marcas/notas/posiciones íntegramente disponibles, también tras cerrar/reabrir la app.
+- Repetir la restauración no duplica libros o anotaciones, conserva contenido local preexistente y no retrocede en posiciones más recientes.
+- QA Android real con Drive como DocumentsProvider y al menos otro destino, cortes de red durante copias, cancelación y espacio insuficiente; no afirmar esas pruebas hasta realizarlas.
+- Sin APIs de Drive, Google OAuth, acceso Gmail, cuentas, sincronización Supabase ni registro del usuario.
 
-## IA BYOK sin autenticación
+## Compatibilidad
 
-En Ajustes → IA, crear asistente real: proveedor Gemini/Groq → enlace oficial para generar la propia clave → campo protegido → almacenamiento local cifrado por Android Keystore → prueba API real y errores diferenciados (red, clave, cuota, modelo) → eliminar/revocar. **Nunca** subir claves al repo, APK de distribución, copias de seguridad ni logs. Ser transparente sobre el riesgo residual de credenciales en el cliente y qué fragmentos del libro se envían al proveedor; no solicitar clave hasta el primer uso de IA. La funcionalidad del RAG y citas debe implementarse y probarse de forma independiente.
+No se elimina el proyecto externo Supabase existente por el mero cambio de arquitectura: no es origen de verdad de V1 ni hace falta para backup. Se conserva código heredado sin conexión desde la navegación hasta que se retire técnicamente de forma segura. Para IA se mantiene BYOK local y el consentimiento explícito previo al envío de fragmentos a Gemini/Groq, independiente del backup.
 
-## Criterios de aceptación y alcance
-
-- Offline sin login. Exportación/restauración JSON en Drive vía selector SAF con datos íntegros.
-- Originales de Drive importados/relincados por hash y copiados a caché para leer offline; ausencia de originales claramente visible tras restauración, con recuperación guiada. Sin envío duplicado forzoso ni acceso total a Drive.
-- Ninguna promesa de sincronización automática/multidispositivo: backups manuales pueden restaurar información, no resolver conflictos concurrentes.
-- No cambiar applicationId, no borrar Supabase ni implementar OAuth solo para backup. Mantener la firma de APK y pruebas AndroidIDE ya previstas.
-- El prompt maestro anterior exigía registro Google/Supabase/Drive API para la V1; **esta decisión posterior y explícita del propietario prevalece**. Integrar sus cambios editoriales en los documentos canónicos al cerrar PR; evitar instrucciones contradictorias.
-
-Fuentes de referencia: [Android SAF](https://developer.android.com/training/data-storage/shared/documents-files), [DocumentsProvider](https://developer.android.com/reference/android/provider/DocumentsProvider).
+Referencia oficial: [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files).
