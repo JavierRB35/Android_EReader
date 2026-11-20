@@ -41,7 +41,7 @@ class EpubAnnotationMarksDeviceTest {
         assertEquals(1, marks.size)
         assertEquals("n1", marks.single().id)
         assertTrue("A NOTE should be visibly highlighted", marks.single().style is Decoration.Style.Highlight)
-        assertEquals(Decoration.Style.Highlight(tint = note.color), marks.single().style)
+        assertEquals(Decoration.Style.Highlight(tint = note.color, isActive = true), marks.single().style)
         assertEquals("Las palabras escogidas", marks.single().locator.text.highlight)
     }
 
