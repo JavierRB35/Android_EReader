@@ -70,6 +70,9 @@ interface BackupDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertVersionsIgnore(versions: List<AnnotationVersionEntity>): List<Long>
 
+    @Query("UPDATE books SET progress = :progress WHERE id = :bookId")
+    suspend fun updateBookProgressAfterRestore(bookId: String, progress: Float)
+
     @Query("SELECT * FROM reading_positions WHERE bookId = :bookId")
     suspend fun positionFor(bookId: String): ReadingPositionEntity?
 

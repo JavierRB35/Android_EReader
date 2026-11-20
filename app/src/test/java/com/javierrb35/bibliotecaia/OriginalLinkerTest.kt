@@ -45,6 +45,32 @@ class OriginalLinkerTest {
     }
 
     @Test
+    fun `rechaza ruta de escape aun con hash correcto`() {
+        val dir = createTempDirectory()
+        val original = tempWith("contenido legitimo")
+        val hash = requireNotNull(OriginalLinker(dir).sha256Hex(original))
+        val invalid = book("b-1", hash).copy(fileName = "../../archivo-externo.epub")
+        assertNull(OriginalLinker(dir).link(original, listOf(invalid)))
+        assertFalse(File(dir.parentFile, "archivo-externo.epub").exists())
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun `rechaza archivo local previamente corrupto en vez de enlazarlo`() {
+        val dir = createTempDirectory()
+        val original = tempWith("contenido correcto")
+        val linker = OriginalLinker(dir)
+        val hash = requireNotNull(linker.sha256Hex(original))
+        val target = book("b-1", hash)
+        val dest = File(dir, "books/b-1/b-1.epub")
+        dest.parentFile!!.mkdirs()
+        dest.writeText("contenido corrupto")
+        assertNull(linker.link(original, listOf(target)))
+        assertEquals("contenido corrupto", dest.readText())
+        dir.deleteRecursively()
+    }
+
+    @Test
     fun `detecta libros con archivo ausente`() {
         val linker = OriginalLinker(createTempDirectory())
         val missing = book("b-2", "hash").copy(localPath = "")

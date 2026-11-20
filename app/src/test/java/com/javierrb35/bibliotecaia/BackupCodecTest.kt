@@ -119,6 +119,28 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `rechaza libros y nombres con rutas manipuladas`() {
+        for (unsafe in listOf("../otro.epub", "carpeta/libro.epub", "ruta\\\\libro.epub")) {
+            val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
+            root.getJSONArray("books").getJSONObject(0).put("file_name", unsafe)
+            try {
+                BackupCodec.fromJson(root.toString())
+                throw AssertionError("Ruta peligrosa admitida: $unsafe")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message!!.contains("ruta"))
+            }
+        }
+        val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
+        root.getJSONArray("books").getJSONObject(0).put("id", "../otra-carpeta")
+        try {
+            BackupCodec.fromJson(root.toString())
+            throw AssertionError("Identificador peligroso admitido")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("ruta"))
+        }
+    }
+
+    @Test
     fun `sin portada de datos sensibles en el JSON`() {
         val json = BackupCodec.toJson(sample(), "0.1.0", 1)
         assertFalse(json.contains("localPath"))
