@@ -28,7 +28,7 @@ internal object EpubAnnotationMarks {
             if (note.kind == "NOTE" && locator.text.highlight != note.quote)
                 return@mapNotNull null
             val style = if (note.kind == "NOTE")
-                Decoration.Style.Highlight(tint = note.color)
+                Decoration.Style.Highlight(tint = note.color, isActive = true)
             else
                 Decoration.Style.Underline(note.color)
             Decoration(note.id, locator, style)
