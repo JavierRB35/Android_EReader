@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.graphics.Typeface
+import android.view.Gravity
 import android.graphics.drawable.GradientDrawable
 import android.content.res.ColorStateList
 import android.net.Uri
@@ -95,7 +96,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(22), dp(22), dp(26))
+            setPadding(dp(20), dp(12), dp(20), dp(28))
         }
         val root = ScrollView(this).apply {
             isFillViewport = true
@@ -366,13 +367,36 @@ class SettingsActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun header(parent: LinearLayout, value: String) {
+        val masthead = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        masthead.addView(TextView(this).apply {
+            text = "‹"
+            textSize = 30f
+            gravity = Gravity.CENTER
+            contentDescription = "Volver"
+            isClickable = true
+            isFocusable = true
+            setTextColor(getColor(R.color.bia_accent))
+            setBackgroundResource(R.drawable.bg_premium_note)
+            setOnClickListener { finish() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        masthead.addView(TextView(this).apply {
+            text = "BibliotecaAI"
+            textSize = 20f
+            setTypeface(Typeface.SERIF, Typeface.BOLD)
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(dp(12), 0, 0, 0)
+        })
+        parent.addView(masthead)
         parent.addView(TextView(this).apply {
             text = value
-            textSize = 29f
+            textSize = 33f
             typeface = Typeface.SERIF
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text))
+            setTextColor(getColor(R.color.bia_text))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
-            setPadding(0, 0, 0, dp(3))
+            setPadding(0, dp(14), 0, dp(4))
         })
     }
 
@@ -443,6 +467,14 @@ class SettingsActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text_secondary))
             setLineSpacing(dp(2).toFloat(), 1.08f)
             setPadding(0, dp(3), 0, dp(4))
+            if (value.length > 210) {
+                maxLines = 3
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                contentDescription = "Mostrar información completa: " + value
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { maxLines = if (maxLines == 3) Integer.MAX_VALUE else 3 }
+            }
         }
         parent.addView(view)
         return view

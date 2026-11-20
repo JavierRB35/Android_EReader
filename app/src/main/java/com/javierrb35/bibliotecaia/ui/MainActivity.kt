@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,8 +19,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.ChipGroup
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.BuildConfig
@@ -100,38 +99,32 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        findViewById<View>(R.id.btnImport).setOnClickListener {
-            importLauncher.launch(IMPORT_MIME_TYPES)
+        PremiumBottomBar.bind(this, findViewById(R.id.mainNavigation), R.id.navLibrary) {
+            openImportPicker()
         }
-
         observeCatalog()
-        findViewById<BottomNavigationView>(R.id.mainNavigation)
-            .setOnItemSelectedListener { item ->
-                when (item.itemId) {
-                    R.id.navKnowledge -> KnowledgeActivity.start(this)
-                    R.id.navRead -> lifecycleScope.launch {
-                        val recent = db.bookDao().lastRead()
-                        if (recent == null) {
-                            Toast.makeText(this@MainActivity, R.string.no_recent_book, Toast.LENGTH_LONG).show()
-                        } else {
-                            ReaderRouter.open(this@MainActivity, recent.id)
-                        }
-                    }
-                }
-                item.itemId == R.id.navLibrary
-            }
+        consumeImportIntent(intent)
     }
 
     // Notification returns to this Activity without leaving the application.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        consumeImportIntent(intent)
+    }
+
+    private fun consumeImportIntent(intent: Intent) {
+        if (!intent.getBooleanExtra(EXTRA_OPEN_IMPORT, false)) return
+        intent.removeExtra(EXTRA_OPEN_IMPORT)
+        findViewById<View>(R.id.btnImport).post { openImportPicker() }
+    }
+
+    private fun openImportPicker() {
+        if (!importing) importLauncher.launch(IMPORT_MIME_TYPES)
     }
 
     override fun onResume() {
         super.onResume()
-        // Covers both cold starts and returning to the app from the background.
-        // The routine compares a stable fingerprint and skips an unchanged ZIP.
         BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
         lifecycleScope.launch {
             val latest = db.bookDao().lastRead()
@@ -142,6 +135,23 @@ class MainActivity : AppCompatActivity() {
                 card.setOnClickListener(null)
             } else {
                 findViewById<TextView>(R.id.txtRecentBook).text = latest.title
+                val percent = (latest.progress.coerceIn(0f, 1f) * 100).toInt()
+                findViewById<TextView>(R.id.txtRecentProgress).text =
+                    getString(R.string.bia_progress, percent)
+                findViewById<com.google.android.material.progressindicator.LinearProgressIndicator>(
+                    R.id.recentProgress).setProgressCompat(percent, false)
+                findViewById<TextView>(R.id.txtRecentCoverFallback).text = latest.title
+                val coverView = findViewById<ImageView>(R.id.imgRecentCover)
+                coverView.setImageDrawable(null)
+                val bitmap = try {
+                    BookCoverLoader.load(latest)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A missing/corrupt original cannot crash the home screen.
+                    null
+                }
+                if (bitmap != null && !isDestroyed) coverView.setImageBitmap(bitmap)
                 card.contentDescription = getString(R.string.bia_ux_continue_a11y, latest.title)
                 card.setOnClickListener { ReaderRouter.open(this@MainActivity, latest.id) }
                 card.visibility = View.VISIBLE
@@ -200,7 +210,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadViewMode(): Boolean =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, true)
+        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, false)
 
     private fun applyViewMode(grid: Boolean) {
         // Large Android font scales need wider book cards instead of clipped 2-column text.
@@ -228,9 +238,9 @@ class MainActivity : AppCompatActivity() {
     private fun importBook(uri: Uri) {
         if (importing) return
         importing = true
-        val button = findViewById<MaterialButton>(R.id.btnImport)
+        val button = findViewById<View>(R.id.btnImport)
         button.isEnabled = false
-        button.setText(R.string.bia_importing)
+        findViewById<TextView>(R.id.txtImportLabel).setText(R.string.bia_importing)
         findViewById<View>(R.id.importProgress).visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
@@ -240,8 +250,6 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.import_success, book.title),
                     Toast.LENGTH_LONG
                 ).show()
-                // Also refresh after a successful import rather than postponing
-                // its physical EPUB/PDF/MOBI original until the next app launch.
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
             } catch (e: CancellationException) {
                 throw e
@@ -252,7 +260,7 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 importing = false
                 button.isEnabled = true
-                button.setText(R.string.action_import)
+                findViewById<TextView>(R.id.txtImportLabel).setText(R.string.premium_import)
                 findViewById<View>(R.id.importProgress).visibility = View.GONE
             }
         }
@@ -261,6 +269,7 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val PREFS = "biblioteca_prefs"
         const val KEY_GRID = "view_mode_grid"
+        const val EXTRA_OPEN_IMPORT = "bibliotecaia.premium_open_import"
         const val STATE_QUERY = "ux_library_query"
         const val STATE_SHELF = "ux_library_shelf"
         const val EXTRA_COLLECTION_ID = "collection_id"

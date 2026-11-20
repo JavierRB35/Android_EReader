@@ -314,13 +314,22 @@ class OrganizeActivity : AppCompatActivity() {
     private fun rowView(label: String, onClick: () -> Unit): TextView =
         TextView(this).apply {
             text = label
-            textSize = 16f
-            // Token del sistema de diseño (docs/design-system.md); nunca heredar del tema día
-            setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.bia_text))
-            setPadding(0, 28, 0, 28)
+            textSize = 15f
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(dp(17), dp(16), dp(17), dp(16))
+            minHeight = dp(55)
             gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.bg_book_detail_row)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Opciones de " + label
             setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(6)
+            }
         }
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private fun sectionEmptyView(): TextView =
         TextView(this).apply {

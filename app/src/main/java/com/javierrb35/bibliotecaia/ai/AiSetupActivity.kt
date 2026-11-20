@@ -3,9 +3,11 @@ package com.javierrb35.bibliotecaia.ai
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Typeface
+import android.view.Gravity
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
+import com.google.android.material.button.MaterialButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -28,6 +30,7 @@ import kotlinx.coroutines.withContext
 class AiSetupActivity : AppCompatActivity() {
 
     private var provider: String = AiClients.GEMINI
+    private val providerButtons = mutableMapOf<String, MaterialButton>()
 
     private lateinit var status: TextView
     private lateinit var keyInput: TextInputEditText
@@ -38,9 +41,12 @@ class AiSetupActivity : AppCompatActivity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setPadding(dp(20), dp(12), dp(20), dp(24))
         }
-        val root = ScrollView(this).apply { addView(layout) }
+        val root = ScrollView(this).apply {
+            setBackgroundColor(getColor(R.color.bia_background))
+            addView(layout)
+        }
         setContentView(root)
 
         header(layout, getString(R.string.ai_setup_title))
@@ -51,10 +57,16 @@ class AiSetupActivity : AppCompatActivity() {
         layout.addView(providerButtons)
         listOf(AiClients.GEMINI to getString(R.string.ai_provider_gemini),
                AiClients.GROQ to getString(R.string.ai_provider_groq)).forEach { (id, label) ->
-            providerButtons.addView(Button(this).apply {
+            providerButtons.addView(MaterialButton(this).apply {
                 text = label
+                isAllCaps = false
+                minHeight = dp(48)
+                cornerRadius = dp(15)
+                this@AiSetupActivity.providerButtons[id] = this
                 setOnClickListener { selectProvider(id) }
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }, LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                marginEnd = dp(5)
+            })
         }
 
         section(layout, getString(R.string.ai_key_section))
@@ -79,7 +91,7 @@ class AiSetupActivity : AppCompatActivity() {
         keyLayout.addView(keyInput)
         layout.addView(keyLayout)
 
-        action(layout, getString(R.string.ai_save_and_test)) { saveAndTest() }
+        action(layout, getString(R.string.ai_save_and_test), primary = true) { saveAndTest() }
         action(layout, getString(R.string.ai_delete_key)) { deleteKey() }
 
         section(layout, getString(R.string.ai_status_section))
@@ -96,6 +108,12 @@ class AiSetupActivity : AppCompatActivity() {
 
     private fun selectProvider(id: String) {
         provider = id
+        providerButtons.forEach { (key, control) ->
+            val active = key == provider
+            control.backgroundTintList = ColorStateList.valueOf(
+                getColor(if (active) R.color.bia_accent else R.color.bia_surface_high))
+            control.setTextColor(getColor(if (active) R.color.bia_background else R.color.bia_text))
+        }
         refreshStatus()
     }
 
@@ -148,11 +166,36 @@ class AiSetupActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun header(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brand.addView(TextView(this).apply {
+            this.text = "‹"
             textSize = 30f
-            setTypeface(Typeface.SERIF)
-            setTextColor(ContextCompat.getColor(this@AiSetupActivity, R.color.bia_text))
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            contentDescription = "Volver"
+            setTextColor(getColor(R.color.bia_accent))
+            setBackgroundResource(R.drawable.bg_premium_note)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { finish() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        brand.addView(TextView(this).apply {
+            this.text = "BibliotecaAI"
+            textSize = 20f
+            setTypeface(Typeface.SERIF, Typeface.BOLD)
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(dp(12), 0, 0, 0)
+        })
+        parent.addView(brand)
+        parent.addView(TextView(this).apply {
+            this.text = text
+            textSize = 33f
+            typeface = Typeface.SERIF
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(0, dp(15), 0, dp(8))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
         })
     }
@@ -167,14 +210,19 @@ class AiSetupActivity : AppCompatActivity() {
         })
     }
 
-    private fun action(parent: LinearLayout, text: String, onClick: () -> Unit) {
-        parent.addView(Button(this).apply {
-            setText(text)
-            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-            setTextColor(ContextCompat.getColor(this@AiSetupActivity, R.color.bia_accent))
-            background = null
-            setPadding(0, dp(12), 0, dp(12))
+    private fun action(parent: LinearLayout, text: String, primary: Boolean = false, onClick: () -> Unit) {
+        parent.addView(MaterialButton(this).apply {
+            this.text = text
+            isAllCaps = false
+            textSize = 14f
+            minHeight = dp(48)
+            cornerRadius = dp(15)
+            backgroundTintList = ColorStateList.valueOf(
+                getColor(if (primary) R.color.bia_accent else R.color.bia_surface_high))
+            setTextColor(getColor(if (primary) R.color.bia_background else R.color.bia_text))
             setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
         })
     }
 
