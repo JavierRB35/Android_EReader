@@ -9,7 +9,10 @@ class AuthConfiguration(
     internal val publicKey: String,
     val googleWebClientId: String
 ) {
-    val configured: Boolean get() = AuthPolicy.validProjectUrl(projectUrl) && validPublicKey() && AuthPolicy.validClientId(googleWebClientId)
+    /** Email sign-up/sign-in only needs a backend. Google OAuth additionally needs a Web Client ID. */
+    val backendConfigured: Boolean get() = AuthPolicy.validProjectUrl(projectUrl) && validPublicKey()
+    val googleConfigured: Boolean get() = backendConfigured && AuthPolicy.validClientId(googleWebClientId)
+    val configured: Boolean get() = googleConfigured
 
     private fun validPublicKey(): Boolean = try {
         if (publicKey.startsWith("sb_publishable_")) {
