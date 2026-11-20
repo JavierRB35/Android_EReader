@@ -75,6 +75,16 @@ El **mismo flujo de usuario** debe funcionar en todos los formatos que tengan te
 
 La existencia de `ReadingRepository` y `AnnotationEntity` **no prueba** que la selección/UX del usuario funcione de punta a punta.
 
+## 6.1. Conectar el módulo BYOK ya publicado sin duplicarlo
+
+El agente local publicó en `main` el commit `63d5571`: `ai/AiKeyStore.kt`, `AiClients.kt`, `BookTextSource.kt`, `AiSetupActivity.kt`, `AiChatActivity.kt`.
+
+- Actualmente `AiChatActivity.start(context, bookId)` **solo recibe un ID de libro**. La entrada desde «Interpretar con IA» de la selección debe añadir un contrato seguro y versionado con **bookId, contentHash, locator, cita exacta y contexto cercano acotado** (no URL ni texto de libro completo); verificar que ese anclaje pertenece al libro abierto.
+- Precargar el texto elegido y pregunta «Interpreta este fragmento» en la conversación o en un cuadro contextual que reutilice los proveedores existentes. Usar el mismo motor de Gemini/Groq y sus controles de clave, cuota, anti-spoilers, consentimiento y referencias; **prohibido implementar otro cliente IA paralelo**.
+- Si no existe clave, ofrecer configuración guiada preservando la selección y posición; al volver, recuperar el fragmento, no arrancar una conversación genérica sin referencia.
+- «Añadir al texto» solo guarda resultado explícitamente aceptado como anotación `AI` o tipo equivalente con locator, cita y fecha; cerrar/cancelar no guarda ni mueve la lectura.
+- Tests de integración con `AiChatActivity`: selección de dos libros con misma frase, referencia correcta, 1200 caracteres, ausencia de clave, error remoto, restauración desde backup y conservación del scroll.
+
 ## 7. Pruebas de aceptación P0 (automáticas + Android real)
 
 **No aprobar 1.0 sin evidencia de cada escenario aplicable por formato:**
