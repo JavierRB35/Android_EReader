@@ -38,6 +38,25 @@ internal object UpdatePayloadPolicy {
         return MessageDigest.isEqual(actualBytes, expectedBytes)
     }
 
+    fun requireSignedUpgrade(
+        installedPackage: String,
+        incomingPackage: String,
+        installedVersionCode: Long,
+        incomingVersionCode: Long,
+        installedSignatures: Set<String>,
+        incomingSignatures: Set<String>
+    ) {
+        require(incomingPackage == installedPackage) {
+            "La APK no pertenece a Biblioteca IA."
+        }
+        require(incomingVersionCode > installedVersionCode) {
+            "La APK no es posterior a la instalada."
+        }
+        require(installedSignatures.isNotEmpty() && installedSignatures == incomingSignatures) {
+            "La firma de esta APK no coincide con la aplicación instalada. No la desinstales."
+        }
+    }
+
     /** Official release CDN redirects; never accept HTTP or a foreign host. */
     fun allowedDownloadHost(host: String): Boolean = host in setOf(
         "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"
