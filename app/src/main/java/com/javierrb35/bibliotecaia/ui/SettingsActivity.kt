@@ -5,10 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
+import com.google.android.material.button.MaterialButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -20,11 +22,14 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
+import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,12 +41,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
-    private val backupPrefs by lazy {
-        getSharedPreferences("biblioteca_backup_destination", MODE_PRIVATE)
-    }
-    private val backupManager by lazy {
-        CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
-    }
+    private lateinit var backupStatus: TextView
+    private lateinit var backupError: TextView
+    private lateinit var backupRecovery: MaterialButton
+    private lateinit var backupPrimary: MaterialButton
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -53,10 +56,16 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private val createBackup = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri: Uri? ->
-        if (uri != null && persistBackupPermission(uri)) {
-            exportTo(uri, replaceExisting = false, rememberDestination = true)
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.let { data ->
+                data.data?.let { uri ->
+                    if (persistBackupPermission(uri, data.flags)) {
+                        exportTo(uri, replaceExisting = false)
+                    }
+                }
+            }
         }
     }
 
@@ -64,9 +73,11 @@ class SettingsActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            result.data?.data?.let { uri ->
-                if (persistBackupPermission(uri)) {
-                    exportTo(uri, replaceExisting = true, rememberDestination = true)
+            result.data?.let { data ->
+                data.data?.let { uri ->
+                    if (persistBackupPermission(uri, data.flags)) {
+                        exportTo(uri, replaceExisting = true)
+                    }
                 }
             }
         }
@@ -82,135 +93,154 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setPadding(dp(22), dp(22), dp(22), dp(26))
         }
-        val root = ScrollView(this).apply { addView(layout) }
+        val root = ScrollView(this).apply {
+            isFillViewport = true
+            setBackgroundColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_background))
+            addView(layout)
+        }
         setContentView(root)
 
         header(layout, getString(R.string.settings_title))
-
+        hint(layout, getString(R.string.settings_subtitle))
         section(layout, getString(R.string.settings_backup))
-        action(layout, getString(R.string.settings_backup_export)) {
-            if (!backupBusy) {
-                val stored = writableBackupDestination()
-                if (stored != null) exportTo(stored, replaceExisting = true)
-                else chooseBackupDestination()
-            }
+
+        val backupCard = card(layout)
+        hint(backupCard, getString(R.string.settings_backup_intro))
+        backupStatus = hint(backupCard, "")
+        backupError = hint(backupCard, "")
+
+        backupPrimary = action(backupCard, getString(R.string.settings_backup_create_now), primary = true) {
+            if (backupBusy) return@action
+            val destination = BackupRoutine.status(this).uri
+            if (destination == null) chooseBackupDestination()
+            else exportTo(destination, replaceExisting = true)
         }
-        action(layout, getString(R.string.settings_backup_change_file)) {
+        action(backupCard, getString(R.string.settings_backup_pick_destination)) {
             if (!backupBusy) chooseBackupDestination()
         }
-        if (backupManager.hasPendingRecovery()) {
-            action(layout, getString(R.string.settings_backup_recover_previous)) {
-                if (!backupBusy) recoverPreviousBackup()
+        action(backupCard, getString(R.string.settings_backup_restore_action)) {
+            if (!backupBusy) {
+                importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
             }
         }
-        action(layout, getString(R.string.settings_backup_restore)) {
-            if (!backupBusy) importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+
+        backupRecovery = action(backupCard, getString(R.string.settings_backup_recover_previous)) {
+            if (!backupBusy) recoverPreviousBackup()
         }
-        hint(layout, getString(R.string.settings_backup_note))
-        action(layout, getString(R.string.settings_backup_legacy)) {
+        hint(backupCard, getString(R.string.settings_backup_privacy_note))
+
+        action(layout, getString(R.string.settings_backup_legacy_short)) {
             if (!backupBusy) importLegacyJson.launch(arrayOf("application/json"))
         }
 
         section(layout, getString(R.string.settings_updates))
-        action(layout, getString(R.string.settings_updates_check)) { checkUpdates() }
-        action(layout, "Activar avisos automáticos de actualización") {
+        val updatesCard = card(layout)
+        action(updatesCard, getString(R.string.settings_updates_check)) { checkUpdates() }
+        action(updatesCard, getString(R.string.settings_updates_notifications)) {
             enableBackgroundNotifications()
         }
-        hint(layout, "La app comprueba nuevas versiones al abrirse y cada dos minutos de uso. " +
-            "Android programa las comprobaciones en segundo plano aproximadamente cada 15 minutos o más, " +
-            "según ahorro de batería y conectividad. La instalación siempre necesita tu autorización.")
+        hint(updatesCard, getString(R.string.settings_updates_short_note))
 
         section(layout, getString(R.string.settings_about))
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
+        refreshBackupStatus()
     }
 
-    private fun writableBackupDestination(): Uri? {
-        val text = backupPrefs.getString("uri", null) ?: return null
-        val uri = Uri.parse(text)
-        val permission = contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
-        return if (permission?.isReadPermission == true &&
-            permission.isWritePermission) uri else null
+    override fun onResume() {
+        super.onResume()
+        if (::backupStatus.isInitialized) refreshBackupStatus()
+    }
+
+    private fun refreshBackupStatus() {
+        val state = BackupRoutine.status(this)
+        backupStatus.text = when {
+            state.recoveryPending -> getString(R.string.settings_backup_recovery_required)
+            state.uri == null -> getString(R.string.settings_backup_not_configured)
+            state.lastSuccess == 0L -> getString(R.string.settings_backup_not_verified)
+            else -> getString(R.string.settings_backup_last_verified,
+                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                    .format(Date(state.lastSuccess)))
+        }
+        backupStatus.setTextColor(ContextCompat.getColor(this,
+            if (state.recoveryPending || state.uri == null) R.color.bia_accent
+            else R.color.bia_text))
+        backupError.visibility = if (state.lastError.isBlank()) View.GONE else View.VISIBLE
+        backupError.text = if (state.lastError.isBlank()) "" else
+            getString(R.string.settings_backup_last_error, state.lastError)
+        backupRecovery.visibility = if (state.recoveryPending) View.VISIBLE else View.GONE
+        backupPrimary.text = getString(R.string.settings_backup_create_now)
+        backupPrimary.isEnabled = !backupBusy && !state.recoveryPending
     }
 
     private fun chooseBackupDestination() {
+        // Scriptura's two explicit SAF choices: create once, or reuse an
+        // existing file. CreateDocument alone cannot overwrite an existing ZIP.
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.settings_backup_change_file)
-            .setMessage(R.string.settings_backup_choose_file)
-            .setPositiveButton(R.string.settings_backup_choose_existing) { _, _ ->
-                selectExistingBackup.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            .setTitle(R.string.settings_backup_pick_destination)
+            .setItems(arrayOf(
+                getString(R.string.settings_backup_choose_new),
+                getString(R.string.settings_backup_choose_existing)
+            )) { _, option ->
+                val create = option == 0
+                val intent = Intent(
+                    if (create) Intent.ACTION_CREATE_DOCUMENT else Intent.ACTION_OPEN_DOCUMENT
+                ).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "application/zip"
-                    putExtra(Intent.EXTRA_MIME_TYPES,
-                        arrayOf("application/zip", "application/x-zip-compressed"))
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                         Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                })
-            }
-            .setNeutralButton(R.string.settings_backup_choose_new) { _, _ ->
-                // Only the first backup creates a document. Every later save
-                // reuses its persisted URI, avoiding name(1).zip copies.
-                createBackup.launch("BibliotecaIA-completa.zip")
+                    if (create) putExtra(Intent.EXTRA_TITLE, "BibliotecaIA-completa.zip")
+                }
+                if (create) createBackup.launch(intent) else selectExistingBackup.launch(intent)
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
-    private fun persistBackupPermission(uri: Uri): Boolean {
+    private fun persistBackupPermission(uri: Uri, resultFlags: Int): Boolean {
         return try {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
+            val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            require((resultFlags and mask) == mask) {
+                getString(R.string.settings_backup_permission_error)
+            }
+            contentResolver.takePersistableUriPermission(uri, mask)
             true
-        } catch (e: SecurityException) {
+        } catch (_: Exception) {
             Toast.makeText(this, getString(R.string.settings_backup_permission_error),
                 Toast.LENGTH_LONG).show()
             false
         }
     }
 
-    private fun exportTo(
-        uri: Uri,
-        replaceExisting: Boolean,
-        rememberDestination: Boolean = false
-    ) {
+    private fun exportTo(uri: Uri, replaceExisting: Boolean) {
         if (backupBusy) return
         backupBusy = true
+        refreshBackupStatus()
+        backupStatus.text = getString(R.string.settings_backup_in_progress)
         lifecycleScope.launch {
             try {
-                val report = withContext(Dispatchers.IO) {
-                    backupManager.exportTo(uri, replaceExisting)
-                }
-                if (rememberDestination) {
-                    backupPrefs.edit().putString("uri", uri.toString()).apply()
-                }
+                BackupRoutine.save(applicationContext, db, BuildConfig.VERSION_NAME,
+                    force = true, chosenUri = uri, replaceExisting = replaceExisting)
+                refreshBackupStatus()
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_export_done_title)
-                    .setMessage(getString(R.string.backup_export_done_full, report.books))
+                    .setMessage(R.string.settings_backup_verified_message)
                     .setPositiveButton(R.string.dialog_ok, null).show()
-            } catch (e: Exception) {
-                if (backupManager.hasPendingRecovery()) {
-                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
-                        .setTitle(R.string.settings_backup_recover_previous)
-                        .setMessage(getString(R.string.backup_error,
-                            e.message ?: getString(R.string.backup_error_generic)))
-                        .setPositiveButton(R.string.settings_backup_recover_previous) { _, _ ->
-                            recoverPreviousBackup()
-                        }
-                        .setNegativeButton(R.string.dialog_cancel, null).show()
-                } else {
-                    Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
-                        e.message ?: getString(R.string.backup_error_generic)),
-                        Toast.LENGTH_LONG).show()
-                }
+            } catch (error: Exception) {
+                refreshBackupStatus()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.settings_backup_error_title)
+                    .setMessage(error.message ?: getString(R.string.backup_error_generic))
+                    .setPositiveButton(R.string.dialog_ok, null).show()
             } finally {
                 backupBusy = false
+                refreshBackupStatus()
             }
         }
     }
@@ -220,17 +250,19 @@ class SettingsActivity : AppCompatActivity() {
         backupBusy = true
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) { backupManager.recoverPreviousCopy() }
+                BackupRoutine.recover(applicationContext, db, BuildConfig.VERSION_NAME)
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.settings_backup_recover_previous)
                     .setMessage(R.string.settings_backup_recovered)
                     .setPositiveButton(R.string.dialog_ok, null).show()
-            } catch (e: Exception) {
-                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
-                    e.message ?: getString(R.string.backup_error_generic)),
-                    Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.settings_backup_error_title)
+                    .setMessage(error.message ?: getString(R.string.backup_error_generic))
+                    .setPositiveButton(R.string.dialog_ok, null).show()
             } finally {
                 backupBusy = false
+                refreshBackupStatus()
             }
         }
     }
@@ -249,8 +281,7 @@ class SettingsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
-                        .restoreFrom(uri)
+                    BackupRoutine.restore(applicationContext, db, BuildConfig.VERSION_NAME, uri)
                 }
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_restore_done_title)
@@ -330,47 +361,90 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- construcción de vistas (tokens del sistema de diseño) ----------
+    // ---------- OLED settings: compact premium cards, proper Android touch targets ----------
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun header(parent: LinearLayout, text: String) {
+    private fun header(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            setText(text)
-            textSize = 30f
-            setTypeface(Typeface.SERIF)
+            text = value
+            textSize = 29f
+            typeface = Typeface.SERIF
             setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text))
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+            setPadding(0, 0, 0, dp(3))
+        })
+    }
+
+    private fun section(parent: LinearLayout, value: String) {
+        parent.addView(TextView(this).apply {
+            text = value
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
+            setPadding(0, dp(21), 0, dp(9))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
         })
     }
 
-    private fun section(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
+    private fun card(parent: LinearLayout): LinearLayout {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(17), dp(14), dp(17), dp(14))
+            background = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_surface))
+                cornerRadius = dp(17).toFloat()
+                setStroke(dp(1), ContextCompat.getColor(this@SettingsActivity, R.color.bia_outline))
+            }
+        }
+        parent.addView(content, LinearLayout.LayoutParams(-1, -2))
+        return content
+    }
+
+    private fun action(
+        parent: LinearLayout,
+        label: String,
+        primary: Boolean = false,
+        onClick: () -> Unit,
+    ): MaterialButton {
+        val button = MaterialButton(this).apply {
+            text = label
+            isAllCaps = false
             textSize = 14f
-            setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            setPadding(0, dp(28), 0, dp(4))
-        })
-    }
-
-    private fun action(parent: LinearLayout, text: String, onClick: () -> Unit) {
-        parent.addView(Button(this).apply {
-            setText(text)
-            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            background = null
-            setPadding(0, dp(12), 0, dp(12))
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            minHeight = dp(48)
+            cornerRadius = dp(12)
+            insetTop = 0
+            insetBottom = 0
+            backgroundTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(this@SettingsActivity,
+                    if (primary) R.color.bia_accent else R.color.bia_surface_high)
+            )
+            setTextColor(ContextCompat.getColor(this@SettingsActivity,
+                if (primary) R.color.bia_background else R.color.bia_text))
+            if (!primary) {
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(
+                    ContextCompat.getColor(this@SettingsActivity, R.color.bia_outline))
+            }
             setOnClickListener { onClick() }
-        })
+        }
+        val params = LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+        }
+        parent.addView(button, params)
+        return button
     }
 
-    private fun hint(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
+    private fun hint(parent: LinearLayout, value: String): TextView {
+        val view = TextView(this).apply {
+            text = value
             textSize = 13f
             setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text_secondary))
-            setPadding(0, dp(8), 0, dp(8))
-        })
+            setLineSpacing(dp(2).toFloat(), 1.08f)
+            setPadding(0, dp(3), 0, dp(4))
+        }
+        parent.addView(view)
+        return view
     }
 }

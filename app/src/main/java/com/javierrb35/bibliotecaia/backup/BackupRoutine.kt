@@ -1,0 +1,169 @@
+package com.javierrb35.bibliotecaia.backup
+
+import android.content.Context
+import android.net.Uri
+import com.javierrb35.bibliotecaia.data.AppDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
+
+/**
+ * Scriptura-style workflow: one SAF document, visible status, manual creation,
+ * and a non-destructive on-launch refresh ONLY when the library has changed.
+ *
+ * All manual, automatic and restoration operations are serialised. The original
+ * ZIP's read-back/rollback guarantees remain owned by CompleteBackupManager.
+ * No Drive OAuth, automatic remote login, or credentials are needed.
+ */
+object BackupRoutine {
+    private const val PREFS = "biblioteca_backup_destination"
+    private const val TARGET_URI = "uri"
+    private const val FINGERPRINT = "fingerprint"
+    private const val LAST_SUCCESS = "last_success"
+    private const val LAST_ERROR = "last_error"
+    private val lock = Mutex()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    data class Status(
+        val uri: Uri?,
+        val lastSuccess: Long,
+        val lastError: String,
+        val recoveryPending: Boolean,
+    )
+    enum class Result { SAVED, UNCHANGED }
+
+    fun status(context: Context): Status {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val uri = prefs.getString(TARGET_URI, null)?.let(Uri::parse)
+            ?.takeIf { picked ->
+                context.contentResolver.persistedUriPermissions.any { permission ->
+                    permission.uri == picked && permission.isReadPermission &&
+                        permission.isWritePermission
+                }
+            }
+        return Status(
+            uri = uri,
+            lastSuccess = prefs.getLong(LAST_SUCCESS, 0),
+            lastError = prefs.getString(LAST_ERROR, "").orEmpty(),
+            recoveryPending = File(context.filesDir, "previous-complete-backup.zip").isFile &&
+                context.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
+                    .getString("uri", null) != null,
+        )
+    }
+
+    /** Called only from the library entry screen or after importing an original. */
+    fun refreshOnLibraryOpen(context: Context, version: String) {
+        val app = context.applicationContext
+        if (status(app).uri == null) return
+        scope.launch {
+            try {
+                save(app, AppDatabase.get(app), version, force = false)
+            } catch (_: Exception) {
+                // The last error is persisted; users can inspect it in Ajustes.
+                // A failed automatic refresh must never interrupt reading.
+            }
+        }
+    }
+
+    suspend fun save(
+        context: Context,
+        database: AppDatabase,
+        version: String,
+        force: Boolean,
+        chosenUri: Uri? = null,
+        replaceExisting: Boolean = true,
+    ): Result = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val app = context.applicationContext
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val current = status(app)
+            val uri = chosenUri ?: current.uri
+                ?: throw IllegalStateException("Primero elige dónde guardar la copia.")
+            // Do not auto-refresh into a different URI after the destination changed.
+            if (chosenUri == null && current.uri != uri) {
+                throw IllegalStateException("El destino de la copia ha cambiado.")
+            }
+            val manager = CompleteBackupManager(app, database, version)
+            try {
+                check(!manager.hasPendingRecovery()) {
+                    "Existe una copia anterior pendiente de recuperación. Recupérala desde Ajustes."
+                }
+                val signature = libraryFingerprint(app, database, version)
+                if (!force && chosenUri == null &&
+                    signature == prefs.getString(FINGERPRINT, null) &&
+                    prefs.getLong(LAST_SUCCESS, 0L) > 0L
+                ) return@withLock Result.UNCHANGED
+
+                manager.exportTo(uri, replaceExisting = replaceExisting)
+                // Re-read the fingerprint AFTER saving. A change arriving during
+                // the export must be saved on the next launch, not silently omitted.
+                val after = libraryFingerprint(app, database, version)
+                check(prefs.edit()
+                    .putString(TARGET_URI, uri.toString())
+                    .putString(FINGERPRINT,
+                        if (after == signature) signature else "")
+                    .putLong(LAST_SUCCESS, System.currentTimeMillis())
+                    .putString(LAST_ERROR, "")
+                    .commit()) {
+                    "La copia se verificó, pero no se pudo guardar su configuración."
+                }
+                Result.SAVED
+            } catch (error: Exception) {
+                // A failed attempt must not change an already configured target.
+                prefs.edit().putString(
+                    LAST_ERROR, error.message ?: "No se ha podido guardar la copia."
+                ).apply()
+                throw error
+            }
+        }
+    }
+
+    suspend fun restore(context: Context, database: AppDatabase, version: String, uri: Uri):
+        CompleteBackupManager.ImportResult = withContext(Dispatchers.IO) {
+        lock.withLock {
+            val result = CompleteBackupManager(context.applicationContext, database, version)
+                .restoreFrom(uri)
+            // The restored state may differ; force comparison on next library entry.
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(FINGERPRINT).apply()
+            result
+        }
+    }
+
+    suspend fun recover(context: Context, database: AppDatabase, version: String) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                CompleteBackupManager(context.applicationContext, database, version)
+                    .recoverPreviousCopy()
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().remove(FINGERPRINT).putString(LAST_ERROR, "").apply()
+            }
+        }
+
+    /**
+     * Stable hash includes all books, notes, versions, positions, categories and
+     * relationships from the portable JSON plus internal original file metadata.
+     * Never includes any API keys or device-specific user credentials.
+     */
+    private suspend fun libraryFingerprint(
+        context: Context, database: AppDatabase, version: String
+    ): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val json = BackupManager(database, version).exportJson(exportedAt = 0L)
+        digest.update(json.toByteArray(Charsets.UTF_8))
+        for (book in database.backupDao().booksAll().sortedBy { it.id }) {
+            val file = File(book.localPath)
+            digest.update(
+                ("\n" + book.id + ":" + file.length() + ":" +
+                    file.lastModified() + ":" + file.isFile).toByteArray(Charsets.UTF_8)
+            )
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+}
