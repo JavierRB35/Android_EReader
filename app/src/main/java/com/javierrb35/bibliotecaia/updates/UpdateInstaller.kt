@@ -301,21 +301,14 @@ internal object UpdateInstaller {
         val downloaded = pm.getPackageArchiveInfo(apk.absolutePath, flag)
             ?: throw IllegalArgumentException("El archivo descargado no es una APK válida.")
         val installed = pm.getPackageInfo(context.packageName, flag)
-        require(downloaded.packageName == context.packageName) {
-            "La APK no pertenece a Biblioteca IA."
-        }
         val candidateVersion = if (Build.VERSION.SDK_INT >= 28)
             downloaded.longVersionCode else downloaded.versionCode.toLong()
         val installedVersion = if (Build.VERSION.SDK_INT >= 28)
             installed.longVersionCode else installed.versionCode.toLong()
-        require(candidateVersion > installedVersion) {
-            "La APK no es posterior a la instalada."
-        }
-        val currentSigners = signerDigests(installed)
-        val newSigners = signerDigests(downloaded)
-        require(currentSigners.isNotEmpty() && newSigners == currentSigners) {
-            "La firma de esta APK no coincide con la aplicación instalada. No la desinstales."
-        }
+        UpdatePayloadPolicy.requireSignedUpgrade(
+            context.packageName, downloaded.packageName, installedVersion, candidateVersion,
+            signerDigests(installed), signerDigests(downloaded)
+        )
     }
 
     @Suppress("DEPRECATION")
