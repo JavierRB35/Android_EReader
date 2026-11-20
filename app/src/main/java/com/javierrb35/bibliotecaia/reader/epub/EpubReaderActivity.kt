@@ -171,11 +171,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
                         if (nativeMode && nativeChapter != null) paintNativeMarks()
-                        fragment.applyDecorations(saved.filter {
-                            it.kind == "HIGHLIGHT" && NativeEpubAnchors.point(it.locator) == null
-                        }.mapNotNull { note ->
-                            parseLocator(note.locator)?.let { Decoration(note.id, it, Decoration.Style.Underline(note.color)) }
-                        }, "annotations")
+                        // Readium needs a visual decoration for NOTE as well as
+                        // HIGHLIGHT. Notes from the native EPUB text surface are
+                        // kept separate because their offsets refer to normalized text.
+                        fragment.applyDecorations(EpubAnnotationMarks.forReadium(saved), "annotations")
                     }
                 }
             } catch (cancelled: CancellationException) {
