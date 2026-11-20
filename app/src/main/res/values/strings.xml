@@ -75,4 +75,30 @@
     <string name="organize_tag_name">Nombre de la etiqueta</string>
     <string name="organize_new_collection">Nueva colección</string>
     <string name="organize_collection_name">Nombre de la colección</string>
+
+    <string name="settings_title">Ajustes</string>
+        <string name="settings_account">Cuenta y Google</string>
+        <string name="settings_account_open">Cuenta y Google Drive…</string>
+        <string name="settings_services">Estado de servicios</string>
+        <string name="settings_services_summary">Biblioteca local: %1$d libros\nSupabase: %2$s\nGoogle: %3$s</string>
+        <string name="service_ready">listo</string>
+        <string name="service_not_configured">sin configurar (ver docs/setup)</string>
+        <string name="settings_backup">Copia de seguridad</string>
+        <string name="settings_backup_export">Exportar copia (metadatos y anotaciones)</string>
+        <string name="settings_backup_restore">Restaurar copia…</string>
+        <string name="settings_backup_note">La copia incluye metadatos, organización y anotaciones; los archivos de libros deben reimportarse si falta alguno. La restauración es aditiva: nunca borra ni sobrescribe lo que ya tienes.</string>
+        <string name="settings_updates">Actualizaciones</string>
+        <string name="settings_updates_check">Comprobar ahora</string>
+        <string name="updates_none">Ya tienes la última versión.</string>
+        <string name="updates_available">Versión %1$s disponible</string>
+        <string name="updates_notes_missing">Sin notas de la versión.</string>
+        <string name="updates_view">Ver en GitHub</string>
+        <string name="settings_about">Acerca de</string>
+        <string name="settings_about_text">Biblioteca IA %1$s — lector EPUB/PDF/MOBI con biblioteca personal y IA.</string>
+        <string name="backup_export_ok">Copia exportada correctamente.</string>
+        <string name="backup_restore_confirm">La restauración es aditiva: añade libros y anotaciones de la copia sin borrar ni sobrescribir nada. ¿Continuar?</string>
+        <string name="backup_restore_done_title">Restauración completada</string>
+        <string name="backup_restore_done">Libros añadidos: %1$d (omitidos por existir: %2$d)\nAnotaciones añadidas: %3$d (omitidas: %4$d)\nPosiciones actualizadas: %5$d\n\nLos libros cuyo archivo no esté en este dispositivo deben reimportarse para poder leerse.</string>
+        <string name="backup_error">Error de copia: %1$s</string>
+        <string name="action_settings">Ajustes</string>
 </resources>

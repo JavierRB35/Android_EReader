@@ -91,6 +91,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnOrganize).setOnClickListener {
             startActivity(Intent(this, OrganizeActivity::class.java))
         }
+        findViewById<View>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         findViewById<View>(R.id.btnImport).setOnClickListener {
             importLauncher.launch(IMPORT_MIME_TYPES)
         }

@@ -37,6 +37,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun collectionDao(): CollectionDao
     abstract fun refsDao(): RefsDao
+    abstract fun backupDao(): BackupDao
 
     companion object {
 

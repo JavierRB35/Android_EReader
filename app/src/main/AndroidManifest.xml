@@ -29,6 +29,7 @@
             android:exported="false" />
         <activity android:name=".ui.KnowledgeActivity" android:exported="false" />
         <activity android:name=".ui.AccountActivity" android:exported="false" />
+        <activity android:name=".ui.SettingsActivity" android:exported="false" />
         <activity android:name=".reader.epub.EpubReaderActivity" android:exported="false" />
         <activity android:name=".reader.pdf.PdfReaderActivity" android:exported="false" />
         <activity android:name=".reader.mobi.MobiReaderActivity" android:exported="false" />
