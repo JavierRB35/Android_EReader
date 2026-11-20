@@ -65,4 +65,23 @@ internal object NativeEpubAnchors {
             !SelectionAnchors.exactMatch(plainText, point.offset, quote)) return null
         return point.offset until (point.offset + point.length)
     }
+
+    /**
+     * Best-effort compatibility for older Readium NOTE/HIGHLIGHT locators.
+     * Their JSON has no native UTF-16 offset, so a native-mode mark is only
+     * safe when the excerpt appears exactly once in this same chapter.
+     * A repeated quote is deliberately left unmarked rather than guessed.
+     */
+    fun uniqueLegacyReadiumRange(
+        locator: String?, quote: String, chapterHref: String, plainText: String
+    ): IntRange? {
+        if (locator.isNullOrBlank() || quote.isBlank() || point(locator) != null) return null
+        val json = runCatching { JSONObject(locator) }.getOrNull() ?: return null
+        if (json.optString("href") != chapterHref ||
+            json.optJSONObject("text")?.optString("highlight") != quote) return null
+        val found = plainText.indexOf(quote)
+        if (found < 0 || plainText.indexOf(quote, found + 1) >= 0) return null
+        return found until (found + quote.length)
+    }
+
 }
