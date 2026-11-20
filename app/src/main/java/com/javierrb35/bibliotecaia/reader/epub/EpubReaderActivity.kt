@@ -4,6 +4,7 @@ package com.javierrb35.bibliotecaia.reader.epub
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Color
 import android.os.Bundle
 import android.view.ActionMode
@@ -20,6 +21,10 @@ import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.ai.AiChatActivity
+import com.javierrb35.bibliotecaia.ai.AiKeyStore
+import com.javierrb35.bibliotecaia.study.DefinitionUi
+import com.javierrb35.bibliotecaia.study.WordMeaning
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -302,22 +307,80 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             }.setNegativeButton("Cancelar", null).show()
     }
 
+    private fun aiConfigured() = AiKeyStore.providers().any { AiKeyStore.getKey(this, it) != null }
+
+    private fun definitionDelegate(locator: String): DefinitionUi.Delegate =
+        object : DefinitionUi.Delegate {
+            override fun openExternal(url: String) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addCategory(Intent.CATEGORY_BROWSABLE))
+                } catch (_: Exception) {
+                    toast("No se pudo abrir la fuente externa.")
+                }
+            }
+
+            override fun explainWithGemini(word: String) {
+                AiChatActivity.start(this@EpubReaderActivity, bookId, word, locator)
+            }
+
+            override fun showError(message: String) = toast(message)
+        }
+
+    /** The native copy/share/select-all actions are intentionally preserved. */
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-            menu?.clear(); menu?.add(0, 1, 0, R.string.epub_annotate); return true
+            DefinitionUi.populateSelectionMenu(menu)
+            return true
         }
-        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?) = false
+
+        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+            DefinitionUi.populateSelectionMenu(menu)
+            return true
+        }
+
         override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
-            if (item?.itemId != 1) return false
+            if (item == null || !DefinitionUi.isStudyAction(item.itemId)) return false
             lifecycleScope.launch {
-                val selection = navigator?.currentSelection() ?: return@launch
-                val quote = selection.locator.text.highlight.orEmpty()
-                if (quote.isNotBlank()) AnnotationEditor.show(this@EpubReaderActivity, bookId,
-                    selection.locator.toJSON().toString(), quote, "HIGHLIGHT")
-                mode?.finish()
+                try {
+                    // Capture the Readium selection BEFORE closing its ActionMode.
+                    val selection = navigator?.currentSelection()
+                    val quote = selection?.locator?.text?.highlight.orEmpty()
+                    val locator = selection?.locator?.toJSON()?.toString()
+                    if (locator == null || quote.isBlank()) {
+                        toast("Selecciona un fragmento válido.")
+                        return@launch
+                    }
+                    when {
+                        DefinitionUi.isDefinition(item.itemId) -> {
+                            if (!WordMeaning.oneWord(quote)) {
+                                toast("Selecciona una sola palabra para consultar su significado.")
+                            } else DefinitionUi.show(this@EpubReaderActivity, quote,
+                                aiConfigured(), definitionDelegate(locator))
+                        }
+                        DefinitionUi.isAnnotate(item.itemId) ->
+                            AnnotationEditor.show(this@EpubReaderActivity, bookId, locator,
+                                quote, "NOTE")
+                        DefinitionUi.isUnderline(item.itemId) -> {
+                            repository.addAnnotation(bookId, locator, quote, "", "HIGHLIGHT")
+                            toast("Texto subrayado.")
+                        }
+                        DefinitionUi.isExplain(item.itemId) -> {
+                            if (quote.length > 1200) toast("Selecciona un máximo de 1.200 caracteres.")
+                            else AiChatActivity.start(this@EpubReaderActivity, bookId, quote, locator)
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    toast("No se pudo completar la acción sobre el texto.")
+                } finally {
+                    mode?.finish()
+                }
             }
             return true
         }
+
         override fun onDestroyActionMode(mode: ActionMode?) {}
     }
 
