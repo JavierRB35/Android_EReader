@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bia_background">#000000</color>
+    <color name="bia_surface">#161819</color>
+    <color name="bia_surface_high">#242729</color>
+    <color name="bia_text">#E8DFCE</color>
+    <color name="bia_text_secondary">#AAA79E</color>
+    <color name="bia_accent">#D4B483</color>
+    <color name="bia_outline">#414343</color>
+    <string name="bia_library_eyebrow">TU ESPACIO DE LECTURA</string>
+    <string name="bia_local">En este dispositivo</string>
+    <string name="bia_importing">Importando libro…</string>
+    <string name="bia_no_results">No hay libros con estos filtros. Prueba otra búsqueda o selecciona Todos.</string>
+    <string name="bia_empty">Tu próxima lectura empieza aquí</string>
+    <string name="bia_empty_detail">Importa un EPUB, PDF o MOBI para crear tu biblioteca personal. Tus libros permanecen en este dispositivo.</string>
+    <string name="bia_no_cover">SIN PORTADA</string>
+    <string name="bia_cover_description">Portada de %1$s</string>
+    <string name="bia_missing_cover_description">%1$s, portada no disponible</string>
+    <string name="bia_book_count">%1$d libros</string>
+    <string name="bia_progress">%1$d %% leído</string>
+    <string name="bia_not_started">Por descubrir</string>
+    <string name="bia_recent">Abierto recientemente</string>
+    <style name="Widget.BibliotecaIA.Filter" parent="Widget.Material3.Chip.Filter">
+        <item name="ensureMinTouchTargetSize">true</item>
+    </style>
+</resources>

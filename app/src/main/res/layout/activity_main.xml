@@ -1,140 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#000000"
-    android:padding="24dp">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:id="@+id/txtTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/library_title"
-            android:textSize="28sp"
-            android:textStyle="bold"
-            android:textColor="#E0D6CC" />
-
-        <Button
-            android:id="@+id/btnOrganize"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/action_organize"
-            android:textColor="#D7CCC8" />
-
-        <Button
-            android:id="@+id/btnViewMode"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/action_grid"
-            android:textColor="#D7CCC8" />
-
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
+    android:background="@color/bia_background" android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="16dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/bia_library_eyebrow"
+        android:textSize="10sp" android:letterSpacing="0.18" android:textColor="@color/bia_accent"/>
+    <TextView android:id="@+id/txtTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:text="@string/library_title" android:textSize="32sp"
+        android:fontFamily="serif" android:textColor="@color/bia_text" android:accessibilityHeading="true"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:text="@string/bia_local" android:textSize="12sp" android:textColor="@color/bia_text_secondary"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnOrganize" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/action_organize"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnViewMode" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/action_list"/>
     </LinearLayout>
-
-    <EditText
-        android:id="@+id/txtSearch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:hint="@string/search_hint"
-        android:inputType="text"
-        android:maxLines="1"
-        android:textColor="#E0D6CC"
-        android:textColorHint="#7A7066" />
-
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none">
-
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/chipShelves"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:singleSelection="true"
-            app:selectionRequired="true"
-            app:singleLine="true">
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipAll"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="@string/shelf_all" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipFavorites"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/shelf_favorites" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipPending"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/shelf_pending" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipReading"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/shelf_reading" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipFinished"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/shelf_finished" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipAbandoned"
-                style="@style/Widget.MaterialComponents.Chip.Choice"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/shelf_abandoned" />
-
+    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:hint="@string/search_hint"
+        app:boxCornerRadiusTopStart="16dp" app:boxCornerRadiusTopEnd="16dp" app:boxCornerRadiusBottomStart="16dp" app:boxCornerRadiusBottomEnd="16dp"
+        app:endIconMode="clear_text">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/txtSearch"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text"
+            android:singleLine="true" android:textSize="14sp" android:imeOptions="actionSearch"/>
+    </com.google.android.material.textfield.TextInputLayout>
+    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:scrollbars="none">
+        <com.google.android.material.chip.ChipGroup android:id="@+id/chipShelves" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            app:singleSelection="true" app:selectionRequired="true" app:singleLine="true">
+            <com.google.android.material.chip.Chip android:id="@+id/chipAll" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_all" android:checked="true"/>
+            <com.google.android.material.chip.Chip android:id="@+id/chipFavorites" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_favorites" />
+            <com.google.android.material.chip.Chip android:id="@+id/chipPending" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_pending" />
+            <com.google.android.material.chip.Chip android:id="@+id/chipReading" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_reading" />
+            <com.google.android.material.chip.Chip android:id="@+id/chipFinished" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_finished" />
+            <com.google.android.material.chip.Chip android:id="@+id/chipAbandoned" style="@style/Widget.BibliotecaIA.Filter"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_abandoned" />
         </com.google.android.material.chip.ChipGroup>
-
     </HorizontalScrollView>
-
-    <TextView
-        android:id="@+id/txtEmpty"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:text="@string/library_empty"
-        android:textSize="16sp"
-        android:textColor="#A89C90" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerBooks"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="8dp"
-        android:visibility="gone"
-        android:clipToPadding="false" />
-
-    <Button
-        android:id="@+id/btnImport"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/action_import" />
-
+    <TextView android:id="@+id/txtBookCount" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="8dp"
+        android:textSize="12sp" android:textColor="@color/bia_text_secondary" android:accessibilityLiveRegion="polite"/>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <LinearLayout android:id="@+id/txtEmpty" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:orientation="vertical" android:gravity="center" android:padding="16dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/bia_empty"
+                android:textSize="24sp" android:fontFamily="serif" android:textColor="@color/bia_text" android:gravity="center"/>
+            <TextView android:id="@+id/txtEmptyDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:text="@string/bia_empty_detail" android:textSize="14sp" android:lineSpacingExtra="4dp"
+                android:textColor="@color/bia_text_secondary" android:gravity="center"/>
+        </LinearLayout>
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerBooks" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:visibility="gone" android:clipToPadding="false" android:paddingBottom="8dp"/>
+    </FrameLayout>
+    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/importProgress"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:indeterminate="true" android:visibility="gone"/>
+    <com.google.android.material.button.MaterialButton android:id="@+id/btnImport" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="56dp" android:layout_marginTop="8dp" android:layout_marginBottom="8dp" android:text="@string/action_import" app:cornerRadius="18dp"/>
 </LinearLayout>

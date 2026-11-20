@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +22,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.importer.BookImporter
 import com.javierrb35.bibliotecaia.importer.ImportError
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -37,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: BookAdapter
     private lateinit var recycler: RecyclerView
     private lateinit var emptyState: View
+    private var importing = false
 
     private val queryFlow = MutableStateFlow("")
     private val statusFlow = MutableStateFlow("ALL")
@@ -102,6 +105,9 @@ class MainActivity : AppCompatActivity() {
                     db.bookDao().search(q, s, if (f) 1 else 0, c)
                 }.flatMapLatest { it }.collect { books ->
                     adapter.submit(books)
+                    findViewById<TextView>(R.id.txtBookCount).text = getString(R.string.bia_book_count, books.size)
+                    val filtered = queryFlow.value.isNotEmpty() || statusFlow.value != "ALL" || favoriteOnlyFlow.value || collectionFlow.value.isNotEmpty()
+                    findViewById<TextView>(R.id.txtEmptyDetail).setText(if (filtered) R.string.bia_no_results else R.string.bia_empty_detail)
                     emptyState.visibility = if (books.isEmpty()) View.VISIBLE else View.GONE
                     recycler.visibility = if (books.isEmpty()) View.GONE else View.VISIBLE
                 }
@@ -110,11 +116,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadViewMode(): Boolean =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, false)
+        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, true)
 
     private fun applyViewMode(recycler: RecyclerView, adapter: BookAdapter, grid: Boolean) {
         recycler.layoutManager =
-            if (grid) GridLayoutManager(this, 2) else LinearLayoutManager(this)
+            if (grid) GridLayoutManager(this, ((resources.configuration.screenWidthDp - 40) / 160).coerceIn(2, 6)) else LinearLayoutManager(this)
+        adapter.grid = grid
         findViewById<View>(R.id.btnViewMode).let { btn ->
             (btn as android.widget.Button).setText(if (grid) R.string.action_list else R.string.action_grid)
         }
@@ -127,6 +134,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun importBook(uri: Uri) {
+        if (importing) return
+        importing = true
+        findViewById<View>(R.id.btnImport).isEnabled = false
+        findViewById<TextView>(R.id.btnImport).setText(R.string.bia_importing)
+        findViewById<View>(R.id.importProgress).visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
                 val book = BookImporter(applicationContext, db.bookDao()).import(uri)
@@ -135,11 +147,18 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.import_success, book.title),
                     Toast.LENGTH_LONG
                 ).show()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: ImportError) {
                 // Errores recuperables con mensaje claro (protocolo §17: prevención y recuperación)
                 Toast.makeText(this@MainActivity, e.message, Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, R.string.import_error_generic, Toast.LENGTH_LONG).show()
+            } finally {
+                importing = false
+                findViewById<View>(R.id.btnImport).isEnabled = true
+                findViewById<TextView>(R.id.btnImport).setText(R.string.action_import)
+                findViewById<View>(R.id.importProgress).visibility = View.GONE
             }
         }
     }
