@@ -1,0 +1,69 @@
+name: Android account registration UI (emulator)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/javierrb35/bibliotecaia/auth/**'
+      - 'app/src/main/java/com/javierrb35/bibliotecaia/ui/AccountActivity.kt'
+      - 'app/src/main/res/values/account.xml'
+      - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/auth/**'
+      - 'app/build.gradle'
+      - 'config/biblioteca-auth-public.properties'
+      - '.github/workflows/android-account-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: account-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  account:
+    name: Verify account screen on Android 34 without sending email
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM if present
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          else
+            echo "No KVM: Android emulator will use TCG fallback."
+          fi
+      - name: Run account UI instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: 'yes'
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_4
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.auth.AccountRegistrationUiTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+      - name: Archive account smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-android-instrumentation
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 7
