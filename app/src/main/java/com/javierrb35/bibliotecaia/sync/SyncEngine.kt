@@ -25,6 +25,10 @@ class SyncEngine(
     private val prefs: SharedPreferences,
 ) {
 
+
+
+    private suspend fun jwt(): String = jwtProvider() ?: ""
+
     data class Outcome(
         val pushedBooks: Int = 0,
         val pushedAnnotations: Int = 0,
@@ -66,61 +70,76 @@ class SyncEngine(
         val queue = db.syncQueueDao().all()
         if (queue.isEmpty()) return 0 to 0
 
-        val bookIds = queue.filter { it.entityType == SyncRows.BOOKS }.map { it.entityId }
-        val annotationIds = queue.filter { it.entityType == SyncRows.ANNOTATIONS }.map { it.entityId }
-
         var pushedBooks = 0
         var pushedAnnotations = 0
 
-        if (bookIds.isNotEmpty()) {
-            val rows = JSONArray()
-            val found = mutableListOf<String>()
-            bookIds.forEach { id ->
-                db.bookDao().findById(id)?.let {
-                    rows.put(SyncRows.bookJson(it))
-                    found.add(it.id)
-                }
-            }
-            when (val r = client.pushUpsert(SyncRows.REMOTE_BOOKS, rows, jwt)) {
-                is Result.Ok -> { db.syncQueueDao().clearMany(SyncRows.BOOKS, found); pushedBooks = found.size }
-                is Result.Offline -> Unit // reintento limpio: la cola se conserva
-                is Result.Failure -> {
-                    errors.add("Libros: ${r.message.take(200)}")
-                    dropPoisoned(SyncRows.BOOKS, bookIds, rows.length(), found)
-                }
-            }
-        }
+        // Libros primero (las anotaciones remotas referencian book_id con FK de tenant)
+        pushedBooks += pushEntity(
+            SyncRows.BOOKS, SyncRows.REMOTE_BOOKS,
+            queue.filter { it.entityType == SyncRows.BOOKS },
+            errors,
+        ) { id -> db.bookDao().findById(id)?.let { SyncRows.bookJson(it) to it.id } }
 
-        if (annotationIds.isNotEmpty()) {
-            val rows = JSONArray()
-            val found = mutableListOf<String>()
-            annotationIds.forEach { id ->
-                db.readingDao().annotation(id)?.let {
-                    rows.put(SyncRows.annotationJson(it))
-                    found.add(it.id)
-                }
-            }
-            when (val r = client.pushUpsert(SyncRows.REMOTE_ANNOTATIONS, rows, jwt)) {
-                is Result.Ok -> { db.syncQueueDao().clearMany(SyncRows.ANNOTATIONS, found); pushedAnnotations = found.size }
-                is Result.Offline -> Unit
-                is Result.Failure -> {
-                    errors.add("Anotaciones: ${r.message.take(200)}")
-                    dropPoisoned(SyncRows.ANNOTATIONS, annotationIds, rows.length(), found)
-                }
-            }
-        }
+        pushedAnnotations += pushEntity(
+            SyncRows.ANNOTATIONS, SyncRows.REMOTE_ANNOTATIONS,
+            queue.filter { it.entityType == SyncRows.ANNOTATIONS },
+            errors,
+        ) { id -> db.readingDao().annotation(id)?.let { SyncRows.annotationJson(it) to it.id } }
+
         return pushedBooks to pushedAnnotations
     }
 
-    /** Los lotes van en un único array; si el lote entero era válido y aún falló por
-     *  contenido (4xx), descarta las entradas enviadas para no bloquear la cola con
-     *  filas envenenadas, registrando el error para el usuario. */
-    private suspend fun dropPoisoned(entityType: String, queued: List<String>, sent: Int, found: List<String>) {
-        if (sent > 0 && found.isNotEmpty()) {
-            db.syncQueueDao().clearMany(entityType, found)
-        } else {
-            queued.take(sent).forEach { db.syncQueueDao().clear(entityType, it) }
+    /**
+     * Empuja en un solo lote; si el lote falla, AISLA fila a fila.
+     * Regla de seguridad (revisión del propietario): un fallo HTTP NUNCA descarta un
+     * cambio pendiente — se registra en la entrada (intentos + error) y permanece en
+     * la cola para reintento y diagnóstico. Solo el éxito borra.
+     */
+    private suspend fun pushEntity(
+        entityType: String,
+        remoteTable: String,
+        entries: List<SyncQueueEntry>,
+        errors: MutableList<String>,
+        rowFor: suspend (String) -> Pair<JSONObject, String>?,
+    ): Int {
+        if (entries.isEmpty()) return 0
+        val rows = JSONArray()
+        val ids = mutableListOf<String>()
+        entries.forEach { entry ->
+            rowFor(entry.entityId)?.let { (row, realId) ->
+                rows.put(row)
+                ids.add(realId)
+            }
         }
+        if (rows.length() == 0) return 0
+
+        when (val batch = client.pushUpsert(remoteTable, rows, jwt())) {
+            is Result.Ok -> {
+                db.syncQueueDao().clearMany(entityType, ids)
+                return ids.size
+            }
+            is Result.Offline -> return 0 // sin red: cola intacta, reintento posterior
+            is Result.Failure -> errors.add("$entityType lote: ${batch.message.take(200)}")
+        }
+
+        // Aislamiento fila a fila: una fila inválida no bloquea a las demás
+        var pushed = 0
+        for (index in 0 until rows.length()) {
+            val single = JSONArray().put(rows.getJSONObject(index))
+            val id = ids.getOrNull(index) ?: continue
+            when (val one = client.pushUpsert(remoteTable, single, jwt())) {
+                is Result.Ok -> { db.syncQueueDao().clearMany(entityType, listOf(id)); pushed++ }
+                is Result.Offline -> return pushed
+                is Result.Failure -> {
+                    val kind = SyncPolicy.classifyFailure(one.status)
+                    db.syncQueueDao().markFailed(entityType, id, "HTTP ${one.status} (${kind.label}): ${one.message.take(300)}")
+                    if (kind == SyncPolicy.FailureKind.PERMANENT) {
+                        errors.add("$entityType/${id.take(8)} rechazada (HTTP ${one.status}); la entrada se conserva para revisión")
+                    }
+                }
+            }
+        }
+        return pushed
     }
 
     // ---------- PULL ----------

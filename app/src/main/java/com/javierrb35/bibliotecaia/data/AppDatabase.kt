@@ -60,6 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS sync_queue (" +
                         "entityType TEXT NOT NULL, entityId TEXT NOT NULL, " +
                         "operation TEXT NOT NULL, queuedAt INTEGER NOT NULL, " +
+                        "attempts INTEGER NOT NULL DEFAULT 0, lastError TEXT, " +
                         "PRIMARY KEY(entityType, entityId))"
                 )
             }

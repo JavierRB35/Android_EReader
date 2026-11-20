@@ -15,6 +15,8 @@ data class SyncQueueEntry(
     val entityId: String,     // UUID estable compartido con el remoto
     val operation: String,    // UPSERT
     val queuedAt: Long,
+    val attempts: Int = 0,        // intentos fallidos; la entrada JAMÁS se borra por error
+    val lastError: String? = null // último error HTTP, visible en diagnóstico
 )
 
 @Dao
@@ -34,6 +36,10 @@ interface SyncQueueDao {
 
     @Query("DELETE FROM sync_queue WHERE entityType = :entityType AND entityId IN (:entityIds)")
     suspend fun clearMany(entityType: String, entityIds: List<String>)
+
+    /** Registra el fallo sin descartar el cambio pendiente (revisión del propietario). */
+    @Query("UPDATE sync_queue SET attempts = attempts + 1, lastError = :error WHERE entityType = :entityType AND entityId = :entityId")
+    suspend fun markFailed(entityType: String, entityId: String, error: String)
 }
 
 /**
