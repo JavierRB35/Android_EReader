@@ -1,10 +1,10 @@
 # Google y Supabase: identidad nativa de Biblioteca IA
 
-Estado: cliente implementado para configuración explícita; integración con servicios **no verificada**. El inventario conectado consultado por el coordinador no incluye un proyecto BibliotecaIA. No se han usado credenciales, tablas ni configuraciones de otros proyectos.
+Estado (2026-11-20): el proyecto propio **BibliotecaIA** ya está activo en Supabase y su URL/clave **publishable** pública se proporcionan por defecto al APK a través de `config/biblioteca-auth-public.properties`. El registro mediante **correo electrónico y contraseña** se implementa por separado (ver [`gmail-registration.md`](gmail-registration.md)); **Google OAuth nativo todavía exige Web Client ID, OAuth Android SHA-1 y el proveedor del proyecto configurado**. No se ha comprobado una sesión real con una cuenta Gmail. No se han usado credenciales o configuraciones de ScripturaWeb/Nexo.
 
 ## Qué incorpora este incremento
 
-`AccountActivity` muestra el modo local, el estado real de configuración, inicio de sesión, verificación de cuenta, cierre de sesión remoto y opción explícita de olvidar la sesión solo en este dispositivo. Si falta la configuración pública, el inicio de sesión queda deshabilitado y la lectura local sigue disponible.
+`AccountActivity` muestra el modo local, el estado real de configuración, inicio de sesión, verificación de cuenta, cierre de sesión remoto y opción explícita de olvidar la sesión solo en este dispositivo. Sin configuración del backend no se permite registrar ni iniciar sesión con correo. Sin Web Client ID, el botón nativo de Google explica el requisito, mientras el registro por correo puede funcionar con el backend.
 
 Credential Manager 1.3.0 y googleid 1.1.1 se fijan para mantener compileSdk34, JDK17, AGP8.7.3 y Gradle8.9. La comprobación AAR de estas dependencias ha pasado en Windows; AndroidIDE ARM64 sigue pendiente. No se seleccionan las versiones alfa sugeridas por documentación más reciente.
 
@@ -18,7 +18,7 @@ La sesión se cifra con AES-GCM y una clave del Android Keystore, se escribe med
 
 ## Preparación del propietario
 
-1. Identificar o crear, con autorización del propietario, el proyecto Supabase correcto para BibliotecaIA. Si existe en otra organización, conceder acceso al conector. No reutilizar ScripturaWeb/Nexo ni sus claves.
+1. ✅ Proyecto Supabase **BibliotecaIA** propio identificado y activo; clave pública de cliente incorporada a la compilación sin incluir secretos. No reutilizar ScripturaWeb/Nexo ni sus claves.
 2. En Google Cloud / Google Auth Platform, seleccionar el proyecto de BibliotecaIA, configurar nombre, contactos, audiencia y pantalla de consentimiento. Si está en pruebas, añadir los usuarios de prueba permitidos.
 3. Crear un cliente OAuth de tipo **Android** para `com.javierrb35.bibliotecaia`, con la huella SHA-1 del certificado que firma el APK instalado. Repetir para firma debug y firma de distribución si se utilizan ambas. No reutilizar una huella de otro proyecto.
 4. Obtener la huella real mediante `sh ./gradlew :app:signingReport` (teléfono) o `gradlew.bat :app:signingReport` (Windows). Comparar el certificado del APK con `apksigner verify --print-certs <apk>` antes de registrarlo. No publicar keystore, alias con datos privados, contraseñas ni claves. Las huellas SHA-1/SHA-256 no son claves privadas, pero deben corresponder a ese APK concreto. No se han verificado aún en Google Cloud.
@@ -36,7 +36,7 @@ BIBLIOTECA_SUPABASE_KEY=<publishable-key-or-legacy-anon-key>
 BIBLIOTECA_GOOGLE_WEB_CLIENT_ID=<web-client-id>.apps.googleusercontent.com
 ```
 
-Sin estos valores, el APK funciona en modo local. Son identificadores/configuración de cliente, visibles en un APK; no insertar secretos aunque el archivo sea local. El script Gradle rechaza claves que no sean publishable o JWT con rol `anon`. No pasarlos en comandos que puedan aparecer en registros compartidos. No es necesario incorporarlos al repositorio.
+Si se eliminan tanto estas variables como `config/biblioteca-auth-public.properties`, el APK funciona en modo local. El proyecto propio queda configurado públicamente como valor por defecto; los valores de entorno y `local.properties` tienen prioridad. Son identificadores visibles en cualquier APK, no insertar secretos. El script Gradle rechaza claves que no sean publishable o JWT con rol `anon`. No pasarlos en comandos que puedan aparecer en registros compartidos. No es necesario incorporarlos al repositorio.
 
 Integración por el coordinador: permiso `android.permission.INTERNET`, `android:usesCleartextTraffic="false"` y actividad `.ui.AccountActivity` con `android:exported="false"`. No necesita callback exportado ni deep link para el flujo nativo de ID token. Conectar una entrada real de Cuenta en navegación. El almacenamiento de sesión queda fuera del backup del sistema; no cambiar esto al implementar copias.
 
