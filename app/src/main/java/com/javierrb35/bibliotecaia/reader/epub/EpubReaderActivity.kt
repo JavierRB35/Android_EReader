@@ -39,6 +39,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.readium.r2.navigator.Decoration
+import org.readium.r2.navigator.DecorableNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.epub.EpubPreferences
@@ -133,6 +134,21 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     created
                 }
                 navigator = fragment
+                // Decorations are interactive: tapping a saved NOTE opens
+                // the existing edit/delete dialog instead of leaving an
+                // unresponsive coloured fragment in the Readium WebView.
+                fragment.addDecorationListener("annotations",
+                    object : DecorableNavigator.Listener {
+                        override fun onDecorationActivated(
+                            event: DecorableNavigator.OnActivatedEvent
+                        ): Boolean {
+                            val mark = annotations.firstOrNull {
+                                it.id == event.decoration.id
+                            } ?: return false
+                            showSavedTextMark(mark)
+                            return true
+                        }
+                    })
                 loading.visibility = View.GONE
                 if (nativeMode) {
                     val initialIndex = opened.readingOrder.indexOfFirst {
@@ -171,11 +187,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
                         if (nativeMode && nativeChapter != null) paintNativeMarks()
-                        fragment.applyDecorations(saved.filter {
-                            it.kind == "HIGHLIGHT" && NativeEpubAnchors.point(it.locator) == null
-                        }.mapNotNull { note ->
-                            parseLocator(note.locator)?.let { Decoration(note.id, it, Decoration.Style.Underline(note.color)) }
-                        }, "annotations")
+                        // Readium needs a visual decoration for NOTE as well as
+                        // HIGHLIGHT. Notes from the native EPUB text surface are
+                        // kept separate because their offsets refer to normalized text.
+                        fragment.applyDecorations(EpubAnnotationMarks.forReadium(saved), "annotations")
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -314,12 +329,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         val chapter = nativeChapter
                         val at = nativeText.getOffsetForPosition(event.x, event.y)
                         val mark = if (chapter == null) null else annotations.firstOrNull {
-                            val range = NativeEpubAnchors.validatedRange(
-                                it.locator, it.quote, chapter.href, chapter.text)
+                            val range = nativeMarkRange(it, chapter)
                             range != null && at in range
                         }
                         if (mark == null) false else {
-                            showNativeMark(mark)
+                            showSavedTextMark(mark)
                             true
                         }
                     }
@@ -473,12 +487,19 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
 
+    private fun nativeMarkRange(
+        note: AnnotationEntity, chapter: NativeEpubText.Chapter
+    ): IntRange? = NativeEpubAnchors.validatedRange(
+        note.locator, note.quote, chapter.href, chapter.text
+    ) ?: NativeEpubAnchors.uniqueLegacyReadiumRange(
+        note.locator, note.quote, chapter.href, chapter.text
+    )
+
     private fun paintNativeMarks() {
         val chapter = nativeChapter ?: return
         val text = SpannableString(chapter.text)
         for (note in annotations) {
-            val range = NativeEpubAnchors.validatedRange(
-                note.locator, note.quote, chapter.href, chapter.text) ?: continue
+            val range = nativeMarkRange(note, chapter) ?: continue
             if (note.kind == "HIGHLIGHT") {
                 text.setSpan(UnderlineSpan(), range.first, range.last + 1,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -492,7 +513,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeText.setText(text, TextView.BufferType.SPANNABLE)
     }
 
-    private fun showNativeMark(note: AnnotationEntity) {
+    private fun showSavedTextMark(note: AnnotationEntity) {
         val choices = if (note.kind == "HIGHLIGHT")
             arrayOf("Quitar subrayado", "Cerrar")
         else arrayOf("Editar", "Eliminar", "Cerrar")

@@ -140,14 +140,17 @@ object BookTextSource {
 
     private fun ocrPages(ocrDir: File?): List<Fragment> {
         if (ocrDir == null || !ocrDir.isDirectory) return emptyList()
-        return ocrDir.listFiles { f -> f.name.startsWith("page-") && f.name.endsWith(".txt") }
-            ?.sortedBy { it.name }
-            ?.mapNotNull { page ->
-                val number = Regex("""page-(\d+)""").find(page.name)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
-                val text = page.readText(Charsets.UTF_8).trim()
-                if (text.isBlank()) null else Fragment(number, "Página $number", text.take(MAX_FRAGMENT_CHARS))
-            }
-            ?: emptyList()
+        // Numerical page order is essential to the progress-based spoiler filter.
+        return ocrDir.listFiles()?.mapNotNull { page ->
+            if (!page.isFile || !Regex("""page-\d+\.txt""").matches(page.name) ||
+                page.length() !in 1L..64_000L) return@mapNotNull null
+            val number = page.name.removePrefix("page-").removeSuffix(".txt").toIntOrNull()
+                ?: return@mapNotNull null
+            val text = runCatching { page.readText(Charsets.UTF_8).trim() }.getOrNull()
+                ?: return@mapNotNull null
+            if (text.isBlank()) null else Fragment(number, "Página $number",
+                text.take(MAX_FRAGMENT_CHARS))
+        }?.sortedBy { it.index } ?: emptyList()
     }
 
     // ---------- selección RAG ----------
