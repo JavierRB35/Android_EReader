@@ -216,13 +216,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setPadding(24.dp, 24.dp, 24.dp, 40.dp)
             setTextIsSelectable(true)
             isLongClickable = true
-            setTextColorHighlight(0x66D4B483)
+            setHighlightColor(0x66D4B483)
             typeface = Typeface.SERIF
             setLineSpacing(6.dp.toFloat(), 1.1f)
             textSize = 22f
         }
         nativeScroll = ScrollView(this).apply {
-            fillViewport = false
+            isFillViewport = false
             isVerticalScrollBarEnabled = true
             visibility = View.GONE
             addView(nativeText)
@@ -547,7 +547,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeScroll.setBackgroundColor(background)
         nativeText.setBackgroundColor(background)
         nativeText.setTextColor(text)
-        nativeText.setTextColorHighlight(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
+        nativeText.setHighlightColor(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
         nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
         controls.setBackgroundColor(Color.parseColor("#17191C")); footer.setBackgroundColor(Color.parseColor("#17191C"))
