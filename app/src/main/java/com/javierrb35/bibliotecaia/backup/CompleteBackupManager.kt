@@ -28,7 +28,11 @@ class CompleteBackupManager(
     suspend fun exportTo(uri: Uri): ExportResult = withContext(Dispatchers.IO) {
         val manager = BackupManager(database, appVersion)
         val json = manager.exportJson()
-        val books = BackupCodec.fromJson(json).books
+        // The portable JSON intentionally strips localPath on decode. Obtain
+        // export SOURCES from Room, not from the restored/decoded JSON.
+        // CompleteBackupArchive.write cross-checks IDs and content hashes
+        // against the immutable JSON snapshot before writing any originals.
+        val books = database.backupDao().booksAll()
         val archive = File.createTempFile("biblioteca-completa-", ".zip", context.cacheDir)
         try {
             // Fail closed on damaged/missing originals before writing to Drive/provider.
