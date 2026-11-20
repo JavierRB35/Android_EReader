@@ -85,6 +85,7 @@ class AccountActivity : AppCompatActivity() {
         column.addView(signOut)
         column.addView(forget)
         column.addView(button(R.string.account_back) { finish() })
+        renderControls()
         lifecycleScope.launch {
             try { session = repository.savedSession(); render() }
             catch (e: CancellationException) { throw e }
