@@ -249,7 +249,11 @@ class MobiReadingJourneyDeviceTest {
             // Editing preserves the anchor and saves a version; deletion
             // removes the actual painted span without reimporting the book.
             val saved = requireNotNull(runBlocking { database.readingDao().annotation(annotationId!!) })
+            waitUntil("Reopened MOBI Activity never regained input focus") {
+                origin.hasWindowFocus()
+            }
             instrumentation.runOnMainSync { AnnotationEditor.edit(origin, saved) }
+            instrumentation.waitForIdleSync()
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
                 .perform(replaceText("Reflexión editada"), closeSoftKeyboard())
             onView(withText("Guardar")).perform(click())
