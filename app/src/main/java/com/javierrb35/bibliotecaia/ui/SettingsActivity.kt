@@ -82,12 +82,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshServices(services: TextView) {
         lifecycleScope.launch {
             val books = withContext(Dispatchers.IO) { db.bookDao().count() }
-            val authConfigured = AuthConfiguration.fromBuild().configured
+            val auth = AuthConfiguration.fromBuild()
             services.text = getString(
                 R.string.settings_services_summary,
                 books,
-                serviceState(authConfigured),
-                serviceState(authConfigured),
+                serviceState(auth.backendConfigured),
+                serviceState(auth.googleConfigured),
             )
         }
     }
