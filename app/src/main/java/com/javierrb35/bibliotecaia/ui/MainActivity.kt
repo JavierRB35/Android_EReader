@@ -105,9 +105,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         observeCatalog()
-        // Scriptura behaviour: on opening the library, refresh its one verified
-        // SAF ZIP only if books, notes, positions or metadata changed.
-        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
         findViewById<BottomNavigationView>(R.id.mainNavigation)
             .setOnItemSelectedListener { item ->
                 when (item.itemId) {
@@ -133,6 +130,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Covers both cold starts and returning to the app from the background.
+        // The routine compares a stable fingerprint and skips an unchanged ZIP.
+        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
         lifecycleScope.launch {
             val latest = db.bookDao().lastRead()
             val card = findViewById<View>(R.id.recentBookCard)
