@@ -48,7 +48,7 @@ class PdfOcrStudy(
     fun open(page: Int, bitmap: Bitmap, status: (String) -> Unit, done: () -> Unit) {
         val file = File(activity.filesDir, "ocr/$bookId/page-" + (page + 1) + ".txt")
         val cached = runCatching {
-            if (file.isFile && file.length() in 1..MAX_CACHED_BYTES) file.readText() else null
+            if (file.isFile && file.length() > 0L && file.length() <= MAX_CACHED_BYTES) file.readText() else null
         }.getOrNull()
         if (!cached.isNullOrBlank()) {
             showText(page, cached)
