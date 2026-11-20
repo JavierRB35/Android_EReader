@@ -6,6 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.room.Room
+import com.javierrb35.bibliotecaia.data.AppDatabase
+import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.BookFormat
+import com.javierrb35.bibliotecaia.data.ReadingRepository
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.readium.r2.navigator.Decoration
 
 @RunWith(AndroidJUnit4::class)
@@ -73,4 +81,41 @@ class EpubAnnotationMarksDeviceTest {
         assertEquals(listOf("first", "second"), results.map { it.id })
         assertNotEquals(results[0].locator.href, results[1].locator.href)
     }
+
+    @Test fun noteSavedAndEditedInRealRoomAppearsAndDisappearsFromReadium() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val bookId = "annotation-device-regression"
+            db.bookDao().insert(BookEntity(
+                id = bookId, title = "Prueba anotaciones", authors = null,
+                format = BookFormat.EPUB, fileName = "chapter.epub", localPath = "",
+                contentHash = "edition-1", sizeBytes = 128, addedAt = 1
+            ))
+            val repo = ReadingRepository(db)
+            val locator = readiumLocator("chapter1.xhtml", "Las palabras escogidas")
+            val id = repo.addAnnotation(
+                bookId, locator, "Las palabras escogidas", "Mi reflexión", "NOTE")
+            val saved = repo.observeAnnotations(bookId).first()
+            assertEquals(1, saved.size)
+            var decorations = EpubAnnotationMarks.forReadium(saved)
+            assertEquals(1, decorations.size)
+            assertEquals(id, decorations.single().id)
+            assertTrue(decorations.single().style is Decoration.Style.Highlight)
+
+            repo.editAnnotation(id, saved.single().updatedAt, "Mi reflexión revisada",
+                saved.single().color)
+            decorations = EpubAnnotationMarks.forReadium(
+                repo.observeAnnotations(bookId).first())
+            assertEquals(1, decorations.size)
+            assertEquals(id, decorations.single().id)
+
+            repo.setDeleted(id, true)
+            assertTrue(EpubAnnotationMarks.forReadium(
+                repo.observeAnnotations(bookId).first()).isEmpty())
+        } finally {
+            db.close()
+        }
+    }
+
 }
