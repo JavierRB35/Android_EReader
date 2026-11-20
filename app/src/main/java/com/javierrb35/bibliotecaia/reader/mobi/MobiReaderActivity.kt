@@ -324,10 +324,16 @@ class MobiReaderActivity : AppCompatActivity() {
         // serialized writes prevent an old chunk-start from replacing a later
         // precise scroll position.
         positionWrites.launch(start = CoroutineStart.UNDISPATCHED) {
-            positionMutex.withLock {
-                if (revision == positionRevision) {
-                    repo.savePosition(id, location, progress)
+            try {
+                positionMutex.withLock {
+                    if (revision == positionRevision) {
+                        repo.savePosition(id, location, progress)
+                    }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                android.util.Log.e("BibliotecaMobiPosition", "Unable to persist reading position", failure)
             }
         }
     }
