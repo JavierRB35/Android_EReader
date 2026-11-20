@@ -2,9 +2,19 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (IA BYOK completa + backup con versiones + revinculación por hash)
+**Última actualización:** 2026-11-20 (IA BYOK, backup transaccional y PR #13 RAG EPUB/MOBI integrada)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+
+## Entrega verificada posterior a 71a89c4 — IA de lectura EPUB/MOBI
+
+- ✅ **PR #13 fusionada en `main` (`3d50bb3`, 2026-11-20)** — `ai/BookTextSource.kt`: manifest/spine EPUB toleran orden de atributos y comillas simples/dobles; el ZIP del EPUB se lee con límite efectivo de 2 MB por entrada incluso si el tamaño declarado no es fiable; las rutas no canónicas de rootfile se rechazan; sin texto falso ante fallo de parseo.
+- ✅ **MOBI → RAG:** se elimina HTML/scripts de los fragmentos enviados al modelo y se aplican límites antes de recuperar contexto.
+- ✅ **Pruebas JVM nuevas (5)** en `ai/BookTextSourceTest.kt`: spine/atributos, entrada inflada, ruta de rootfile, anti-spoilers y texto MOBI; **CI del head `a9a31d0` verde** [Actions 44780253575](https://github.com/JavierRB35/Android_EReader/actions/runs/44780253575).
+- ⚠️ **No confundir con paridad 1.0 completada**: PDF sigue sin selección de capa textual/OCR; las acciones de EPUB/MOBI requieren aceptación E2E en emulador/teléfono tras cambiar fuente, reabrir y restaurar. No se han verificado claves de usuario ni firmado APK definitivo.
+- **Siguiente hito P0 recomendado:** texto seleccionable y anclado en PDF (capa digital/OCR local), repintado de subrayados + entrada contextual a IA, con pruebas E2E de #8 y sin publicar release.
+
 
 ---
 
