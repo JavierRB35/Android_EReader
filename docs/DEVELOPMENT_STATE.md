@@ -3,7 +3,13 @@
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
 **Última actualización:** 2026-11-20
-**Fase actual:** Incremento 1 — Biblioteca local: **COMPLETADO y fusionado a `main`**
+**Fase actual:** Incrementos 2–4 en desarrollo en `feature/reader-integration`; biblioteca local previa completada en main.
+
+**Coordinación:** leer `docs/COORDINATION.md` antes de editar.
+
+**Punto de continuidad 2026-11-20:** protocolo PDF original leído íntegro (39 páginas) y prompt maestro recuperado del repositorio. Baseline recompilado en PC: assembleDebug + testDebugUnitTest = BUILD SUCCESSFUL. Sin teléfono conectado. Room v3 y contratos de posiciones/anotaciones implementados; pendientes de validación integrada. Subagentes EPUB, PDF/MOBI y UX activos en worktrees separados. Proyecto Supabase solicitado: BibliotecaIA, no visible en la cuenta conectada; OAuth/nube sin verificar. No merge ni release autorizados.
+
+**Siguiente paso inmediato:** integrar lectores, cuaderno y diseño; probar migración v2→v3 y recorrido offline en emulador; publicar avances y evidencias en ramas.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; usar la URL canónica)
 
 ---
