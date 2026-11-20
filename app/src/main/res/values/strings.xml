@@ -4,4 +4,22 @@
     <string name="library_title">Biblioteca</string>
     <string name="library_empty">Tu biblioteca está vacía.\nImporta tu primer libro para empezar a leer.</string>
     <string name="action_import">Importar libro</string>
+
+    <string name="import_success">Importado: %1$s</string>
+    <string name="import_error_generic">No se pudo importar el libro.</string>
+    <string name="book_not_found">El libro ya no existe en la biblioteca.</string>
+
+    <string name="detail_no_authors">Autor desconocido</string>
+    <string name="detail_format">Formato</string>
+    <string name="detail_size">Tamaño</string>
+    <string name="detail_added">Añadido</string>
+    <string name="detail_status">Estado</string>
+    <string name="detail_file">Archivo</string>
+    <string name="btn_cycle_status">Cambiar estado</string>
+
+    <string name="status_pending">Pendiente</string>
+    <string name="status_reading">En lectura</string>
+    <string name="status_favorite">Favorito</string>
+    <string name="status_finished">Terminado</string>
+    <string name="status_abandoned">Abandonado</string>
 </resources>
