@@ -33,6 +33,7 @@ class PdfReaderActivity : AppCompatActivity() {
     private lateinit var next: Button
     private lateinit var pageButton: Button
     private lateinit var note: Button
+    private lateinit var ocr: Button
     private var service: Messenger? = null
     private var bound = false
     private var page = 0
@@ -83,7 +84,16 @@ class PdfReaderActivity : AppCompatActivity() {
         nav.addView(previous, LinearLayout.LayoutParams(0, dp(56), 1f))
         nav.addView(pageButton, LinearLayout.LayoutParams(0, dp(56), 1f))
         nav.addView(next, LinearLayout.LayoutParams(0, dp(56), 1f))
-        root.addView(nav); root.addView(note)
+        ocr = button("Texto OCR · Seleccionar") {
+            if (renderedPage != page) return@button
+            val bitmap = image.currentBitmap() ?: return@button
+            controls(false)
+            PdfOcrStudy(this, bookId, repository).open(page, bitmap,
+                status = { message -> status.text = message },
+                done = { if (!isDestroyed && !isFinishing) controls(true) }
+            )
+        }.apply { contentDescription = "Reconocer texto local de la página y seleccionar para estudio" }
+        root.addView(nav); root.addView(note); root.addView(ocr)
         setContentView(root)
         window.statusBarColor = Color.BLACK; window.navigationBarColor = Color.BLACK
         controls(false)
@@ -167,6 +177,7 @@ class PdfReaderActivity : AppCompatActivity() {
     private fun controls(ready: Boolean) {
         previous.isEnabled = ready && page > 0; next.isEnabled = ready && page + 1 < count
         pageButton.isEnabled = ready; note.isEnabled = ready && renderedPage == page
+        ocr.isEnabled = ready && renderedPage == page
     }
     private fun failure(message: String) {
         if (!isDestroyed) { status.text = message; controls(false) }
