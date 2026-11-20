@@ -3,56 +3,59 @@
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
 **Última actualización:** 2026-11-20
-**Fase actual:** Incremento 0 — Auditoría y base (completado y publicado en `main`)
-**Rama de trabajo:** `main` (bootstrap inicial; el trabajo funcional posterior se realiza en ramas `feature/<área>`)
-**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` — el propietario renombró el repositorio desde `Androdi_EReader` (detectado en el push inicial; la URL antigua redirige). Usar siempre la URL canónica.
+**Fase actual:** Incremento 1 — Biblioteca local: **COMPLETADO y fusionado a `main`**
+**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; usar la URL canónica)
 
 ---
 
 ## Estado del proyecto
 
-- Repositorio remoto creado desde **cero** (estaba completamente vacío: sin `main`, sin commits).
-- Aplicación base **compilada y ejecutándose**: pantalla «Biblioteca» con tema OLED-first y estado vacío.
+- **Incremento 0 — Auditoría y base: COMPLETADO** (en `main`).
+- **Incremento 1 — Biblioteca local: COMPLETADO** (rebanadas 1 y 2; `feature/library` fusionada a `main` tras verificación).
+- Biblioteca utilizable offline: importación real (EPUB/PDF/MOBI), catálogo con búsqueda y estantes, categorías/etiquetas/colecciones, ficha editable básica, favoritos, esquema Room v2 con migración explícita.
 
-## Funcionalidades implementadas
+## Funcionalidades implementadas (Incremento 1)
 
 | Elemento | Estado |
 |---|---|
-| Estructura Gradle (settings / root / app), wrapper Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21 | **Implementado** |
-| Gradle wrapper con distribución `gradle-8.9-bin.zip` (services.gradle.org) | **Implementado** |
-| `build-on-phone.sh` para AndroidIDE-Rv2 (JAVA_OPTS validados, check de APK, copia a Descargas) | **Implementado** |
-| MainActivity: pantalla «Biblioteca» con estado vacío y tema negro puro (texto cálido, barras negras) | **Implementado** |
-| Documentación: protocolo obligatorio, prompt maestro, requisitos, ADRs, AGENTS.md | **Implementado** |
+| Room v2 con migración explícita 1→2 (`favorite INTEGER NOT NULL DEFAULT 0`); esquemas versionados en `app/schemas/` | **Implementado** |
+| Importación real vía SAF: hash SHA-256 en streaming, detección por contenido (mimetype EPUB / `%PDF-` / `BOOKMOBI`), duplicados por hash, metadatos OPF/PDB | **Implementado** |
+| Catálogo: búsqueda (título/autor/categoría/etiqueta/colección con JOINs), estantes (Todos/Favoritos/Pendientes/En lectura/Terminados/Abandonados), cuadrícula/lista persistente | **Implementado** |
+| Organizador: categorías con subcategorías (crear/renombrar/mover/eliminar sin borrar libros), etiquetas, colecciones (crear/renombrar/eliminar/abrir) | **Implementado** |
+| Ficha: favorito ortogonal, edición manual título/autor, asignaciones N:M (categorías/etiquetas/colecciones), ciclo de estado | **Implementado** |
+| Semilla de 17 categorías iniciales (§7.3) | **Implementado** |
 
 ## Evidencias de verificación
 
 | Verificación | Resultado | Etiqueta honesta |
 |---|---|---|
-| `sh ./gradlew assembleDebug --no-daemon --max-workers=1` (JDK 17, escritorio) | **BUILD SUCCESSFUL** (33 tareas, APK 5,6 MB) 2026-11-20 | **Verificado localmente** |
-| Instalación del APK en emulador Android (x86_64) + arranque de `com.javierrb35.bibliotecaia` | Instalación correcta; app abre; pantalla «Biblioteca» con estado vacío y fondo negro | **Verificado localmente (emulador)** |
-| Compilación en AndroidIDE-Rv2 (teléfono ARM64, `sh ./build-on-phone.sh`) | — | **Pendiente** (requiere el dispositivo físico) |
-| Pruebas unitarias | No creadas: el Incremento 0 no contiene lógica (protocolo §9: no crear tests triviales) | N/A |
+| `gradlew :app:assembleDebug :app:testDebugUnitTest` (JDK 17) | **BUILD SUCCESSFUL**, 15/15 tests JVM | **Verificado localmente** |
+| **Migración v1→v2 en real**: `install -r` sobre instalación con datos; app abre sin crash y el libro/estado sobreviven | Correcto | **Verificado localmente (emulador)** |
+| Estante «En lectura» filtra; estante «Favoritos» muestra el libro con ★ en catálogo | Correcto | **Verificado localmente (emulador)** |
+| Organizador: 17 categorías visibles; creación de etiqueta «Clasicos» y colección «Verano 2026» | Correcto | **Verificado localmente (emulador)** |
+| Ficha: Categorías=Novela, Etiquetas=Clasicos, Colecciones=Verano 2026, favorito ortogonal (botón «Quitar de favoritos») | Correcto | **Verificado localmente (emulador)** |
+| Búsqueda «Clasicos» localiza por **etiqueta** (JOIN) y combina con estante Favoritos; cuadrícula 2 columnas | Correcto | **Verificado localmente (emulador)** |
+| Importación/duplicados (rebanada 1): evidencias anteriores siguen vigentes | Correcto | **Verificado localmente (emulador)** |
+| Compilación en AndroidIDE-Rv2 (teléfono ARM64) | — | **Pendiente** (`sh ./build-on-phone.sh`) |
 
-> **Nota:** no afirmar nunca «compilado en AndroidIDE» hasta ejecutarlo en el teléfono. Etiquetado según Prompt Maestro §23.
+**Bugs capturados y corregidos durante el incremento:**
+1. Xerces cierra el stream recibido en `DocumentBuilder.parse` → al parsear desde un `ZipInputStream` compartido, el recorrido ZIP moría («Stream closed»). Fix + test de regresión (rebanada 1).
+2. TextViews creados por código heredaban `textColorPrimary` del modo día (negro) → invisibles sobre fondo OLED. Fix: colores explícitos en `OrganizeActivity` (rebanada 2).
 
-## Decisiones técnicas vigentes
+## Limitaciones conocidas (declaradas)
 
-Ver `docs/architecture/decisions.md`. Resumen: Kotlin + XML Views (no Compose, ADR-002); package/applicationId estable `com.javierrb35.bibliotecaia` (ADR-003); bootstrap publicado directamente en `main` por ser repo vacío, trabajo posterior en `feature/*` (ADR-004); Readium Kotlin Toolkit como candidato EPUB pendiente de compatibilidad (ADR-005).
+- No hay lectura de contenido aún (EPUB/PDF/MOBI abren solo en ficha): Incremento 2.
+- MOBI soporta importación/validación/metadatos mínimos (nombre PDB); la conversión/lectura completa es del Incremento 3. No se ha probado con un MOBI real todavía.
+- Búsqueda de texto completo dentro del libro: llega con los motores (§7.5).
+- Papelera/backup: Incremento 9 (por eso no hay borrado de libros aún).
+- Sin prueba con MOBI/EPUB reales de gran tamaño ni PDF escaneado (OCR: Incremento 3).
 
-## Problemas abiertos / bloqueos
+## Siguiente acción concreta (Incremento 2 — Motor EPUB)
 
-- Ninguno bloqueante.
-- Observación menor: el botón deshabilitado «Importar libro» apenas es visible sobre fondo negro (alpha de estado disabled de MaterialButton). Se revisará al activarlo en el Incremento 1.
+1. **Verificación técnica temprana** de Readium Kotlin Toolkit (ADR-005): versiones compatibles con AGP 8.7.3/Gradle 8.9/SDK 34/minSdk 26/teléfono; evaluar tamaño y memoria con `-Xmx768m`.
+2. Si es compatible: abrir EPUB, navegar capítulos, guardar posición; si no, documentar alternativas antes de decidir.
+3. Compilar en teléfono (AndroidIDE) para validar el entorno completo y registrar resultado aquí.
 
-## Próximas tareas (Incremento 1 — Biblioteca local)
+## Roadmap restante
 
-1. Crear rama `feature/library`.
-2. Modelo Room (Book, Category, Tag, Collection + relaciones; schema v1).
-3. Importación real vía SAF (ACTION_OPEN_DOCUMENT): copia a almacenamiento interno de la app, hash SHA-256, detección de duplicados, metadatos iniciales.
-4. Catálogo con persistencia (lista/vacío), ficha básica.
-5. Activar el botón «Importar libro».
-6. Verificación: compilación local + instalación en emulador + prueba de importación con EPUB/PDF sintético; actualizar este documento y hacer push.
-
-## Plan general de incrementos
-
-Ver `docs/architecture/overview.md` (roadmap 0–10) y `docs/product/master-prompt.md` §22.
+Ver `docs/architecture/overview.md` (incrementos 2–10) y `docs/product/master-prompt.md` §22.
