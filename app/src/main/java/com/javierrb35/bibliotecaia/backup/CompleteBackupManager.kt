@@ -52,6 +52,12 @@ class CompleteBackupManager(
                 throw e
             }
             ExportResult(books.size, bytes)
+        } catch (e: Exception) {
+            // ACTION_CREATE_DOCUMENT has already allocated the destination URI.
+            // If a source book is missing/corrupt or staging fails, do not leave
+            // an apparently valid empty/partial copy in the chosen provider.
+            runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+            throw e
         } finally {
             archive.delete()
         }
