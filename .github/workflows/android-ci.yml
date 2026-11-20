@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   android:
-    name: JVM tests and debug build
+    name: JVM tests, debug build and unsigned release build
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -42,18 +42,20 @@ jobs:
       - name: Cache Gradle dependencies
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run Android JVM tests and compile a debug APK
+      - name: Run JVM tests and compile debug and unsigned release APKs
         shell: bash
         run: |
           set -euo pipefail
           # Readium + Room/KSP need a larger heap on the hosted Linux runner.
           # Override is CI-only: do NOT alter gradle.properties / AndroidIDE ARM64 limits.
-          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug \
+          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
             --no-daemon --max-workers=2 \
             '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
             -Dorg.gradle.vfs.watch=false
           test -s app/build/outputs/apk/debug/app-debug.apk
+          # Unsigned release artifact is a prerequisite for the separate signing workflow.
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Archive JVM test results
         if: always()
