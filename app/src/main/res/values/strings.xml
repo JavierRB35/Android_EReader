@@ -77,6 +77,24 @@
     <string name="organize_collection_name">Nombre de la colección</string>
 
     <string name="settings_title">Ajustes</string>
+    <string name="settings_subtitle">Tu biblioteca, protegida.</string>
+    <string name="settings_backup_intro">Un único archivo en la ubicación que elijas. Al abrir BibliotecaAI se actualiza si hay cambios.</string>
+    <string name="settings_backup_create_now">Crear copia ahora</string>
+    <string name="settings_backup_pick_destination">Elegir ubicación del archivo</string>
+    <string name="settings_backup_restore_action">Restaurar desde un archivo</string>
+    <string name="settings_backup_privacy_note">Incluye todos tus libros EPUB, PDF y MOBI originales, subrayados, notas, versiones, categorías, colecciones y posiciones. No guarda claves privadas. El ZIP no está cifrado: elige un destino privado.</string>
+    <string name="settings_backup_legacy_short">Restaurar copia antigua (.json)</string>
+    <string name="settings_backup_not_configured">Sin copia todavía. Elige primero un archivo de destino.</string>
+    <string name="settings_backup_not_verified">Destino configurado, pero aún no hay una copia verificada.</string>
+    <string name="settings_backup_last_verified">Última copia verificada: %1$s</string>
+    <string name="settings_backup_last_error">Último error: %1$s</string>
+    <string name="settings_backup_recovery_required">Hay una copia anterior pendiente de recuperación. Recupérala antes de guardar otra.</string>
+    <string name="settings_backup_in_progress">Creando y verificando la copia…</string>
+    <string name="settings_backup_verified_message">Copia guardada y verificada correctamente. Las siguientes copias actualizarán este mismo archivo.</string>
+    <string name="settings_backup_error_title">No se pudo crear la copia</string>
+    <string name="settings_updates_notifications">Avisos automáticos de actualización</string>
+    <string name="settings_updates_short_note">La app comprueba si hay nuevas versiones. Android te pedirá autorización antes de instalarlas.</string>
+
         <string name="settings_account">Cuenta (función retirada)</string>
         <string name="settings_account_open">Sin cuenta: utiliza una copia de seguridad</string>
         <string name="settings_services">Estado de servicios</string>
@@ -87,8 +105,8 @@
         <string name="settings_backup_export">Actualizar copia completa (mismo archivo)…</string>
                 <string name="settings_backup_change_file">Elegir o cambiar archivo de copia…</string>
         <string name="settings_backup_choose_file">Elige un ZIP existente para sustituirlo en cada copia o crea uno nuevo una sola vez. La aplicación recordará el archivo elegido.</string>
-        <string name="settings_backup_choose_existing">Elegir existente</string>
-        <string name="settings_backup_choose_new">Crear nuevo</string>
+        <string name="settings_backup_choose_existing">Elegir un archivo ya existente</string>
+        <string name="settings_backup_choose_new">Crear archivo en una ubicación</string>
         <string name="settings_backup_permission_error">El proveedor no concede permiso permanente de lectura y escritura. Elige otro archivo o proveedor.</string>
         <string name="settings_backup_recover_previous">Recuperar copia anterior</string>
         <string name="settings_backup_recovered">Se ha recuperado y verificado el archivo ZIP anterior. Puedes volver a actualizar la copia.</string>

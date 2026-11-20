@@ -23,6 +23,9 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.study.DefinitionUi
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.CancellationException
@@ -207,6 +210,15 @@ class PdfOcrStudy(
             }
         )
 
+        // Scriptura parity in the OCR transcript: tapping a painted quote
+        // opens all notes anchored there; long press remains selectable text.
+        var visibleRanges = emptyList<Pair<AnnotationEntity, IntRange>>()
+        MarkedTextTap.attach(selection, marksAt = { at ->
+            visibleRanges.filter { (_, range) -> at in range }.map { it.first }
+        }, onMarks = { selected ->
+            SavedAnnotationSheet.show(activity, repository, selected)
+        })
+
         val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle("Texto OCR · página " + (page + 1))
             .setView(scroll)
@@ -217,6 +229,7 @@ class PdfOcrStudy(
             repository.observeAnnotations(bookId).collect { marks ->
                 if (!dialog.isShowing) return@collect
                 val spans = SpannableString(content)
+                val paintedRanges = mutableListOf<Pair<AnnotationEntity, IntRange>>()
                 for (mark in marks) {
                     if (PdfOcrAnchors.overlayBoxes(mark.locator, page, mark.quote,
                             snapshot.contentHash, snapshot).isEmpty()) continue
@@ -232,8 +245,10 @@ class PdfOcrStudy(
                             range.first, range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         spans.setSpan(UnderlineSpan(), range.first, range.last + 1,
                             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    }
+                    } else continue
+                    paintedRanges.add(mark to range)
                 }
+                visibleRanges = paintedRanges
                 selection.setText(spans, TextView.BufferType.SPANNABLE)
             }
         }

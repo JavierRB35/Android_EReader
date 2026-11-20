@@ -22,6 +22,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -134,31 +136,17 @@ class MobiReaderActivity : AppCompatActivity() {
             }
             override fun onSelectionFinished() = Unit
         })
-        val tapSlop = ViewConfiguration.get(this).scaledTouchSlop
-        content.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    touchX = event.x; touchY = event.y
-                    false
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout() / 2 &&
-                        abs(event.x - touchX) <= tapSlop && abs(event.y - touchY) <= tapSlop) {
-                        val charAt = offset + content.getOffsetForPosition(event.x, event.y)
-                        val note = annotations.firstOrNull { saved ->
-                            val markAt = validatedMarkOffset(saved)
-                            markAt != null && charAt >= markAt &&
-                                charAt < markAt + saved.quote.length
-                        }
-                        if (note != null) {
-                            showSavedMark(note)
-                            true
-                        } else false
-                    } else false
-                }
-                else -> false
+        MarkedTextTap.attach(content, marksAt = { textOffset ->
+            val absolute = offset + textOffset
+            annotations.filter { saved ->
+                saved.kind in setOf("NOTE", "HIGHLIGHT") &&
+                    validatedMarkOffset(saved)?.let { start ->
+                        absolute >= start && absolute < start + saved.quote.length
+                    } == true
             }
-        }
+        }, onMarks = { overlapping ->
+            SavedAnnotationSheet.show(this, repository, overlapping)
+        })
         scroll = ScrollView(this).apply { addView(content) }
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (loaded) {
@@ -261,44 +249,6 @@ class MobiReaderActivity : AppCompatActivity() {
             locator.optInt("offset", -1)
         }.getOrNull() ?: return null
         return at.takeIf { SelectionAnchors.exactMatch(text, it, mark.quote) }
-    }
-
-    private fun showSavedMark(mark: AnnotationEntity) {
-        if (mark.kind == "HIGHLIGHT") {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Subrayado")
-                .setMessage(mark.quote.take(1200))
-                .setNegativeButton("Cerrar", null)
-                .setPositiveButton("Quitar subrayado") { _, _ ->
-                    lifecycleScope.launch {
-                        try { repository.setDeleted(mark.id, true) }
-                        catch (_: Exception) {
-                            Toast.makeText(this@MobiReaderActivity,
-                                "No se pudo quitar el subrayado.", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }.show()
-        } else {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Anotación")
-                .setMessage(mark.body.ifBlank { mark.quote }.take(1200))
-                .setNegativeButton("Cerrar", null)
-                .setPositiveButton("Editar") { _, _ -> AnnotationEditor.edit(this, mark) }
-                .setNeutralButton("Eliminar") { _, _ ->
-                    MaterialAlertDialogBuilder(this).setTitle("Eliminar anotación")
-                        .setMessage("¿Quieres eliminar esta nota? El libro no se modifica.")
-                        .setNegativeButton("Cancelar", null)
-                        .setPositiveButton("Eliminar") { _, _ ->
-                            lifecycleScope.launch {
-                                try { repository.setDeleted(mark.id, true) }
-                                catch (_: Exception) {
-                                    Toast.makeText(this@MobiReaderActivity,
-                                        "No se pudo eliminar la nota.", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        }.show()
-                }.show()
-        }
     }
 
     private fun visibleOffset(): Int {
