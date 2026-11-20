@@ -253,6 +253,272 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         applyTheme()
     }
 
+
+    /** Scriptura's exact native TextView selection mechanism, not Readium WebView handles. */
+    private fun attachNativeSelection() {
+        DefinitionUi.attach(this, nativeText, aiConfigured(), object : DefinitionUi.Delegate {
+            override fun openExternal(url: String) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addCategory(Intent.CATEGORY_BROWSABLE))
+                } catch (_: Exception) { toast("No se pudo abrir la fuente externa.") }
+            }
+            override fun explainWithGemini(word: String) {
+                val locator = nativeLocator(lastNativeSelectionStart, word)
+                AiChatActivity.start(this@EpubReaderActivity, bookId, word, locator)
+            }
+            override fun showError(message: String) = toast(message)
+        }, DefinitionUi.SelectionHandler { quote, start, _ ->
+            val locator = nativeLocator(start, quote)
+            if (locator != null) AnnotationEditor.show(this, bookId, locator, quote, "NOTE")
+            else toast("No hay un capítulo de lectura disponible.")
+        }, DefinitionUi.UnderlineHandler { quote, start, _ ->
+            val locator = nativeLocator(start, quote)
+            if (locator == null) toast("No se ha podido anclar el subrayado.")
+            else lifecycleScope.launch {
+                try {
+                    repository.addAnnotation(bookId, locator, quote, "", "HIGHLIGHT")
+                    toast("Texto subrayado.")
+                } catch (_: Exception) { toast("No se pudo guardar el subrayado.") }
+            }
+        }, DefinitionUi.FragmentHandler { quote, start, _ ->
+            if (quote.length > 1200) toast("Selecciona un máximo de 1.200 caracteres.")
+            else {
+                val locator = nativeLocator(start, quote)
+                if (locator != null) AiChatActivity.start(this, bookId, quote, locator)
+            }
+        }, object : DefinitionUi.SelectionLifecycle {
+            override fun onSelectionChanged(start: Int, end: Int) {
+                if (start >= 0 && end > start) lastNativeSelectionStart = start
+            }
+            override fun onSelectionFinished() = Unit
+        })
+
+        // Short taps on a saved underline open its detail, but never consume
+        // long-press, drag or the native text selection handles.
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        nativeText.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    nativeTouchX = event.x
+                    nativeTouchY = event.y
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    val quickTap = event.eventTime - event.downTime <
+                        ViewConfiguration.getLongPressTimeout() / 2 &&
+                        abs(event.x - nativeTouchX) <= slop &&
+                        abs(event.y - nativeTouchY) <= slop
+                    if (!quickTap) false else {
+                        val chapter = nativeChapter
+                        val at = nativeText.getOffsetForPosition(event.x, event.y)
+                        val mark = if (chapter == null) null else annotations.firstOrNull {
+                            val range = NativeEpubAnchors.validatedRange(
+                                it.locator, it.quote, chapter.href, chapter.text)
+                            range != null && at in range
+                        }
+                        if (mark == null) false else {
+                            showNativeMark(mark)
+                            true
+                        }
+                    }
+                }
+                else -> false
+            }
+        }
+        nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
+            if (nativeMode && nativeChapter != null) {
+                updateNativeProgress()
+                scheduleNativeSave()
+            }
+        }
+    }
+
+    private var lastNativeSelectionStart = 0
+
+    /** Toggle between precise native text selection and Readium's rich EPUB layout. */
+    private fun setNativeMode(enabled: Boolean) {
+        if (nativeMode == enabled || publication == null) return
+        if (!enabled) {
+            nativeSave?.cancel()
+            saveNativePosition(visibleNativeOffset())
+        }
+        nativeMode = enabled
+        preferences.edit().putBoolean("native_selection", enabled).apply()
+        nativeToggle.text = if (enabled) "Maquetación" else "Selección precisa"
+        if (enabled) {
+            val pub = publication ?: return
+            val index = pub.readingOrder.indexOfFirst {
+                latest?.href?.toString() == it.url().toString()
+            }
+            showNativeChapter(if (index >= 0) index else nativeIndex,
+                if (index < 0) visibleNativeOffset() else 0)
+        } else {
+            nativeLoading?.cancel()
+            showReadingSurface()
+            val chapter = nativeChapter
+            if (chapter != null) {
+                // Navigate to the same chapter, not a false CFI derived from
+                // TextView offsets (the DOM is different after sanitization).
+                val link = publication?.readingOrder?.getOrNull(nativeIndex)
+                if (link != null) navigator?.go(link)
+            }
+        }
+    }
+
+    private fun showReadingSurface() {
+        webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
+        nativeScroll.visibility = if (nativeMode) View.VISIBLE else View.GONE
+        nativeToggle.text = if (nativeMode) "Maquetación" else "Selección precisa"
+    }
+
+    private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null) {
+        val pub = publication ?: return
+        val link = pub.readingOrder.getOrNull(index) ?: return
+        nativeLoading?.cancel()
+        val generation = ++nativeGeneration
+        nativeLoading = lifecycleScope.launch {
+            loading.visibility = View.VISIBLE
+            loading.text = "Preparando capítulo para selección precisa…"
+            try {
+                val chapter = NativeEpubText.load(pub, link)
+                if (!isActive || generation != nativeGeneration || !nativeMode) return@launch
+                nativeIndex = index
+                nativeChapter = chapter
+                paintNativeMarks()
+                val searchOffset = findQuote?.let {
+                    chapter.text.indexOf(it, ignoreCase = true)
+                }?.takeIf { it >= 0 }
+                val offset = (searchOffset ?: requestedOffset).coerceIn(0, chapter.text.length)
+                nativeScroll.post {
+                    val layout = nativeText.layout
+                    if (layout != null) {
+                        nativeScroll.scrollTo(0,
+                            (layout.getLineTop(layout.getLineForOffset(offset)) -
+                                nativeText.paddingTop).coerceAtLeast(0))
+                    }
+                    updateNativeProgress()
+                }
+                showReadingSurface()
+                loading.visibility = View.GONE
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (generation != nativeGeneration) return@launch
+                // A chapter consisting only of images/complex content must
+                // remain viewable in Readium without mutating the EPUB.
+                nativeMode = false
+                preferences.edit().putBoolean("native_selection", false).apply()
+                showReadingSurface()
+                loading.visibility = View.GONE
+                navigator?.go(link)
+                toast("Este capítulo requiere la maquetación original.")
+            }
+        }
+    }
+
+    private fun nativeProgress(offset: Int): Double {
+        val size = publication?.readingOrder?.size ?: return 0.0
+        if (size == 0) return 0.0
+        val length = nativeChapter?.text?.length ?: 0
+        return ((nativeIndex + if (length > 0) offset.coerceIn(0, length).toDouble() / length
+            else 0.0) / size).coerceIn(0.0, 1.0)
+    }
+
+    private fun nativeLocator(offset: Int, quote: String): String? {
+        val chapter = nativeChapter ?: return null
+        if (offset !in 0..chapter.text.length ||
+            offset + quote.length > chapter.text.length ||
+            (quote.isNotEmpty() && !chapter.text.regionMatches(offset, quote, 0, quote.length))
+        ) return null
+        return NativeEpubAnchors.locator(chapter.href, chapter.title,
+            offset, chapter.text.length, nativeProgress(offset), quote)
+    }
+
+    private fun visibleNativeOffset(): Int {
+        val chapter = nativeChapter ?: return 0
+        val layout = nativeText.layout ?: return 0
+        val line = layout.getLineForVertical(
+            (nativeScroll.scrollY - nativeText.paddingTop).coerceAtLeast(0))
+        return layout.getLineStart(line).coerceIn(0, chapter.text.length)
+    }
+
+    private fun updateNativeProgress() {
+        val chapter = nativeChapter ?: return
+        val indexLabel = "${nativeIndex + 1}/${publication?.readingOrder?.size ?: 1}"
+        val percent = (nativeProgress(visibleNativeOffset()) * 100).toInt()
+        positionLabel.text = "${chapter.title.take(42)} · $indexLabel · $percent %"
+    }
+
+    private fun scheduleNativeSave() {
+        nativeSave?.cancel()
+        nativeSave = lifecycleScope.launch {
+            delay(850)
+            saveNativePosition(visibleNativeOffset())
+        }
+    }
+
+    private fun saveNativePosition(offset: Int) {
+        val locator = nativeLocator(offset, "") ?: return
+        val progress = nativeProgress(offset).toFloat()
+        val id = bookId
+        saves.launch {
+            try { saveMutex.withLock { repository.savePosition(id, locator, progress) } }
+            catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    toast("No se pudo guardar la posición.")
+                }
+            }
+        }
+    }
+
+    private fun paintNativeMarks() {
+        val chapter = nativeChapter ?: return
+        val text = SpannableString(chapter.text)
+        for (note in annotations) {
+            val range = NativeEpubAnchors.validatedRange(
+                note.locator, note.quote, chapter.href, chapter.text) ?: continue
+            if (note.kind == "HIGHLIGHT") {
+                text.setSpan(UnderlineSpan(), range.first, range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else if (note.kind == "NOTE") {
+                text.setSpan(BackgroundColorSpan(0x66B59B62), range.first,
+                    range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                text.setSpan(UnderlineSpan(), range.first, range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        nativeText.setText(text, TextView.BufferType.SPANNABLE)
+    }
+
+    private fun showNativeMark(note: AnnotationEntity) {
+        val choices = if (note.kind == "HIGHLIGHT")
+            arrayOf("Quitar subrayado", "Cerrar")
+        else arrayOf("Editar", "Eliminar", "Cerrar")
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (note.kind == "HIGHLIGHT") "Subrayado" else "Anotación")
+            .setMessage(note.body.ifBlank { note.quote }.take(1200))
+            .setItems(choices) { _, index ->
+                when {
+                    note.kind == "HIGHLIGHT" && index == 0 -> lifecycleScope.launch {
+                        try { repository.setDeleted(note.id, true) }
+                        catch (_: Exception) { toast("No se pudo quitar el subrayado.") }
+                    }
+                    note.kind != "HIGHLIGHT" && index == 0 -> AnnotationEditor.edit(this, note)
+                    note.kind != "HIGHLIGHT" && index == 1 ->
+                        MaterialAlertDialogBuilder(this)
+                            .setMessage("¿Eliminar esta anotación?")
+                            .setNegativeButton("Cancelar", null)
+                            .setPositiveButton("Eliminar") { _, _ ->
+                                lifecycleScope.launch {
+                                    try { repository.setDeleted(note.id, true) }
+                                    catch (_: Exception) { toast("No se pudo eliminar.") }
+                                }
+                            }.show()
+                }
+            }.show()
+    }
+
     private fun button(label: String, action: () -> Unit) = MaterialButton(this, null,
         com.google.android.material.R.attr.borderlessButtonStyle).apply {
         text = label; isAllCaps = false; minWidth = 48.dp; minimumWidth = 48.dp; minHeight = 48.dp
