@@ -19,7 +19,8 @@ object MobiDocument {
         if (input.length() < 94) invalid()
         input.seek(60)
         val magic = ByteArray(8).also(input::readFully)
-        if (!magic.contentEquals("BOOKMOBI".toByteArray(Charsets.US_ASCII))) invalid()
+        val legacyPalm = magic.contentEquals("TEXtREAd".toByteArray(Charsets.US_ASCII))
+        if (!legacyPalm && !magic.contentEquals("BOOKMOBI".toByteArray(Charsets.US_ASCII))) invalid()
         input.seek(76)
         val count = input.readUnsignedShort()
         val tableEnd = 78L + count * 8L
@@ -46,6 +47,7 @@ object MobiDocument {
         fun u32(at: Int): Long = (u16(at).toLong() shl 16) or u16(at + 2).toLong()
         if (header.size < 16) invalid()
         if (u16(12) != 0) throw Unsupported("Este MOBI tiene DRM. No se modificará su protección.")
+        if (legacyPalm) throw Unsupported("Este archivo PalmDOC antiguo no es MOBI compatible.")
         if (header.size < 40 || String(header, 16, 4, Charsets.US_ASCII) != "MOBI") invalid()
         val compression = u16(0)
         val headerLength = u32(20)
