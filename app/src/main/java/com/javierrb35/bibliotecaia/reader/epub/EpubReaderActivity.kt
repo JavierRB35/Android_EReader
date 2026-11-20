@@ -202,10 +202,32 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         actions.addView(button(getString(R.string.epub_search)) { search() })
         actions.addView(button(getString(R.string.epub_settings)) { settings() })
         actions.addView(button("Notas") { showAnnotations() })
+        nativeToggle = button(if (nativeMode) "Maquetación" else "Selección precisa") {
+            setNativeMode(!nativeMode)
+        }
+        actions.addView(nativeToggle)
         controls.addView(HorizontalScrollView(this).apply { addView(actions); isHorizontalScrollBarEnabled = false })
         root.addView(controls)
         val frame = FrameLayout(this)
-        frame.addView(FrameLayout(this).apply { id = R.id.epub_navigator }, FrameLayout.LayoutParams(-1, -1))
+        webFrame = FrameLayout(this).apply { id = R.id.epub_navigator }
+        frame.addView(webFrame, FrameLayout.LayoutParams(-1, -1))
+        nativeText = TextView(this).apply {
+            setPadding(24.dp, 24.dp, 24.dp, 40.dp)
+            setTextIsSelectable(true)
+            isLongClickable = true
+            setTextColorHighlight(0x66D4B483)
+            typeface = Typeface.SERIF
+            setLineSpacing(6.dp.toFloat(), 1.1f)
+            textSize = 22f
+        }
+        nativeScroll = ScrollView(this).apply {
+            fillViewport = false
+            isVerticalScrollBarEnabled = true
+            visibility = View.GONE
+            addView(nativeText)
+        }
+        frame.addView(nativeScroll, FrameLayout.LayoutParams(-1, -1))
+        attachNativeSelection()
         loading = TextView(this).apply {
             text = getString(R.string.epub_opening); textSize = 18f; gravity = android.view.Gravity.CENTER
             setPadding(24.dp, 24.dp, 24.dp, 24.dp)
@@ -213,13 +235,19 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
         root.addView(frame, LinearLayout.LayoutParams(-1, 0, 1f))
         footer = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        footer.addView(button("‹") { navigator?.goBackward() }.apply { contentDescription = getString(R.string.epub_previous) })
+        footer.addView(button("‹") {
+            if (nativeMode) showNativeChapter(nativeIndex - 1) else navigator?.goBackward()
+        }.apply { contentDescription = getString(R.string.epub_previous) })
         positionLabel = TextView(this).apply { text = "0 %"; gravity = android.view.Gravity.CENTER }
         footer.addView(positionLabel, LinearLayout.LayoutParams(0, 48.dp, 1f))
         footer.addView(button(getString(R.string.epub_bookmark)) {
-            latest?.let { AnnotationEditor.show(this, bookId, it.toJSON().toString(), "", "BOOKMARK") }
+            val locator = if (nativeMode) nativeLocator(visibleNativeOffset(), "")
+                else latest?.toJSON()?.toString()
+            locator?.let { AnnotationEditor.show(this, bookId, it, "", "BOOKMARK") }
         })
-        footer.addView(button("›") { navigator?.goForward() }.apply { contentDescription = getString(R.string.epub_next) })
+        footer.addView(button("›") {
+            if (nativeMode) showNativeChapter(nativeIndex + 1) else navigator?.goForward()
+        }.apply { contentDescription = getString(R.string.epub_next) })
         root.addView(footer)
         setContentView(root)
         applyTheme()
