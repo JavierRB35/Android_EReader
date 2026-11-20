@@ -543,6 +543,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private fun applyTheme() {
         val (background, text) = palette()
         root.setBackgroundColor(background); loading.setTextColor(text); positionLabel.setTextColor(text)
+        nativeScroll.setBackgroundColor(background)
+        nativeText.setBackgroundColor(background)
+        nativeText.setTextColor(text)
+        nativeText.setTextColorHighlight(if (themeIndex <= 1) 0x665A4730 else 0x66C7A264)
+        nativeText.textSize = 20f * fontScale
+        nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
         controls.setBackgroundColor(Color.parseColor("#17191C")); footer.setBackgroundColor(Color.parseColor("#17191C"))
         positionLabel.setTextColor(Color.parseColor("#E8DFCE"))
         window.statusBarColor = background; window.navigationBarColor = Color.BLACK
@@ -587,7 +593,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
         add(pub.tableOfContents.ifEmpty { pub.readingOrder })
         MaterialAlertDialogBuilder(this).setTitle(R.string.epub_contents).setItems(links.map { it.second }.toTypedArray()) {
-            _, index -> navigator?.go(links[index].first)
+            _, index ->
+            val selected = links[index].first
+            val selectedHref = selected.url().toString().substringBefore('#')
+            val chapter = pub.readingOrder.indexOfFirst {
+                it.url().toString().substringBefore('#') == selectedHref
+            }
+            if (nativeMode && chapter >= 0) showNativeChapter(chapter)
+            else navigator?.go(selected)
         }.setNegativeButton("Cerrar", null).show()
     }
 
@@ -609,7 +622,16 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 MaterialAlertDialogBuilder(this).setTitle(note.quote.ifBlank { "Anotación" })
                     .setItems(choices) { _, selected ->
                         when (selected) {
-                            0 -> parseLocator(note.locator)?.let { navigator?.go(it) }
+                            0 -> {
+                                val point = NativeEpubAnchors.point(note.locator)
+                                val pub = publication
+                                val chapterIndex = pub?.readingOrder?.indexOfFirst {
+                                    it.url().toString() == point?.href
+                                } ?: -1
+                                if (nativeMode && point != null && chapterIndex >= 0)
+                                    showNativeChapter(chapterIndex, point.offset)
+                                else parseLocator(note.locator)?.let { navigator?.go(it) }
+                            }
                             1 -> if (note.kind == "HIGHLIGHT") {
                                 lifecycleScope.launch {
                                     try { repository.setDeleted(note.id, true) }
@@ -660,7 +682,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         if (results.isEmpty()) toast("No se han encontrado coincidencias.")
                         else MaterialAlertDialogBuilder(this@EpubReaderActivity).setTitle("Resultados (máximo 100)")
                             .setItems(results.map { (it.text.highlight ?: it.title ?: "Coincidencia").take(120) }.toTypedArray()) { _, i ->
-                                navigator?.go(results[i])
+                                val result = results[i]
+                                val chapter = pub.readingOrder.indexOfFirst {
+                                    it.url().toString().substringBefore('#') ==
+                                        result.href.toString().substringBefore('#')
+                                }
+                                if (nativeMode && chapter >= 0)
+                                    showNativeChapter(chapter, findQuote = result.text.highlight)
+                                else navigator?.go(result)
                             }.setNegativeButton("Cerrar", null).show()
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) { toast(error.message ?: "La búsqueda no se ha podido completar.") }
@@ -748,11 +777,19 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     override fun onExternalLinkActivated(url: AbsoluteUrl) { toast("Los enlaces externos están desactivados durante la lectura.") }
     override fun onSaveInstanceState(outState: Bundle) {
-        latest?.let { outState.putString(LOCATION, it.toJSON().toString()) }
+        val locator = if (nativeMode) nativeLocator(visibleNativeOffset(), "")
+            else latest?.toJSON()?.toString()
+        locator?.let { outState.putString(LOCATION, it) }
         super.onSaveInstanceState(outState)
     }
     override fun onStop() {
         pendingSave?.cancel()
+        nativeSave?.cancel()
+        if (nativeMode) {
+            saveNativePosition(visibleNativeOffset())
+            super.onStop()
+            return
+        }
         val locator = latest
         if (locator != null) {
             val repo = repository; val id = bookId; val json = locator.toJSON().toString()
@@ -773,6 +810,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
     override fun onDestroy() {
+        nativeLoading?.cancel()
+        nativeSave?.cancel()
         super.onDestroy()
         publication?.close(); publication = null
     }
