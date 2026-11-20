@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.updates
 
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -81,7 +82,8 @@ object UpdateChecker {
      * Never blocks reading: network errors, rate limits, 404 (no published update)
      * or malformed release metadata just mean no result on this check.
      */
-    fun latestRelease(currentVersion: String): ReleaseInfo? = try {
+    fun latestRelease(currentVersion: String): ReleaseInfo? {
+        return try {
         val connection = URL(RELEASES_URL).openConnection() as HttpURLConnection
         connection.connectTimeout = TIMEOUT_MS
         connection.readTimeout = TIMEOUT_MS
@@ -90,9 +92,15 @@ object UpdateChecker {
         try {
             if (connection.responseCode !in 200..299) return null
             val body = connection.inputStream.use { stream ->
-                val bytes = stream.readNBytes(MAX_RELEASE_BYTES + 1)
-                if (bytes.size > MAX_RELEASE_BYTES) return null
-                bytes.toString(Charsets.UTF_8)
+                val output = ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                while (output.size() <= MAX_RELEASE_BYTES) {
+                    val read = stream.read(chunk)
+                    if (read == -1) break
+                    output.write(chunk, 0, read)
+                }
+                if (output.size() > MAX_RELEASE_BYTES) return null
+                output.toString("UTF-8")
             }
             parseLatest(body, currentVersion)
         } finally {
@@ -100,5 +108,6 @@ object UpdateChecker {
         }
     } catch (_: Exception) {
         null
+    }
     }
 }
