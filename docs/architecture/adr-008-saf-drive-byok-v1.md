@@ -22,6 +22,6 @@
 
 ## Compatibilidad
 
-No se elimina el proyecto externo Supabase existente por el mero cambio de arquitectura: no es origen de verdad de V1 ni hace falta para backup. Se conserva código heredado sin conexión desde la navegación hasta que se retire técnicamente de forma segura. Para IA se mantiene BYOK local y el consentimiento explícito previo al envío de fragmentos a Gemini/Groq, independiente del backup.
+No se elimina el proyecto externo Supabase existente por el mero cambio de arquitectura: no es origen de verdad de V1 ni hace falta para backup. El código de autenticación Google/Gmail/Keystore de cuenta y su Activity se ha eliminado en la PR #23; los adaptadores remotos Supabase/SyncEngine heredados quedan desactivados y no se invocan desde Ajustes o navegación. No constituyen un requisito de V1. Para IA se mantiene BYOK local y el consentimiento explícito previo al envío de fragmentos a Gemini/Groq, independiente del backup.
 
 Referencia oficial: [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files).
