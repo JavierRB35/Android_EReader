@@ -7,8 +7,8 @@ import androidx.room.PrimaryKey
 /** Formatos admitidos en la V1 (Prompt Maestro §8.1). */
 enum class BookFormat { EPUB, PDF, MOBI }
 
-/** Estados de lectura de la biblioteca (Prompt Maestro §7.1). FAVORITE se gestiona desde biblioteca en una rebanada posterior. */
-enum class ReadingStatus { PENDING, READING, FAVORITE, FINISHED, ABANDONED }
+/** Estados de lectura de la biblioteca (Prompt Maestro §7.1). Favorito es ortogonal: columna `favorite`. */
+enum class ReadingStatus { PENDING, READING, FINISHED, ABANDONED }
 
 @Entity(tableName = "books", indices = [Index(value = ["contentHash"], unique = true)])
 data class BookEntity(
@@ -23,6 +23,7 @@ data class BookEntity(
     val addedAt: Long,                     // epoch millis
     val lastOpenedAt: Long? = null,
     val readingStatus: ReadingStatus = ReadingStatus.PENDING,
+    val favorite: Boolean = false,         // v2: estante "Favoritos", ortogonal al estado de lectura
     val progress: Float = 0f               // 0..1; refinado con localizadores estables en el Incremento 2
 )
 

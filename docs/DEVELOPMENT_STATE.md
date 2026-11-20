@@ -3,61 +3,59 @@
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
 **Última actualización:** 2026-11-20
-**Fase actual:** Incremento 1 — Biblioteca local (rebanada 1 completa y verificada; rebanada 2 pendiente)
-**Rama de trabajo:** `feature/library` (basada en `main` @ `3ac7fb2`; fusionar a `main` solo tras completar el incremento o con autorización)
-**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` — el propietario renombró el repositorio desde `Androdi_EReader` (detectado en el push inicial; la URL antigua redirige). Usar siempre la URL canónica.
+**Fase actual:** Incremento 1 — Biblioteca local: **COMPLETADO y fusionado a `main`**
+**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; usar la URL canónica)
 
 ---
 
 ## Estado del proyecto
 
-- **Incremento 0 — Auditoría y base: COMPLETADO** (en `main`): Gradle 8.9 + AGP 8.7.3 + Kotlin 2.0.21, pantalla base OLED, documentación completa (protocolo, prompt maestro, requisitos, ADRs).
-- **Incremento 1 — Biblioteca local: rebanada 1 COMPLETADA**: modelo Room v1, importación real EPUB/PDF/MOBI, catálogo persistente, ficha básica con ciclo de estado.
+- **Incremento 0 — Auditoría y base: COMPLETADO** (en `main`).
+- **Incremento 1 — Biblioteca local: COMPLETADO** (rebanadas 1 y 2; `feature/library` fusionada a `main` tras verificación).
+- Biblioteca utilizable offline: importación real (EPUB/PDF/MOBI), catálogo con búsqueda y estantes, categorías/etiquetas/colecciones, ficha editable básica, favoritos, esquema Room v2 con migración explícita.
 
-## Funcionalidades implementadas
+## Funcionalidades implementadas (Incremento 1)
 
 | Elemento | Estado |
 |---|---|
-| Estructura Gradle/wrapper/script AndroidIDE (Inc. 0) | **Implementado** |
-| Modelo Room v1: books/categories/tags/collections + relaciones N:M, esquema versionado en `app/schemas/` | **Implementado** |
-| Semilla de 17 categorías iniciales (§7.3) en `onCreate` de la BD | **Implementado** |
-| Importación real vía SAF: copia interna + hash SHA-256 en streaming + detección por contenido (mimetype EPUB / `%PDF-` / `BOOKMOBI`) + duplicados por hash + metadatos (OPF y PDB) | **Implementado** |
-| Catálogo (Flow + repeatOnLifecycle), estado vacío, ficha básica, ciclo de estado de lectura | **Implementado** |
-| Protección XXE en parsers XML (DTD deshabilitada) | **Implementado** |
+| Room v2 con migración explícita 1→2 (`favorite INTEGER NOT NULL DEFAULT 0`); esquemas versionados en `app/schemas/` | **Implementado** |
+| Importación real vía SAF: hash SHA-256 en streaming, detección por contenido (mimetype EPUB / `%PDF-` / `BOOKMOBI`), duplicados por hash, metadatos OPF/PDB | **Implementado** |
+| Catálogo: búsqueda (título/autor/categoría/etiqueta/colección con JOINs), estantes (Todos/Favoritos/Pendientes/En lectura/Terminados/Abandonados), cuadrícula/lista persistente | **Implementado** |
+| Organizador: categorías con subcategorías (crear/renombrar/mover/eliminar sin borrar libros), etiquetas, colecciones (crear/renombrar/eliminar/abrir) | **Implementado** |
+| Ficha: favorito ortogonal, edición manual título/autor, asignaciones N:M (categorías/etiquetas/colecciones), ciclo de estado | **Implementado** |
+| Semilla de 17 categorías iniciales (§7.3) | **Implementado** |
 
 ## Evidencias de verificación
 
 | Verificación | Resultado | Etiqueta honesta |
 |---|---|---|
-| `sh ./gradlew :app:assembleDebug :app:testDebugUnitTest` (JDK 17, escritorio) | **BUILD SUCCESSFUL** | **Verificado localmente** |
-| 15 tests JVM (formatos, hash, parsers EPUB/MOBI, anti-XXE) | **15/15 en verde** | **Verificado localmente** |
-| Importación real de EPUB sintético válido vía SAF en emulador: catálogo muestra «Don Quijote de la Mancha — Miguel de Cervantes» (metadatos del OPF real) | Correcto | **Verificado localmente (emulador)** |
-| Reimportación del mismo archivo | Rechazada: el catálogo mantiene 1 solo ejemplar (hash + índice único) | **Verificado localmente (emulador)** |
-| Ficha: metadatos completos y cambio de estado Pendiente→En lectura persistido en Room | Correcto | **Verificado localmente (emulador)** |
-| Archivo copiado a `files/books/<uuid>/don-quijote.epub`; BD `biblioteca_ia.db` creada (WAL) | Confirmado vía `adb shell run-as` | **Verificado localmente (emulador)** |
-| Compilación en AndroidIDE-Rv2 (teléfono ARM64) | — | **Pendiente** (requiere dispositivo físico; comando: `sh ./build-on-phone.sh`) |
+| `gradlew :app:assembleDebug :app:testDebugUnitTest` (JDK 17) | **BUILD SUCCESSFUL**, 15/15 tests JVM | **Verificado localmente** |
+| **Migración v1→v2 en real**: `install -r` sobre instalación con datos; app abre sin crash y el libro/estado sobreviven | Correcto | **Verificado localmente (emulador)** |
+| Estante «En lectura» filtra; estante «Favoritos» muestra el libro con ★ en catálogo | Correcto | **Verificado localmente (emulador)** |
+| Organizador: 17 categorías visibles; creación de etiqueta «Clasicos» y colección «Verano 2026» | Correcto | **Verificado localmente (emulador)** |
+| Ficha: Categorías=Novela, Etiquetas=Clasicos, Colecciones=Verano 2026, favorito ortogonal (botón «Quitar de favoritos») | Correcto | **Verificado localmente (emulador)** |
+| Búsqueda «Clasicos» localiza por **etiqueta** (JOIN) y combina con estante Favoritos; cuadrícula 2 columnas | Correcto | **Verificado localmente (emulador)** |
+| Importación/duplicados (rebanada 1): evidencias anteriores siguen vigentes | Correcto | **Verificado localmente (emulador)** |
+| Compilación en AndroidIDE-Rv2 (teléfono ARM64) | — | **Pendiente** (`sh ./build-on-phone.sh`) |
 
-**Bug capturado y corregido con test de regresión:** el parser DOM (Xerces) cierra el stream que recibe; al parsear `container.xml` directamente desde el `ZipInputStream` compartido, el recorrido ZIP moría con `IOException: Stream closed`. Corrección: copiar la entrada a memoria antes de parsear (`MetadataParsers.kt`).
+**Bugs capturados y corregidos durante el incremento:**
+1. Xerces cierra el stream recibido en `DocumentBuilder.parse` → al parsear desde un `ZipInputStream` compartido, el recorrido ZIP moría («Stream closed»). Fix + test de regresión (rebanada 1).
+2. TextViews creados por código heredaban `textColorPrimary` del modo día (negro) → invisibles sobre fondo OLED. Fix: colores explícitos en `OrganizeActivity` (rebanada 2).
 
-## Problemas abiertos / bloqueos
+## Limitaciones conocidas (declaradas)
 
-- Ninguno bloqueante.
-- El selector SAF muestra también archivos no admitidos (los filtra el detector por contenido con mensaje claro). Mejora opcional: filter MIME adicional.
-- Botón deshabilitado casi invisible sobre negro (nota de Inc. 0) — resuelto de facto al habilitar el botón de importación.
+- No hay lectura de contenido aún (EPUB/PDF/MOBI abren solo en ficha): Incremento 2.
+- MOBI soporta importación/validación/metadatos mínimos (nombre PDB); la conversión/lectura completa es del Incremento 3. No se ha probado con un MOBI real todavía.
+- Búsqueda de texto completo dentro del libro: llega con los motores (§7.5).
+- Papelera/backup: Incremento 9 (por eso no hay borrado de libros aún).
+- Sin prueba con MOBI/EPUB reales de gran tamaño ni PDF escaneado (OCR: Incremento 3).
 
-## Pendientes del Incremento 1 (rebanada 2)
+## Siguiente acción concreta (Incremento 2 — Motor EPUB)
 
-1. UI de gestión: categorías (crear/renombrar/reordenar/subcategorías), etiquetas y colecciones; asignación múltiple a libros (§7.3–7.4).
-2. Ficha editable manualmente (§7.2) y favoritos accesibles.
-3. Búsqueda por título/autor (§7.5 parcial; búsqueda de texto completo llega con los motores).
-4. Vista cuadrícula/lista y adaptación tablet (§7.1).
-5. Tras completar: fusionar `feature/library` a `main` con autorización y evidencia.
+1. **Verificación técnica temprana** de Readium Kotlin Toolkit (ADR-005): versiones compatibles con AGP 8.7.3/Gradle 8.9/SDK 34/minSdk 26/teléfono; evaluar tamaño y memoria con `-Xmx768m`.
+2. Si es compatible: abrir EPUB, navegar capítulos, guardar posición; si no, documentar alternativas antes de decidir.
+3. Compilar en teléfono (AndroidIDE) para validar el entorno completo y registrar resultado aquí.
 
 ## Roadmap restante
 
-Ver `docs/architecture/overview.md` (incrementos 2–10) y `docs/product/master-prompt.md` §22. Próximo hito técnico temprano: **prueba de compatibilidad MOBI** y verificación de versiones de Readium para EPUB (ADR-005) antes del Incremento 2.
-
-## Siguiente acción concreta
-
-1. Rebanada 2 del Incremento 1 en `feature/library`: pantallas de gestión de categorías/etiquetas/colecciones + búsqueda básica + grid/lista.
-2. Ejecutar `build-on-phone.sh` en AndroidIDE cuando haya dispositivo disponible y registrar el resultado aquí (obligatorio antes de declarar el entorno validado).
+Ver `docs/architecture/overview.md` (incrementos 2–10) y `docs/product/master-prompt.md` §22.

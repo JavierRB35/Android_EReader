@@ -20,6 +20,10 @@
         <activity
             android:name=".ui.BookDetailActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.OrganizeActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

@@ -4,12 +4,13 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.util.UUID
 
 /**
- * Base local Room (Prompt Maestro §15.4). Esquema versionado; migraciones explícitas
- * a partir de la v2 — nunca destructivas.
+ * Base local Room (Prompt Maestro §15.4). Esquema versionado con migraciones explícitas
+ * y no destructivas (§15.7).
  */
 @Database(
     entities = [
@@ -21,7 +22,7 @@ import java.util.UUID
         BookTagCrossRef::class,
         CollectionBookCrossRef::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun tagDao(): TagDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun refsDao(): RefsDao
 
     companion object {
 
@@ -43,6 +45,13 @@ abstract class AppDatabase : RoomDatabase() {
             "Formación", "Referencia", "Otros"
         )
 
+        /** v1→v2: columna ortogonal `favorite` para el estante Favoritos (§7.1). */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -53,6 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
+                .addMigrations(MIGRATION_1_2)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

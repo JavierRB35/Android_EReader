@@ -35,7 +35,7 @@ class BookAdapter(private val onClick: (BookEntity) -> Unit) :
         val book = items[position]
         holder.title.text = book.title
         holder.authors.text = book.authors ?: ""
-        holder.format.text = book.format.name
+        holder.format.text = if (book.favorite) book.format.name + " ★" else book.format.name
         holder.itemView.setOnClickListener { onClick(book) }
     }
 }

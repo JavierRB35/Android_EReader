@@ -2,12 +2,28 @@
 <resources>
     <string name="app_name">Biblioteca IA</string>
     <string name="library_title">Biblioteca</string>
-    <string name="library_empty">Tu biblioteca está vacía.\nImporta tu primer libro para empezar a leer.</string>
+    <string name="library_empty">Sin resultados.\nImporta libros o cambia los filtros.</string>
     <string name="action_import">Importar libro</string>
+    <string name="action_organize">Organizar</string>
+    <string name="action_grid">Cuadrícula</string>
+    <string name="action_list">Lista</string>
+    <string name="search_hint">Buscar por título, autor, categoría, etiqueta o colección</string>
+
+    <string name="shelf_all">Todos</string>
+    <string name="shelf_favorites">Favoritos</string>
+    <string name="shelf_pending">Pendientes</string>
+    <string name="shelf_reading">En lectura</string>
+    <string name="shelf_finished">Terminados</string>
+    <string name="shelf_abandoned">Abandonados</string>
+
+    <string name="collection_view_title">Colección: %1$s</string>
 
     <string name="import_success">Importado: %1$s</string>
     <string name="import_error_generic">No se pudo importar el libro.</string>
     <string name="book_not_found">El libro ya no existe en la biblioteca.</string>
+
+    <string name="dialog_ok">Aceptar</string>
+    <string name="dialog_cancel">Cancelar</string>
 
     <string name="detail_no_authors">Autor desconocido</string>
     <string name="detail_format">Formato</string>
@@ -15,11 +31,48 @@
     <string name="detail_added">Añadido</string>
     <string name="detail_status">Estado</string>
     <string name="detail_file">Archivo</string>
+    <string name="detail_categories">Categorías</string>
+    <string name="detail_tags">Etiquetas</string>
+    <string name="detail_collections">Colecciones</string>
+    <string name="detail_none">—</string>
     <string name="btn_cycle_status">Cambiar estado</string>
+    <string name="btn_favorite">Marcar como favorito</string>
+    <string name="btn_unfavorite">Quitar de favoritos</string>
+    <string name="btn_edit_metadata">Editar datos</string>
+    <string name="btn_edit_categories">Categorías…</string>
+    <string name="btn_edit_tags">Etiquetas…</string>
+    <string name="btn_edit_collections">Colecciones…</string>
+    <string name="detail_edit_title">Editar datos del libro</string>
+    <string name="detail_title_hint">Título</string>
+    <string name="detail_authors_hint">Autor o autores (separados por comas)</string>
+    <string name="detail_assign_categories">Categorías del libro</string>
+    <string name="detail_assign_tags">Etiquetas del libro</string>
+    <string name="detail_assign_collections">Colecciones del libro</string>
+    <string name="detail_no_items_to_assign">No hay elementos todavía. Créalos en Organizar.</string>
 
     <string name="status_pending">Pendiente</string>
     <string name="status_reading">En lectura</string>
-    <string name="status_favorite">Favorito</string>
     <string name="status_finished">Terminado</string>
     <string name="status_abandoned">Abandonado</string>
+
+    <string name="organize_title">Organizar</string>
+    <string name="organize_section_categories">Categorías</string>
+    <string name="organize_section_tags">Etiquetas</string>
+    <string name="organize_section_collections">Colecciones</string>
+    <string name="organize_add">Añadir</string>
+    <string name="organize_empty">Todavía no hay elementos.</string>
+    <string name="organize_rename">Renombrar</string>
+    <string name="organize_move_up">Mover arriba</string>
+    <string name="organize_move_down">Mover abajo</string>
+    <string name="organize_convert_to_subcategory">Convertir en subcategoría…</string>
+    <string name="organize_delete">Eliminar</string>
+    <string name="organize_delete_confirm">¿Eliminar «%1$s»? Los libros no se eliminan.</string>
+    <string name="organize_open">Ver libros</string>
+    <string name="organize_new_category">Nueva categoría</string>
+    <string name="organize_category_name">Nombre de la categoría</string>
+    <string name="organize_no_parent">— Sin padre (categoría raíz) —</string>
+    <string name="organize_new_tag">Nueva etiqueta</string>
+    <string name="organize_tag_name">Nombre de la etiqueta</string>
+    <string name="organize_new_collection">Nueva colección</string>
+    <string name="organize_collection_name">Nombre de la colección</string>
 </resources>

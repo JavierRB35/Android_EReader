@@ -30,7 +30,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="20dp"
             android:text="@string/detail_format"
             android:textSize="12sp"
             android:textColor="#7A7066" />
@@ -45,7 +45,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="@string/detail_size"
             android:textSize="12sp"
             android:textColor="#7A7066" />
@@ -60,7 +60,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="@string/detail_added"
             android:textSize="12sp"
             android:textColor="#7A7066" />
@@ -75,7 +75,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="@string/detail_status"
             android:textSize="12sp"
             android:textColor="#7A7066" />
@@ -90,7 +90,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="@string/detail_file"
             android:textSize="12sp"
             android:textColor="#7A7066" />
@@ -104,12 +104,110 @@
             android:maxLines="2"
             android:ellipsize="middle" />
 
-        <Button
-            android:id="@+id/btnCycleStatus"
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/detail_categories"
+            android:textSize="12sp"
+            android:textColor="#7A7066" />
+
+        <TextView
+            android:id="@+id/txtDetailCategories"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/btn_cycle_status" />
+            android:textSize="13sp"
+            android:textColor="#E0D6CC" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/detail_tags"
+            android:textSize="12sp"
+            android:textColor="#7A7066" />
+
+        <TextView
+            android:id="@+id/txtDetailTags"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#E0D6CC" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/detail_collections"
+            android:textSize="12sp"
+            android:textColor="#7A7066" />
+
+        <TextView
+            android:id="@+id/txtDetailCollections"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#E0D6CC" />
+
+        <Button
+            android:id="@+id/btnFavorite"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/btn_favorite" />
+
+        <Button
+            android:id="@+id/btnEditMetadata"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_edit_metadata"
+            android:textColor="#E0D6CC" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnEditCategories"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/btn_edit_categories"
+                android:textColor="#E0D6CC" />
+
+            <Button
+                android:id="@+id/btnEditTags"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/btn_edit_tags"
+                android:textColor="#E0D6CC" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnEditCollections"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_edit_collections"
+            android:textColor="#E0D6CC" />
+
+        <Button
+            android:id="@+id/btnCycleStatus"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_cycle_status"
+            android:textColor="#E0D6CC" />
 
     </LinearLayout>
 
