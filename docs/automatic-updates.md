@@ -6,6 +6,7 @@
   1. `Android quality gate` (pruebas JVM, compilación debug, APK de tests Android y release sin firmar).
   2. `Android startup smoke (emulator)` (apertura real del lector en emulador Android 14).
 - `.github/workflows/auto-publish-updates.yml` solo distribuye una actualización si **ambas validaciones terminaron con éxito en el mismo commit exacto de `main`**. No firma pull requests ni compila ramas desconocidas con credenciales.
+- Si el commit se vuelve obsoleto mientras se firma, se descarta la APK para evitar distribuir una versión vieja. Un **reintento automático cada 10 minutos** vuelve a comprobar el HEAD actual y sus dos CI, sin relajar ninguna validación; GitHub Actions puede retrasar las ejecuciones programadas.
 - El workflow compila una nueva APK release, con `versionName` y `versionCode` crecientes, y la firma con la clave original del propietario. Antes de publicar, valida el certificado contra `ANDROID_RELEASE_CERT_SHA256`, el paquete `com.javierrb35.bibliotecaia`, la versión Android y el checksum SHA-256.
 - Publica los dos archivos `BibliotecaIA-vX.Y.N.apk` y `BibliotecaIA-vX.Y.N.apk.sha256` en una **GitHub Release pública oficial**, sin sobreescribir ediciones previas. Si otra CI ya publicó el mismo SHA, se omite la duplicación.
 - Mientras el proyecto tenga en Gradle versión base `0.1.0`, se generan versiones de **desarrollo 0.1.N**. No se anuncian como v1.0.0 completa hasta la aceptación de QA. El número N lo asigna automáticamente GitHub Actions, sin necesidad de editar Gradle o crear tags manuales.
