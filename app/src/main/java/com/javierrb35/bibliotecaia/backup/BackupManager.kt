@@ -72,7 +72,10 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                     // Keep existing valid paths; replace only missing/corrupted links.
                     val current = book.localPath.takeIf { it.isNotBlank() }?.let(::File)
                     if (current == null || !matchesOriginal(current, book)) {
-                        db.bookDao().update(book.copy(localPath = verified.absolutePath))
+                        db.bookDao().update(book.copy(
+                            localPath = verified.absolutePath,
+                            fileName = verified.name,
+                        ))
                     }
                 }
             }
