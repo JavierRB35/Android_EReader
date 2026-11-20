@@ -46,7 +46,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --max-workers=2
+          # Readium + Room/KSP need a larger heap on the hosted Linux runner.
+          # Override is CI-only: do NOT alter gradle.properties / AndroidIDE ARM64 limits.
+          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug \
+            --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Dorg.gradle.vfs.watch=false
           test -s app/build/outputs/apk/debug/app-debug.apk
 
       - name: Archive JVM test results
