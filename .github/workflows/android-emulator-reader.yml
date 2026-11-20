@@ -37,18 +37,32 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Diagnose and permit KVM when the runner exposes it
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "No /dev/kvm on hosted runner: use explicitly enabled TCG fallback."
+          fi
+
       - name: Run instrumented Android tests in an x86_64 emulator
+        # Emulator 37+ refuses -accel off unless this is explicitly enabled.
+        # KVM is still preferred when the hosted runner exposes /dev/kvm.
+        env:
+          ANDROID_I_WANT_MY_TCG: 'yes'
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
-          target: google_apis
+          target: default
           profile: pixel_5
           cores: 2
-          ram-size: 3072M
-          heap-size: 512M
+          ram-size: 2048M
+          heap-size: 256M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
           script: |
             sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=2 \
               '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
