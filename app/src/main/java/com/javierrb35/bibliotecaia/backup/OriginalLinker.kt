@@ -43,10 +43,38 @@ class OriginalLinker(private val filesDir: File) {
     fun link(picked: File, waiting: List<BookEntity>): BookEntity? {
         val hash = sha256Hex(picked) ?: return null
         val target = waiting.firstOrNull { it.contentHash == hash } ?: return null
-        val targetDir = File(filesDir, "books/${target.id}").apply { mkdirs() }
-        val destination = File(targetDir, target.fileName)
-        if (!destination.exists()) picked.copyTo(destination, overwrite = false)
-        return target.copy(localPath = destination.absolutePath)
+        return runCatching {
+            // Defensive check for legacy rows: metadata may originate in imported JSON.
+            fun isSafeSegment(value: String) =
+                value.isNotBlank() && value.length <= 255 && value != "." &&
+                    value != ".." && value.none { it == '/' || it == '\\' ||
+                        it.code < 32 || it.code == 127 }
+            if (!isSafeSegment(target.id) || !isSafeSegment(target.fileName))
+                return@runCatching null
+
+            val booksDir = File(filesDir, "books").canonicalFile
+            val targetDir = File(booksDir, target.id).canonicalFile
+            if (targetDir.parentFile != booksDir) return@runCatching null
+            if (!targetDir.isDirectory && !targetDir.mkdirs()) return@runCatching null
+            val destination = File(targetDir, target.fileName).canonicalFile
+            if (destination.parentFile != targetDir) return@runCatching null
+
+            // Do not relink a stale or corrupted existing local file.
+            if (destination.exists()) {
+                if (sha256Hex(destination) != hash) return@runCatching null
+            } else {
+                // Copy via a temporary file and rename after full integrity verification.
+                val staged = File.createTempFile(".biblioteca-link-", ".tmp", targetDir)
+                try {
+                    picked.inputStream().use { source ->
+                        staged.outputStream().use { sink -> source.copyTo(sink) }
+                    }
+                    if (sha256Hex(staged) != hash || !staged.renameTo(destination))
+                        return@runCatching null
+                } finally { staged.delete() }
+            }
+            target.copy(localPath = destination.absolutePath)
+        }.getOrNull()
     }
 
     /** Libros sin archivo disponible (tras restauración o borrado del almacenamiento). */
