@@ -361,47 +361,90 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- construcción de vistas (tokens del sistema de diseño) ----------
+    // ---------- OLED settings: compact premium cards, proper Android touch targets ----------
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun header(parent: LinearLayout, text: String) {
+    private fun header(parent: LinearLayout, value: String) {
         parent.addView(TextView(this).apply {
-            setText(text)
-            textSize = 30f
-            setTypeface(Typeface.SERIF)
+            text = value
+            textSize = 29f
+            typeface = Typeface.SERIF
             setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text))
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+            setPadding(0, 0, 0, dp(3))
+        })
+    }
+
+    private fun section(parent: LinearLayout, value: String) {
+        parent.addView(TextView(this).apply {
+            text = value
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
+            setPadding(0, dp(21), 0, dp(9))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
         })
     }
 
-    private fun section(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
+    private fun card(parent: LinearLayout): LinearLayout {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(17), dp(14), dp(17), dp(14))
+            background = GradientDrawable().apply {
+                setColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_surface))
+                cornerRadius = dp(17).toFloat()
+                setStroke(dp(1), ContextCompat.getColor(this@SettingsActivity, R.color.bia_outline))
+            }
+        }
+        parent.addView(content, LinearLayout.LayoutParams(-1, -2))
+        return content
+    }
+
+    private fun action(
+        parent: LinearLayout,
+        label: String,
+        primary: Boolean = false,
+        onClick: () -> Unit,
+    ): MaterialButton {
+        val button = MaterialButton(this).apply {
+            text = label
+            isAllCaps = false
             textSize = 14f
-            setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            setPadding(0, dp(28), 0, dp(4))
-        })
-    }
-
-    private fun action(parent: LinearLayout, text: String, onClick: () -> Unit) {
-        parent.addView(Button(this).apply {
-            setText(text)
-            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            background = null
-            setPadding(0, dp(12), 0, dp(12))
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            minHeight = dp(48)
+            cornerRadius = dp(12)
+            insetTop = 0
+            insetBottom = 0
+            backgroundTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(this@SettingsActivity,
+                    if (primary) R.color.bia_accent else R.color.bia_surface_high)
+            )
+            setTextColor(ContextCompat.getColor(this@SettingsActivity,
+                if (primary) R.color.bia_background else R.color.bia_text))
+            if (!primary) {
+                strokeWidth = dp(1)
+                strokeColor = ColorStateList.valueOf(
+                    ContextCompat.getColor(this@SettingsActivity, R.color.bia_outline))
+            }
             setOnClickListener { onClick() }
-        })
+        }
+        val params = LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+        }
+        parent.addView(button, params)
+        return button
     }
 
-    private fun hint(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
+    private fun hint(parent: LinearLayout, value: String): TextView {
+        val view = TextView(this).apply {
+            text = value
             textSize = 13f
             setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text_secondary))
-            setPadding(0, dp(8), 0, dp(8))
-        })
+            setLineSpacing(dp(2).toFloat(), 1.08f)
+            setPadding(0, dp(3), 0, dp(4))
+        }
+        parent.addView(view)
+        return view
     }
 }
