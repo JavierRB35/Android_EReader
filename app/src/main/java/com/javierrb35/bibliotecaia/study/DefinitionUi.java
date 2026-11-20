@@ -21,14 +21,15 @@ public final class DefinitionUi {
     /** Reuse exactly the Scriptura study actions with EPUB's Readium selection callback. */
     public static void populateSelectionMenu(Menu menu) {
         if(menu==null)return;
-        // Readium supplies its native WebView actions; never clear or intercept them.
-        promoteNativeCopy(menu);
+        // Readium 3.0 custom ActionMode replaces the WebView's default menu.
+        // Supply the Android IDs explicitly; EPUB handlers implement their behavior.
+        preserveNativeTextActions(menu);
         addIfAbsent(menu,DEFINE_ACTION_ID,"Definir",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,ANNOTATE_ACTION_ID,"Anotar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,UNDERLINE_ACTION_ID,"Subrayar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
         addIfAbsent(menu,GEMINI_FRAGMENT_ACTION_ID,"Interpretar con IA",MenuItem.SHOW_AS_ACTION_NEVER);
     }
-    /** Maintain Android's Copy/Select All/Share IDs; the TextView handles clicks. */
+    /** Maintain native IDs: TextView delegates to Android; Readium implements the actions. */
     public static void preserveNativeTextActions(Menu menu){
         if(menu==null)return;
         nativeAction(menu,android.R.id.copy,"Copiar",MenuItem.SHOW_AS_ACTION_ALWAYS);
@@ -41,10 +42,6 @@ public final class DefinitionUi {
         MenuItem item=menu.findItem(id);
         if(item==null)item=menu.add(Menu.NONE,id,Menu.CATEGORY_SYSTEM,title);
         item.setShowAsAction(show);
-    }
-    private static void promoteNativeCopy(Menu menu){
-        MenuItem copy=menu.findItem(android.R.id.copy);
-        if(copy!=null)copy.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
     }
     private static void addIfAbsent(Menu menu,int id,String title,int show) {
         if(menu.findItem(id)==null)menu.add(Menu.NONE,id,Menu.CATEGORY_SECONDARY,title).setShowAsAction(show);
