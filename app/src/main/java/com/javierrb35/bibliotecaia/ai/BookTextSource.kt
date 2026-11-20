@@ -23,7 +23,11 @@ object BookTextSource {
     fun chapters(file: File, format: String, ocrDir: File?): List<Fragment> = when (format) {
         "EPUB" -> epubChapters(file)
         "MOBI" -> try {
-            listOf(Fragment(1, file.nameWithoutExtension, MobiDocument.readHtml(file)))
+            // Use the same readable text the reader presents, not HTML markup.
+            // A fragment is capped before it enters the RAG retrieval pipeline.
+            val text = stripTags(MobiDocument.readHtml(file)).take(MAX_FRAGMENT_CHARS)
+            if (text.isBlank()) emptyList()
+            else listOf(Fragment(1, file.nameWithoutExtension, text))
         } catch (_: Exception) {
             emptyList()
         }
