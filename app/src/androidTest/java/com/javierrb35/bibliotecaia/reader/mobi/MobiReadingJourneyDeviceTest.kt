@@ -75,7 +75,7 @@ class MobiReadingJourneyDeviceTest {
         ) as MobiReaderActivity
         waitUntil("MOBI text was never rendered") {
             val s = findScroll(activity)
-            s != null && (s.getChildAt(0) as? TextView)?.text?.length ?: 0 > 100
+            s != null && (((s.getChildAt(0) as? TextView)?.text?.length ?: 0) > 100)
         }
         return activity
     }
@@ -136,8 +136,9 @@ class MobiReadingJourneyDeviceTest {
         var reopened: MobiReaderActivity? = null
         var annotationId: String? = null
         try {
-            first = open(a)
-            val scroll = requireNotNull(findScroll(first))
+            val readingA = open(a)
+            first = readingA
+            val scroll = requireNotNull(findScroll(readingA))
             val displayed = (scroll.getChildAt(0) as TextView).text.toString()
             // The exact selected range is anchored to the real rendered text.
             val quoteOffset = displayed.indexOf("anotaciones verificables")
@@ -146,7 +147,7 @@ class MobiReadingJourneyDeviceTest {
             val locator = JSONObject().put("format", "MOBI")
                 .put("textVersion", 1).put("offset", quoteOffset).toString()
             instrumentation.runOnMainSync {
-                AnnotationEditor.show(first, a, locator, quote, "NOTE")
+                AnnotationEditor.show(readingA, a, locator, quote, "NOTE")
             }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
                 .perform(replaceText("Primera reflexión"), closeSoftKeyboard())
@@ -162,7 +163,7 @@ class MobiReadingJourneyDeviceTest {
 
             instrumentation.runOnMainSync { scroll.scrollTo(0, 610) }
             waitUntil("MOBI scrolling did not move the reading viewport") { scroll.scrollY > 0 }
-            finish(first); first = null
+            finish(readingA); first = null
             val positionA = runBlocking {
                 var value = notes.position(a)
                 repeat(60) {
@@ -175,11 +176,12 @@ class MobiReadingJourneyDeviceTest {
             val savedA = JSONObject(requireNotNull(positionA).locator).getInt("offset")
             assertTrue("Last visible offset must be preserved, not just the chunk start", savedA > 0)
 
-            second = open(b)
-            val scrollB = requireNotNull(findScroll(second))
+            val readingB = open(b)
+            second = readingB
+            val scrollB = requireNotNull(findScroll(readingB))
             instrumentation.runOnMainSync { scrollB.scrollTo(0, 320) }
             waitUntil("Second book never scrolled") { scrollB.scrollY > 0 }
-            finish(second); second = null
+            finish(readingB); second = null
             val savedB = runBlocking {
                 repeat(60) {
                     val value = notes.position(b)
@@ -192,15 +194,17 @@ class MobiReadingJourneyDeviceTest {
             assertTrue(savedB > 0)
             assertNotEquals("Two different books must not share the reading offset", savedA, savedB)
 
-            reopened = open(a)
-            val fresh = requireNotNull(findScroll(reopened))
-            val reopenedText = (fresh.getChildAt(0) as TextView).text
+            val readingRestored = open(a)
+            reopened = readingRestored
+            val fresh = requireNotNull(findScroll(readingRestored))
+            assertTrue("Reopened MOBI reader must display text", 
+                (fresh.getChildAt(0) as TextView).text.isNotBlank())
             // Depending on which visible line was bookmarked, the annotated
             // phrase may lie above the current viewport. Jump to its exact
             // locator, just as Knowledge → Abrir origen does.
             assertEquals(savedA, JSONObject(requireNotNull(runBlocking { notes.position(a) }).locator)
                 .getInt("offset"))
-            finish(reopened); reopened = null
+            finish(readingRestored); reopened = null
 
             // The note location is still navigable after reopening.
             val origin = instrumentation.startActivitySync(
