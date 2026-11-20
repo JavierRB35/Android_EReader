@@ -46,7 +46,7 @@ jobs:
           import sys
 
           build_file = pathlib.Path("app/build.gradle").read_text(encoding="utf-8")
-          version = re.search(r"""^\s*versionName\s+["']([^"']+)["']""", build_file, re.MULTILINE)
+          version = re.search(r"""^\s*versionName\s+(?:\(releaseVersionNameOverride\s*\?:\s*)?["']([^"']+)["']""", build_file, re.MULTILINE)
           expected = os.environ["GITHUB_REF_NAME"][1:]
           if version is None or version.group(1) != expected:
               sys.exit(f"Tag version {expected} must match app/build.gradle versionName")
