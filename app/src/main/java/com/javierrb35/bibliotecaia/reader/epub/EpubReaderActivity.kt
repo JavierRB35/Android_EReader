@@ -732,8 +732,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     }
                     when {
                         DefinitionUi.isDefinition(item.itemId) -> {
-                            if (!WordMeaning.oneWord(quote)) {
-                                toast("Selecciona una sola palabra para consultar su significado.")
+                            if (WordMeaning.searchPhrase(quote) == null) {
+                                toast("Selecciona una palabra o expresión breve para consultar su significado.")
                             } else DefinitionUi.show(this@EpubReaderActivity, quote,
                                 aiConfigured(), definitionDelegate(locator))
                         }
