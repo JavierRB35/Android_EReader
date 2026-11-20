@@ -4,11 +4,13 @@ import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
 import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.data.BookTagCrossRef
 import com.javierrb35.bibliotecaia.data.CategoryEntity
 import com.javierrb35.bibliotecaia.data.CollectionBookCrossRef
 import com.javierrb35.bibliotecaia.data.CollectionEntity
 import com.javierrb35.bibliotecaia.data.ReadingPositionEntity
+import com.javierrb35.bibliotecaia.data.ReadingStatus
 import com.javierrb35.bibliotecaia.data.TagEntity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,24 +29,10 @@ data class LibrarySnapshot(
     val positions: List<ReadingPositionEntity>,
 )
 
-/** Resultado de una restauración: nunca destructiva, siempre con recuento honesto. */
-data class RestoreReport(
-    val booksRestored: Int,
-    val booksSkipped: Int,      // ya existían (mismo id o hash)
-    val annotationsRestored: Int,
-    val annotationsSkipped: Int,
-    val categoriesRestored: Int,
-    val tagsRestored: Int,
-    val collectionsRestored: Int,
-    val positionsUpdated: Int,
-)
-
 object BackupCodec {
 
     const val FORMAT_VERSION = 1
     private const val APP_ID = "biblioteca-ia"
-
-    // ---------- Serialización ----------
 
     fun toJson(snapshot: LibrarySnapshot, appVersion: String, exportedAt: Long): String {
         val root = JSONObject()
@@ -55,6 +43,11 @@ object BackupCodec {
                 .put("formatVersion", FORMAT_VERSION)
                 .put("appVersion", appVersion)
                 .put("exportedAt", exportedAt)
+                .put("counts", JSONObject()
+                    .put("books", snapshot.books.size)
+                    .put("annotations", snapshot.annotations.size)
+                    .put("versions", snapshot.versions.size)
+                    .put("positions", snapshot.positions.size))
         )
         root.put("books", JSONArray().apply { snapshot.books.forEach { put(bookJson(it)) } })
         root.put("categories", JSONArray().apply { snapshot.categories.forEach { put(categoryJson(it)) } })
@@ -74,51 +67,48 @@ object BackupCodec {
         .put("title", b.title)
         .put("authors", b.authors ?: JSONObject.NULL)
         .put("format", b.format.name)
-        .put("fileName", b.fileName)
-        .put("contentHash", b.contentHash)
-        .put("sizeBytes", b.sizeBytes)
-        .put("addedAt", b.addedAt)
-        .put("lastOpenedAt", b.lastOpenedAt ?: JSONObject.NULL)
-        .put("readingStatus", b.readingStatus.name)
+        .put("file_name", b.fileName)
+        .put("content_hash", b.contentHash)
+        .put("size_bytes", b.sizeBytes)
+        .put("added_at", b.addedAt)
+        .put("last_opened_at", b.lastOpenedAt ?: JSONObject.NULL)
+        .put("reading_status", b.readingStatus.name)
         .put("favorite", b.favorite)
         .put("progress", b.progress.toDouble())
-    // localPath no se exporta: es específico del dispositivo (§16.3)
 
     private fun categoryJson(c: CategoryEntity): JSONObject = JSONObject()
         .put("id", c.id).put("name", c.name)
-        .put("parentId", c.parentId ?: JSONObject.NULL).put("sortOrder", c.sortOrder)
+        .put("parent_id", c.parentId ?: JSONObject.NULL).put("sort_order", c.sortOrder)
 
     private fun tagJson(t: TagEntity): JSONObject = JSONObject().put("id", t.id).put("name", t.name)
 
     private fun collectionJson(c: CollectionEntity): JSONObject =
-        JSONObject().put("id", c.id).put("name", c.name).put("createdAt", c.createdAt)
+        JSONObject().put("id", c.id).put("name", c.name).put("created_at", c.createdAt)
 
     private fun refJson(first: String, second: String): JSONObject =
         JSONObject().put("first", first).put("second", second)
 
     private fun annotationJson(a: AnnotationEntity): JSONObject = JSONObject()
         .put("id", a.id)
-        .put("bookId", a.bookId ?: JSONObject.NULL)
+        .put("book_id", a.bookId ?: JSONObject.NULL)
         .put("locator", a.locator ?: JSONObject.NULL)
         .put("quote", a.quote)
         .put("body", a.body)
         .put("kind", a.kind)
         .put("color", a.color)
-        .put("createdAt", a.createdAt)
-        .put("updatedAt", a.updatedAt)
-        .put("deletedAt", a.deletedAt ?: JSONObject.NULL)
+        .put("created_at", a.createdAt)
+        .put("updated_at", a.updatedAt)
+        .put("deleted_at", a.deletedAt ?: JSONObject.NULL)
 
     private fun versionJson(v: AnnotationVersionEntity): JSONObject = JSONObject()
-        .put("id", v.id).put("annotationId", v.annotationId)
-        .put("body", v.body).put("color", v.color).put("savedAt", v.savedAt)
+        .put("id", v.id).put("annotation_id", v.annotationId)
+        .put("body", v.body).put("color", v.color).put("saved_at", v.savedAt)
 
     private fun positionJson(p: ReadingPositionEntity): JSONObject = JSONObject()
-        .put("bookId", p.bookId).put("locator", p.locator)
-        .put("progress", p.progress).put("updatedAt", p.updatedAt)
+        .put("book_id", p.bookId).put("locator", p.locator)
+        .put("progress", p.progress.toDouble()).put("updated_at", p.updatedAt)
 
-    // ---------- Deserialización ----------
-
-    /** Lanza IllegalArgumentException con mensaje claro si la copia no es válida. */
+    /** Deserialización estricta (Issue #10.4): valida manifiesto, secciones y recuentos. */
     fun fromJson(json: String): LibrarySnapshot {
         val root = try { JSONObject(json) } catch (e: Exception) {
             throw IllegalArgumentException("El archivo no es una copia válida de Biblioteca IA.")
@@ -128,23 +118,30 @@ object BackupCodec {
         if (manifest.optString("app") != APP_ID) {
             throw IllegalArgumentException("La copia pertenece a otra aplicación.")
         }
+        if (!manifest.has("formatVersion") || !manifest.has("exportedAt")) {
+            throw IllegalArgumentException("La copia está incompleta (manifiesto sin versión o fecha).")
+        }
         val format = manifest.optInt("formatVersion", -1)
         if (format !in 1..FORMAT_VERSION) {
             throw IllegalArgumentException("La copia usa un formato no compatible (versión $format).")
         }
-        // Old v1 backups may lack annotationVersions, introduced later.
-        // All other arrays have always been exported. Missing them is a truncated
-        // or malformed backup, NOT an empty library.
-        val required = listOf("books", "categories", "tags", "collections",
-            "bookCategories", "bookTags", "collectionBooks", "annotations", "readingPositions")
-        for (name in required) {
-            if (root.optJSONArray(name) == null)
-                throw IllegalArgumentException("Copia incompleta o dañada: falta $name.")
+        listOf("books", "categories", "annotations").forEach { key ->
+            if (!root.has(key) || root.optJSONArray(key) == null) {
+                throw IllegalArgumentException("La copia está incompleta: falta la sección $key.")
+            }
         }
-        if (root.has("annotationVersions") && root.optJSONArray("annotationVersions") == null)
-            throw IllegalArgumentException("Copia dañada: historial de anotaciones no válido.")
-        return try {
-            LibrarySnapshot(
+        val counts = manifest.optJSONObject("counts")
+        if (counts != null) {
+            val expectedBooks = counts.optInt("books", -1)
+            if (expectedBooks >= 0 && root.optJSONArray("books")?.length() != expectedBooks) {
+                throw IllegalArgumentException("La copia está incompleta (libros declarados: $expectedBooks).")
+            }
+            val expectedAnnotations = counts.optInt("annotations", -1)
+            if (expectedAnnotations >= 0 && root.optJSONArray("annotations")?.length() != expectedAnnotations) {
+                throw IllegalArgumentException("La copia está incompleta (anotaciones declaradas: $expectedAnnotations).")
+            }
+        }
+        return LibrarySnapshot(
             books = root.optJSONArray("books").mapList { bookFrom(it) },
             categories = root.optJSONArray("categories").mapList { categoryFrom(it) },
             tags = root.optJSONArray("tags").mapList { tagFrom(it) },
@@ -158,16 +155,12 @@ object BackupCodec {
             annotations = root.optJSONArray("annotations").mapList { annotationFrom(it) },
             versions = root.optJSONArray("annotationVersions").mapList { versionFrom(it) },
             positions = root.optJSONArray("readingPositions").mapList { positionFrom(it) },
-            )
-        } catch (e: Exception) {
-            if (e is IllegalArgumentException) throw e
-            throw IllegalArgumentException("Copia incompleta o dañada: datos no válidos.", e)
-        }
+        )
     }
 
     private fun <T> JSONArray?.mapList(transform: (JSONObject) -> T): List<T> {
-        this ?: return emptyList() // Only for historical annotationVersions.
-        return List(length()) { i -> transform(getJSONObject(i)) }
+        this ?: return emptyList()
+        return List(length()) { i -> transform(optJSONObject(i) ?: JSONObject()) }
     }
 
     private fun safePathSegment(value: String, label: String): String {
@@ -182,31 +175,30 @@ object BackupCodec {
     private fun bookFrom(o: JSONObject): BookEntity = BookEntity(
         id = safePathSegment(o.getString("id"), "identificador del libro"),
         title = o.getString("title"),
+        contentHash = o.getString("content_hash").also { require(it.isNotBlank()) { "Libro sin hash en la copia." } },
         authors = o.optString("authors").ifEmpty { null },
-        format = runCatching { com.javierrb35.bibliotecaia.data.BookFormat.valueOf(o.getString("format")) }
-            .getOrDefault(com.javierrb35.bibliotecaia.data.BookFormat.EPUB),
-        fileName = safePathSegment(o.optString("fileName", "libro"), "nombre del libro"),
-        localPath = "", // se reconstruye en la restauración; el archivo debe existir o reimportarse
-        contentHash = o.getString("contentHash"),
-        sizeBytes = o.optLong("sizeBytes", 0),
-        addedAt = o.optLong("addedAt", System.currentTimeMillis()),
-        lastOpenedAt = if (o.isNull("lastOpenedAt")) null else o.optLong("lastOpenedAt"),
-        readingStatus = runCatching { com.javierrb35.bibliotecaia.data.ReadingStatus.valueOf(o.getString("readingStatus")) }
-            .getOrDefault(com.javierrb35.bibliotecaia.data.ReadingStatus.PENDING),
+        format = runCatching { BookFormat.valueOf(o.getString("format")) }.getOrDefault(BookFormat.EPUB),
+        fileName = safePathSegment(o.optString("file_name", "libro"), "nombre del libro"),
+        localPath = "", // se reconstruye en la restauración; revinculación por hash (ADR-008)
+        sizeBytes = o.optLong("size_bytes", 0),
+        addedAt = o.optLong("added_at", System.currentTimeMillis()),
+        lastOpenedAt = if (o.isNull("last_opened_at")) null else o.optLong("last_opened_at"),
+        readingStatus = runCatching { ReadingStatus.valueOf(o.getString("reading_status")) }
+            .getOrDefault(ReadingStatus.PENDING),
         favorite = o.optBoolean("favorite", false),
         progress = o.optDouble("progress", 0.0).toFloat(),
     )
 
     private fun categoryFrom(o: JSONObject): CategoryEntity = CategoryEntity(
         id = o.getString("id"), name = o.getString("name"),
-        parentId = if (o.isNull("parentId")) null else o.optString("parentId"),
-        sortOrder = o.optInt("sortOrder", 0),
+        parentId = if (o.isNull("parent_id")) null else o.optString("parent_id"),
+        sortOrder = o.optInt("sort_order", 0),
     )
 
     private fun tagFrom(o: JSONObject): TagEntity = TagEntity(id = o.getString("id"), name = o.getString("name"))
 
     private fun collectionFrom(o: JSONObject): CollectionEntity = CollectionEntity(
-        id = o.getString("id"), name = o.getString("name"), createdAt = o.optLong("createdAt", 0),
+        id = o.getString("id"), name = o.getString("name"), createdAt = o.optLong("created_at", 0),
     )
 
     private fun refPair(o: JSONObject): Pair<String, String> =
@@ -214,29 +206,29 @@ object BackupCodec {
 
     private fun annotationFrom(o: JSONObject): AnnotationEntity = AnnotationEntity(
         id = o.getString("id"),
-        bookId = if (o.isNull("bookId")) null else o.optString("bookId"),
+        bookId = if (o.isNull("book_id")) null else o.optString("book_id"),
         locator = if (o.isNull("locator")) null else o.optString("locator"),
         quote = o.optString("quote"),
         body = o.optString("body"),
         kind = o.optString("kind", "NOTE"),
         color = o.optInt("color", 0),
-        createdAt = o.optLong("createdAt", System.currentTimeMillis()),
-        updatedAt = o.optLong("updatedAt", System.currentTimeMillis()),
-        deletedAt = if (o.isNull("deletedAt")) null else o.optLong("deletedAt"),
+        createdAt = o.optLong("created_at", System.currentTimeMillis()),
+        updatedAt = o.optLong("updated_at", System.currentTimeMillis()),
+        deletedAt = if (o.isNull("deleted_at")) null else o.optLong("deleted_at"),
     )
 
     private fun versionFrom(o: JSONObject): AnnotationVersionEntity = AnnotationVersionEntity(
         id = o.getString("id"),
-        annotationId = o.getString("annotationId"),
+        annotationId = o.getString("annotation_id"),
         body = o.optString("body"),
         color = o.optInt("color", 0),
-        savedAt = o.optLong("savedAt", 0),
+        savedAt = o.optLong("saved_at", 0),
     )
 
     private fun positionFrom(o: JSONObject): ReadingPositionEntity = ReadingPositionEntity(
-        bookId = o.getString("bookId"),
+        bookId = o.getString("book_id"),
         locator = o.getString("locator"),
         progress = o.optDouble("progress", 0.0).toFloat(),
-        updatedAt = o.optLong("updatedAt", 0),
+        updatedAt = o.optLong("updated_at", 0),
     )
 }
