@@ -199,8 +199,9 @@ class AccountActivity : AppCompatActivity() {
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         signIn.isEnabled = !busy
         signIn.setText(if (session == null) R.string.account_sign_in else R.string.account_verify)
-        registerEmail.isEnabled = !busy && repository.configuration.backendConfigured
-        loginEmail.isEnabled = !busy && repository.configuration.backendConfigured
+        // Switching identity must be explicit; do not silently replace a saved account.
+        registerEmail.isEnabled = !busy && session == null && repository.configuration.backendConfigured
+        loginEmail.isEnabled = !busy && session == null && repository.configuration.backendConfigured
         email.isEnabled = !busy
         password.isEnabled = !busy
         signOut.visibility = if (session != null) View.VISIBLE else View.GONE
