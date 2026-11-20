@@ -63,11 +63,16 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
             if (availableOriginals.isNotEmpty()) {
                 for (book in dao.booksAll()) {
                     val verifiedPath = availableOriginals[book.contentHash] ?: continue
-                    require(File(verifiedPath).isFile) {
-                        "El original restaurado ha desaparecido antes de guardar la biblioteca."
+                    val verified = File(verifiedPath)
+                    require(matchesOriginal(verified, book)) {
+                        "El original restaurado ha desaparecido o está dañado antes de guardar la biblioteca."
                     }
-                    if (book.localPath.isBlank() || !File(book.localPath).isFile) {
-                        db.bookDao().update(book.copy(localPath = verifiedPath))
+                    // A file's mere existence is not proof that it is this edition.
+                    // Corruption can preserve the filename and even the byte length.
+                    // Keep existing valid paths; replace only missing/corrupted links.
+                    val current = book.localPath.takeIf { it.isNotBlank() }?.let(::File)
+                    if (current == null || !matchesOriginal(current, book)) {
+                        db.bookDao().update(book.copy(localPath = verified.absolutePath))
                     }
                 }
             }
@@ -153,6 +158,15 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 positionsSkipped = snapshot.positions.size - positionsUpdated,
             )
         }
+    }
+
+    /**
+     * Validate both length and SHA-256 before trusting a restored or existing
+     * original. A stale localPath can still point to a file of identical size.
+     */
+    private fun matchesOriginal(file: File, book: BookEntity): Boolean {
+        if (!file.isFile || file.length() != book.sizeBytes) return false
+        return OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash
     }
 
     /** Libros sin archivo disponible (tras restauración o borrado del almacenamiento). */
