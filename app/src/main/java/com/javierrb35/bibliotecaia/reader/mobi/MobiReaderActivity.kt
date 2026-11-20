@@ -11,9 +11,6 @@ import android.text.Spanned
 import android.text.style.UnderlineSpan
 import android.text.style.BackgroundColorSpan
 import android.net.Uri
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -29,6 +26,7 @@ import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
