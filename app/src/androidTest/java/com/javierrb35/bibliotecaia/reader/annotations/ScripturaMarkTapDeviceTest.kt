@@ -48,6 +48,10 @@ class ScripturaMarkTapDeviceTest {
                 this.text = "palabra marcada y seleccionable"
                 textSize = 18f
                 setTextIsSelectable(true)
+                // Native text selection needs real layout parameters even in
+                // a standalone instrumented test; otherwise TextView
+                // checkForResize() dereferences null while setting selection.
+                layoutParams = android.view.ViewGroup.LayoutParams(600, 240)
                 measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.EXACTLY))
                 layout(0, 0, 600, 240)
