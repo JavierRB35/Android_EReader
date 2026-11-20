@@ -90,7 +90,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private fun prefetchSelectedExcerpt() {
         val epoch = selectionEpoch
         selectionProbe = lifecycleScope.async(start = CoroutineStart.UNDISPATCHED) {
-            val selected = runCatching { readSelectedExcerpt() }.getOrNull()
+            val selected = try { readSelectedExcerpt() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { null }
             if (selected != null && selectionEpoch == epoch) lastSelectedExcerpt = selected
             selected
         }
