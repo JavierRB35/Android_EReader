@@ -1,239 +1,359 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The normal phone layout fits in one viewport. Scrolling is retained only
+     for unusually short screens / large accessibility font sizes. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/bookDetailScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
-    android:fillViewport="true">
+    android:background="@color/bia_background"
+    android:fillViewport="true"
+    android:clipToPadding="false"
+    android:verticalScrollBarEnabled="false">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
 
         <TextView
             android:id="@+id/txtDetailTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="24sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textSize="25sp"
             android:textStyle="bold"
-            android:textColor="#E0D6CC" />
+            android:textColor="@color/bia_text" />
 
         <TextView
             android:id="@+id/txtDetailAuthors"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textSize="14sp"
-            android:textColor="#A89C90" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="@string/detail_format"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
-
-        <TextView
-            android:id="@+id/txtDetailFormat"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textSize="15sp"
-            android:textColor="#E0D6CC" />
+            android:textColor="@color/bia_text_secondary" />
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/detail_size"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/txtDetailSize"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="#E0D6CC" />
+            <TextView
+                android:id="@+id/txtDetailFormat"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="5dp"
+                android:paddingBottom="5dp"
+                android:background="@drawable/bg_book_detail_chip"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/bia_accent" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/detail_added"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
+            <TextView
+                android:id="@+id/txtDetailSize"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textSize="12sp"
+                android:textColor="@color/bia_text_secondary" />
 
-        <TextView
-            android:id="@+id/txtDetailAdded"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="#E0D6CC" />
+            <TextView
+                android:id="@+id/txtDetailAdded"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textSize="12sp"
+                android:textColor="@color/bia_text_secondary" />
+        </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/detail_status"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/txtDetailStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="#E0D6CC" />
+            <LinearLayout
+                android:id="@+id/btnCycleStatus"
+                android:layout_width="0dp"
+                android:layout_height="46dp"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="10dp"
+                android:background="@drawable/bg_book_detail_row"
+                android:clickable="true"
+                android:focusable="true">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/detail_file"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/detail_status"
+                    android:textSize="12sp"
+                    android:textColor="@color/bia_text_secondary" />
+
+                <TextView
+                    android:id="@+id/txtDetailStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:textColor="@color/bia_text" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="›"
+                    android:textSize="22sp"
+                    android:textColor="@color/bia_accent" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/btnFavorite"
+                android:layout_width="124dp"
+                android:layout_height="46dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_book_detail_row"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:textSize="13sp"
+                android:textColor="@color/bia_text"
+                android:text="@string/detail_favorite_short" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/txtDetailFile"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textColor="#A89C90"
-            android:maxLines="2"
-            android:ellipsize="middle" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/detail_categories"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
-
-        <TextView
-            android:id="@+id/txtDetailCategories"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textColor="#E0D6CC" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/detail_tags"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
-
-        <TextView
-            android:id="@+id/txtDetailTags"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textColor="#E0D6CC" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/detail_collections"
-            android:textSize="12sp"
-            android:textColor="#7A7066" />
-
-        <TextView
-            android:id="@+id/txtDetailCollections"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="13sp"
-            android:textColor="#E0D6CC" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnReadBook"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="56dp"
-            android:layout_marginTop="20dp"
-            android:text="@string/action_read_book" />
+            android:layout_marginTop="9dp"
+            android:maxLines="1"
+            android:ellipsize="middle"
+            android:textSize="11sp"
+            android:textColor="@color/bia_text_secondary" />
 
         <Button
             android:id="@+id/btnLink"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="7dp"
+            android:minHeight="44dp"
             android:text="@string/detail_link"
             android:textColor="@color/bia_accent"
             android:visibility="gone" />
 
-        <Button
-            android:id="@+id/btnAi"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/detail_ai" />
+            android:layout_marginTop="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/btnFavorite"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/btn_favorite" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/detail_organization_title"
+                android:textAllCaps="true"
+                android:letterSpacing="0.07"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="@color/bia_text" />
 
-        <Button
-            android:id="@+id/btnEditMetadata"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:text="@string/detail_organization_hint"
+                android:textSize="11sp"
+                android:textColor="@color/bia_text_secondary" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnEditCategories"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/btn_edit_metadata"
-            android:textColor="#E0D6CC" />
+            android:layout_height="54dp"
+            android:layout_marginTop="9dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_book_detail_row"
+            android:clickable="true"
+            android:focusable="true">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/detail_categories"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/bia_text" />
+                <TextView
+                    android:id="@+id/txtDetailCategories"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textSize="12sp"
+                    android:textColor="@color/bia_text_secondary" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+"
+                android:textSize="23sp"
+                android:textColor="@color/bia_accent"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnEditTags"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="6dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_book_detail_row"
+            android:clickable="true"
+            android:focusable="true">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/detail_tags"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/bia_text" />
+                <TextView
+                    android:id="@+id/txtDetailTags"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textSize="12sp"
+                    android:textColor="@color/bia_text_secondary" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+"
+                android:textSize="23sp"
+                android:textColor="@color/bia_accent"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/btnEditCollections"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="6dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_book_detail_row"
+            android:clickable="true"
+            android:focusable="true">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/detail_collections"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/bia_text" />
+                <TextView
+                    android:id="@+id/txtDetailCollections"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textSize="12sp"
+                    android:textColor="@color/bia_text_secondary" />
+            </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+"
+                android:textSize="23sp"
+                android:textColor="@color/bia_accent"
+                android:importantForAccessibility="no" />
+        </LinearLayout>
+
+        <!-- Keep the reading actions at the bottom when the viewport is tall. -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReadBook"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/action_read_book"
+            android:textAllCaps="false"
+            android:textSize="16sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="7dp"
             android:orientation="horizontal">
 
-            <Button
-                android:id="@+id/btnEditCategories"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAi"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
-                android:text="@string/btn_edit_categories"
-                android:textColor="#E0D6CC" />
+                android:text="@string/detail_ai"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:textColor="@color/bia_text" />
 
-            <Button
-                android:id="@+id/btnEditTags"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEditMetadata"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:text="@string/btn_edit_tags"
-                android:textColor="#E0D6CC" />
+                android:text="@string/btn_edit_metadata"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:textColor="@color/bia_text" />
         </LinearLayout>
-
-        <Button
-            android:id="@+id/btnEditCollections"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/btn_edit_collections"
-            android:textColor="#E0D6CC" />
-
-        <Button
-            android:id="@+id/btnCycleStatus"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/btn_cycle_status"
-            android:textColor="#E0D6CC" />
-
     </LinearLayout>
-
 </ScrollView>
