@@ -39,6 +39,11 @@ class BackupCodecTest {
                 kind = "HIGHLIGHT", color = 1, createdAt = 10, updatedAt = 20, deletedAt = null,
             ),
         ),
+        versions = listOf(
+            com.javierrb35.bibliotecaia.data.AnnotationVersionEntity(
+                id = "v-1", annotationId = "an-1", body = "Versión anterior", color = 1, savedAt = 15,
+            ),
+        ),
         positions = listOf(ReadingPositionEntity("book-1", """{"href":"c1"}""", 0.25f, 99)),
     )
 
@@ -66,6 +71,8 @@ class BackupCodecTest {
         assertEquals(1, restored.collectionBooks.size)
         assertEquals(1, restored.annotations.size)
         assertEquals("HIGHLIGHT", restored.annotations.single().kind)
+        assertEquals(1, restored.versions.size)
+        assertEquals("Versión anterior", restored.versions.single().body)
         assertEquals(1, restored.positions.size)
         assertEquals(99, restored.positions.single().updatedAt)
     }

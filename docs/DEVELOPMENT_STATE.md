@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (revisión del propietario integrada: PR #5 + corrección del motor de sync)
-**Fase actual:** 1-2-4-9 COMPLETOS · 5-6 núcleo publicado y **revisado por el propietario** (esquema endurecido desplegado; cliente alineado; bug de pérdida de cola corregido) · 10 parcial · 7-8 pendientes de claves
+**Última actualización:** 2026-11-20 (IA BYOK completa + backup con versiones + revinculación por hash)
+**Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -72,10 +72,12 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 |---|---|---|
 | 5-6 — Sync + multiusuario | **REVISIÓN DEL PROPIETARIO INTEGRADA**: sus 3 hallazgos corregidos vía PR #5 (fusionado `929b08b`, repo alineado con el esquema endurecido `initial_schema_hardened` YA DESPLEGADO: append-only real en versiones, `user_id default auth.uid()`, FKs compuestas de tenant en 10 relaciones, API solo autenticada). **Bug de pérdida corregido** (`c2884ac`): el motor JAMÁS descarta la cola por errores HTTP — fallo registrado en la entrada (intentos+error), aislamiento fila a fila cuando un lote falla, 4xx permanente se conserva para revisión. 77/77 tests. Pendiente: propietario aplica claves en `local.properties` + OAuth Google (punto B) para pruebas con sesión real |
 | 5 — Google Auth real | Google Cloud sin configurar (OAuth) | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-1 de firma, Web Client ID) y proveedor Google en Supabase |
-| 7-8 — IA (Gemini/Groq) | Sin claves API | Obtener claves en AI Studio / GroqCloud Console; el incremento requiere además diseño del asistente en el lector y RAG |
+| 7-8 — IA (Gemini/Groq) | ~~Sin claves~~ **IMPLEMENTADO (BYOK)**: AiKeyStore cifrado (Keystore AES-GCM), Gemini + Groq con errores diferenciados, asistente guiado con PRUEBA REAL, chat con RAG por capítulos, referencias [n], anti-spoilers por progreso, historial JSON. **Pendiente:** verificación con claves reales del propietario (asistente→Guardar y probar) y análisis de imágenes |
 | 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
 
-**Pendientes técnicas propias del código (sin bloqueo externo):** portada MOBI (espera extractor), restyle fino de ficha/cuaderno a tokens de diseño, accesibilidad (TalkBack, fuente ampliada), tablet, OCR, copia de archivos originales en backup (hoy solo metadatos), copias periódicas.
+**Recuperación de originales (ADR-008):** OriginalLinker vincula por SHA-256 (nunca por nombre) con copia local para offline; la ficha detecta archivo ausente y ofrece «Vincular archivo original…» vía SAF (Drive o cualquier origen); sin duplicar fichas. 4 tests de revinculación. Backup incluye ahora **versiones de anotaciones** (export+restore).
+
+**Pendientes técnicas propias del código:** OCR de PDFs escaneados (ML Kit — evaluación de tamaño en AndroidIDE pendiente), accesibilidad (TalkBack, fuente ampliada), tablet, portada MOBI, copia de archivos originales dentro del backup (hoy: metadatos + guía de revinculación), copias periódicas.
 
 **Verificación obligatoria pendiente en el teléfono (propietario):** `sh ./build-on-phone.sh` en AndroidIDE-Rv2. Nota operativa: Readium aumenta la memoria de la fusión dex (en escritorio se resolvió con `-Dorg.gradle.jvmargs=-Xmx3g` por línea de comandos); si el teléfono se queda sin memoria, evaluar JAVA_OPTS en `build-on-phone.sh` con precaución (la prohibición de `-Xmx2048m` en `gradle.properties` sigue vigente).
 

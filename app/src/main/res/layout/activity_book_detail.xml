@@ -158,6 +158,16 @@
             android:text="@string/action_read_book" />
 
         <Button
+            android:id="@+id/btnLink"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/detail_link"
+            android:textColor="@color/bia_accent"
+            android:visibility="gone" />
+
+        <Button
             android:id="@+id/btnAi"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

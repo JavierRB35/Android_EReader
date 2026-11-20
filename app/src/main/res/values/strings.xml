@@ -138,4 +138,9 @@
     <string name="ai_no_text">Este %1$s no tiene texto extraíble todavía (los PDF escaneados necesitan OCR antes de consultar la IA).</string>
     <string name="ai_sources">Fuentes:</string>
     <string name="detail_ai">Consultar IA</string>
+    <string name="detail_file_missing">Archivo no disponible en este dispositivo</string>
+    <string name="detail_link">Vincular archivo original (Drive u otro origen)…</string>
+    <string name="detail_link_ok">Original vinculado: ya puedes leerlo.</string>
+    <string name="detail_link_nomatch">El archivo seleccionado no corresponde a este libro (hash distinto).</string>
+    <string name="detail_link_error">No se pudo vincular: %1$s</string>
 </resources>
