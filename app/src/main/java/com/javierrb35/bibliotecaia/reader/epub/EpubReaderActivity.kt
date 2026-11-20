@@ -212,6 +212,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         webFrame = FrameLayout(this).apply { id = R.id.epub_navigator }
         frame.addView(webFrame, FrameLayout.LayoutParams(-1, -1))
         nativeText = TextView(this).apply {
+            id = R.id.epub_native_text
             setPadding(24.dp, 24.dp, 24.dp, 40.dp)
             setTextIsSelectable(true)
             isLongClickable = true
