@@ -66,3 +66,22 @@ publicados y verificados de todas las ramas.
    `main` por sí mismos (coincide con la restricción de este documento).
 4. Punto caliente compartido: el cableado de navegación (manifest, ficha → lectores) es del
    agente de integración; el canal ZCode lo integrará cuando se publique y no lo duplica.
+
+## Adopción de trabajo estancado (2026-11-20, canal ZCode)
+
+Verificado con marcas de tiempo: los cuatro worktrees paralelos llevan ~100 minutos sin
+modificar ficheros ni publicar — sus sesiones de agente han finalizado. Por mandato
+directo del propietario («continua con el desarrollo hasta el final»), este canal **adopta
+el trabajo sin commit** de cada worktree y lo completa:
+
+| Origen | Trabajo adoptado | Rama de adopción |
+|---|---|---|
+| `biblioteca-formats/` | refinamientos de MobiDocument/test | `integration/formats-adopted` |
+| `biblioteca-epub/` | EpubOpener/EpubReaderActivity/EpubSafety + test + deps | `integration/epub-adopted` |
+| `biblioteca-integration/` | wiring: ReaderRouter, KnowledgeActivity, navegación, endurecimiento de importación | `integration/wiring-adopted` |
+| `biblioteca-auth/` | Google Auth | `integration/auth-adopted` |
+
+Cada adopción: copia de ficheros → resolución de conflictos sobre main actual → build +
+tests + verificación en emulador → merge a main con crédito al trabajo original. Los
+worktrees originales NO se tocan; sus ramas quedan como historial. Si algún agente se
+reactiva, debe leer este documento y `git fetch` antes de continuar.
