@@ -55,6 +55,29 @@ class UpdatePayloadPolicyTest {
         assertFalse(UpdatePayloadPolicy.isExpectedHash(hash, "bad-sha"))
     }
 
+    @Test fun onlySamePackageHigherVersionAndSameCertificateCanUpgrade() {
+        val official = setOf("a1b2c3")
+        val packageName = "com.javierrb35.bibliotecaia"
+        UpdatePayloadPolicy.requireSignedUpgrade(packageName, packageName,
+            100004, 100005, official, official)
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePayloadPolicy.requireSignedUpgrade(packageName, "org.other.reader",
+                100004, 100005, official, official)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePayloadPolicy.requireSignedUpgrade(packageName, packageName,
+                100004, 100004, official, official)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePayloadPolicy.requireSignedUpgrade(packageName, packageName,
+                100004, 100006, official, setOf("unauthorized"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            UpdatePayloadPolicy.requireSignedUpgrade(packageName, packageName,
+                100004, 100006, emptySet(), emptySet())
+        }
+    }
+
     @Test fun restrictsCdnRedirectsToOfficialHttpsHostnames() {
         assertTrue(UpdatePayloadPolicy.allowedDownloadHost("github.com"))
         assertTrue(UpdatePayloadPolicy.allowedDownloadHost("release-assets.githubusercontent.com"))
