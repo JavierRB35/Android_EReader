@@ -158,6 +158,13 @@
             android:text="@string/action_read_book" />
 
         <Button
+            android:id="@+id/btnAi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/detail_ai" />
+
+        <Button
             android:id="@+id/btnFavorite"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

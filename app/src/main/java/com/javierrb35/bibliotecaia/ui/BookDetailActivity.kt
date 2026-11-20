@@ -56,11 +56,20 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
 
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { cycleStatus() }
+        findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener { promptAssignCategories() }
         findViewById<View>(R.id.btnEditTags).setOnClickListener { promptAssignTags() }
         findViewById<View>(R.id.btnEditCollections).setOnClickListener { promptAssignCollections() }
+    }
+
+    private fun openAi() {
+        val current = book ?: return
+        val keyStored = com.javierrb35.bibliotecaia.ai.AiKeyStore.providers()
+            .any { com.javierrb35.bibliotecaia.ai.AiKeyStore.getKey(this, it) != null }
+        if (keyStored) com.javierrb35.bibliotecaia.ai.AiChatActivity.start(this, current.id)
+        else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
     }
 
     private fun load(bookId: String) {
