@@ -39,5 +39,5 @@ class AccountSession(
 )
 
 class AccountFailure(val reason: Reason) : Exception(reason.name) {
-    enum class Reason { NOT_CONFIGURED, NO_SESSION, NETWORK, REJECTED, RATE_LIMIT, SERVICE, INVALID_RESPONSE, SECURE_STORAGE }
+    enum class Reason { NOT_CONFIGURED, NO_SESSION, NETWORK, REJECTED, RATE_LIMIT, SERVICE, INVALID_RESPONSE, SECURE_STORAGE, INVALID_INPUT }
 }
