@@ -31,6 +31,27 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** ML Kit returns coordinates in input bitmap pixels; keep normalized boxes. */
+internal fun snapshotFromRecognition(
+    result: Text, bitmap: Bitmap, hash: String
+): PdfOcrSnapshot? {
+    if (bitmap.width < 1 || bitmap.height < 1) return null
+    val lines = result.textBlocks.flatMap { it.lines }.map { line ->
+        line.elements.mapNotNull { element ->
+            val r = element.boundingBox ?: return@mapNotNull null
+            val box = PdfOcrRect(
+                (r.left.toFloat() / bitmap.width).coerceIn(0f, 1f),
+                (r.top.toFloat() / bitmap.height).coerceIn(0f, 1f),
+                (r.right.toFloat() / bitmap.width).coerceIn(0f, 1f),
+                (r.bottom.toFloat() / bitmap.height).coerceIn(0f, 1f)
+            )
+            if (box.valid()) element.text to box else null
+        }
+    }
+    return PdfOcrGeometry.fromLines(lines, hash)
+}
+
+
 /**
  * The selected OCR transcript is local and is a companion to the PDF bitmap.
  * Word rectangles are saved with the annotation; the PDF itself is unchanged.
@@ -65,7 +86,7 @@ class PdfOcrStudy(
                     .addOnSuccessListener { recognized ->
                         activity.lifecycleScope.launch {
                             try {
-                                val snapshot = fromRecognition(recognized, bitmap, contentHash)
+                                val snapshot = snapshotFromRecognition(recognized, bitmap, contentHash)
                                 if (snapshot == null) {
                                     status("No se encontró texto seleccionable en esta página.")
                                     return@launch
@@ -97,26 +118,6 @@ class PdfOcrStudy(
                 done()
             }
         }
-    }
-
-    /** ML Kit returns coordinates in input bitmap pixels; keep normalized boxes. */
-    internal fun fromRecognition(
-        result: Text, bitmap: Bitmap, hash: String
-    ): PdfOcrSnapshot? {
-        if (bitmap.width < 1 || bitmap.height < 1) return null
-        val lines = result.textBlocks.flatMap { it.lines }.map { line ->
-            line.elements.mapNotNull { element ->
-                val r = element.boundingBox ?: return@mapNotNull null
-                val box = PdfOcrRect(
-                    (r.left.toFloat() / bitmap.width).coerceIn(0f, 1f),
-                    (r.top.toFloat() / bitmap.height).coerceIn(0f, 1f),
-                    (r.right.toFloat() / bitmap.width).coerceIn(0f, 1f),
-                    (r.bottom.toFloat() / bitmap.height).coerceIn(0f, 1f)
-                )
-                if (box.valid()) element.text to box else null
-            }
-        }
-        return PdfOcrGeometry.fromLines(lines, hash)
     }
 
     private fun showText(page: Int, snapshot: PdfOcrSnapshot) {
