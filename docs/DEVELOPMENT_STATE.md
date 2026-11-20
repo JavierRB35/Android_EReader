@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (Incremento 5-6: esquema Supabase con RLS + motor de sincronización)
-**Fase actual:** 1-2-4-9 COMPLETOS · 5-6 núcleo publicado (pendiente verificación con servicio tras config del propietario) · 10 parcial · 7-8 pendientes de claves
+**Última actualización:** 2026-11-20 (revisión del propietario integrada: PR #5 + corrección del motor de sync)
+**Fase actual:** 1-2-4-9 COMPLETOS · 5-6 núcleo publicado y **revisado por el propietario** (esquema endurecido desplegado; cliente alineado; bug de pérdida de cola corregido) · 10 parcial · 7-8 pendientes de claves
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -70,7 +70,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 
 | Incremento | Bloqueo | Acción del propietario |
 |---|---|---|
-| 5-6 — Sync + multiusuario | ~~Proyecto Supabase inexistente~~ **RESUELTO**: proyecto `BibliotecaIA` (krxdcfyvksjhpohxxvcf, eu-west-3, ACTIVE_HEALTHY). **Esquema+RLS entregados** (`supabase/migrations/0001_initial_schema.sql`, 11 tablas, RLS por tabla) y motor app-side compilado (cola v4, SupabaseRestClient, SyncEngine con políticas, 5 tests). **Pendiente:** propietario aplica la migración en SQL Editor + claves públicas en `local.properties`; luego pruebas reales con sesión (issue #3 comentario del entregable) |
+| 5-6 — Sync + multiusuario | **REVISIÓN DEL PROPIETARIO INTEGRADA**: sus 3 hallazgos corregidos vía PR #5 (fusionado `929b08b`, repo alineado con el esquema endurecido `initial_schema_hardened` YA DESPLEGADO: append-only real en versiones, `user_id default auth.uid()`, FKs compuestas de tenant en 10 relaciones, API solo autenticada). **Bug de pérdida corregido** (`c2884ac`): el motor JAMÁS descarta la cola por errores HTTP — fallo registrado en la entrada (intentos+error), aislamiento fila a fila cuando un lote falla, 4xx permanente se conserva para revisión. 77/77 tests. Pendiente: propietario aplica claves en `local.properties` + OAuth Google (punto B) para pruebas con sesión real |
 | 5 — Google Auth real | Google Cloud sin configurar (OAuth) | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-1 de firma, Web Client ID) y proveedor Google en Supabase |
 | 7-8 — IA (Gemini/Groq) | Sin claves API | Obtener claves en AI Studio / GroqCloud Console; el incremento requiere además diseño del asistente en el lector y RAG |
 | 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
