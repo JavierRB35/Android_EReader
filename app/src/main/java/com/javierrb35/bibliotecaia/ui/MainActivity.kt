@@ -192,7 +192,10 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, true)
 
     private fun applyViewMode(grid: Boolean) {
-        val columns = ((resources.configuration.screenWidthDp - 32) / 164).coerceIn(1, 6)
+        // Large Android font scales need wider book cards instead of clipped 2-column text.
+        val minimumWidth = (164f * resources.configuration.fontScale.coerceAtLeast(1f)).toInt()
+        val columns = ((resources.configuration.screenWidthDp - 32).coerceAtLeast(1) /
+            minimumWidth.coerceAtLeast(1)).coerceIn(1, 6)
         recycler.layoutManager =
             if (grid) GridLayoutManager(this, columns) else LinearLayoutManager(this)
         adapter.grid = grid
