@@ -1,5 +1,20 @@
 # PROMPT MAESTRO DE DESARROLLO MULTIAGENTE — BIBLIOTECA IA PARA ANDROID
 
+## DIRECTRIZ VINCULANTE POSTERIOR — SIN CUENTAS Y CON BACKUP COMPLETO (20-11-2026)
+
+**Prevalece sobre TODAS las referencias contradictorias de este documento y sobre los incrementos antiguos.** Por decisión expresa del propietario:
+
+1. **NO implementar ni utilizar OAuth, registro con Gmail, identificación Google, cuentas Supabase o autenticación de usuario en Biblioteca IA.** La PR #20 se canceló y cerró sin fusionar. Los módulos heredados de identidad/sincronización quedan fuera del flujo Android y no deben reactivarse sin nueva directriz.
+2. **La base operativa es Room/SQLite local y los libros originales se conservan en el dispositivo para leer offline.** No se requiere cuenta ni conexión para abrir libros, gestionar subrayados/notas ni crear/restaurar copias.
+3. **Backup íntegro obligatorio:** cada copia debe contener los originales físicos EPUB/PDF/MOBI de **todos los libros importados**, más catálogo, categorías, etiquetas, colecciones, relaciones, subrayados, anotaciones, versiones, marcadores y posiciones. La exportación falla si falta un original o su hash SHA-256 no coincide; no entregar una copia silenciosamente incompleta.
+4. **El usuario selecciona el destino** mediante Storage Access Framework (`ACTION_CREATE_DOCUMENT` y `ACTION_OPEN_DOCUMENT`): Drive, dispositivo, USB u otro DocumentsProvider. La app NO accede con credenciales Google ni usa API Drive; Drive puede pedir sesión en su propia aplicación, ajena a Biblioteca IA.
+5. **Restauración segura:** verificar todo el ZIP y hashes antes de modificar Room, reubicar originales offline en rutas privadas, conservar datos existentes y evitar duplicados por SHA-256. ZIP transportable con metadatos y binarios; no se incluyen claves IA, tokens o sesiones. Es un backup manual, NO sincronización entre dispositivos.
+6. **Criterios de aceptación:** prueba con dispositivo Android, Drive como proveedor SAF cuando esté instalado, almacenamiento local alternativo, restauración en móvil limpio, integridad de los EPUB/PDF/MOBI y persistencia real de subrayados/notas después de reabrir. No declarar QA completada sin evidencia.
+
+**Fuente única de la nueva arquitectura:** [ADR-008 revisada](../architecture/adr-008-saf-drive-byok-v1.md). Esta sección invalida expresamente los antiguos apartados de Google OAuth, registro, Supabase Sync y JSON sin binarios que sigan apareciendo en planes históricos de este documento.
+
+
+
 ## 0. MISIÓN PRINCIPAL
 
 Actúa como **arquitecto principal de software, director técnico, ingeniero Android senior y coordinador de un equipo de agentes de inteligencia artificial**.
@@ -17,10 +32,10 @@ La aplicación combinará:
 5. Consultas mediante inteligencia artificial sobre libros y anotaciones.
 6. Análisis visual de imágenes, tablas, gráficos y páginas de PDF.
 7. Gemini como proveedor principal y Groq como proveedor alternativo.
-8. Google Drive como almacenamiento principal de los archivos de libros.
-9. Supabase como base de datos central, autenticación y sincronización.
-10. Funcionamiento local sin registro para lectura y anotaciones.
-11. Autenticación con Google para IA, Drive y sincronización.
+8. Originales de libros preservados localmente para lectura offline.
+9. Copia completa transportable de originales y metadatos mediante el selector SAF en el destino escogido.
+10. Funcionamiento íntegro sin registro, OAuth ni cuenta.
+11. Restauración verificable en otro dispositivo, manteniendo libros y anotaciones.
 12. Lectura de bajo consumo energético y modo OLED negro puro.
 13. Copias de seguridad, versiones y recuperación de datos.
 14. Actualizaciones detectadas desde la aplicación.
@@ -583,35 +598,17 @@ Sin iniciar sesión debe ser posible:
 
 Los datos permanecerán en el dispositivo.
 
-## 5.3. Modo autenticado
+## 5.3. Modo único: biblioteca local sin cuentas
 
-Al iniciar sesión con Google se habilitarán:
+Toda función base, incluido backup íntegro y restauración, funciona sin iniciar sesión.
+La aplicación no presenta pantalla de registro, Google OAuth, Gmail ni conexión obligatoria con Supabase.
 
-- Google Drive.
-- Sincronización de biblioteca.
-- Consultas a inteligencia artificial.
-- Historial sincronizado.
-- Conversaciones persistentes.
-- Copias de seguridad en la nube.
-- Acceso a los mismos datos desde varios dispositivos.
+## 5.4. Transporte voluntario de datos
 
-La aplicación debe permitir continuar leyendo offline aunque exista una cuenta.
+En Ajustes, el usuario solicita una copia ZIP completa (catálogo y originales) y elige
+documento de destino con SAF. En otro dispositivo selecciona ese ZIP y verifica
+su restauración aditiva; no existe asociación automática a una identidad remota.
 
-## 5.4. Conversión de local a cuenta
-
-Cuando un usuario inicie sesión después de utilizar el modo local:
-
-1. Detectar la biblioteca local existente.
-2. Presentar una operación clara de vinculación.
-3. Identificar posibles duplicados.
-4. Subir los originales autorizados a Drive.
-5. Sincronizar metadatos y anotaciones.
-6. Preservar identificadores y relaciones.
-7. Resolver conflictos.
-8. No eliminar datos locales antes de verificar el resultado.
-9. Permitir recuperación ante una interrupción.
-
-La operación debe ser idempotente y reanudable.
 
 ---
 
@@ -1512,112 +1509,31 @@ Los mensajes deben ofrecer instrucciones de resolución.
 
 ---
 
-# 14. GOOGLE AUTH Y DRIVE
+# 14. COPIA ÍNTEGRA MEDIANTE STORAGE ACCESS FRAMEWORK
 
-## 14.1. Identificación
+## 14.1. Sin identidad obligatoria
 
-Utilizar autenticación con Google mediante los mecanismos oficiales actuales de Android.
+Prohibido solicitar OAuth, crear cuenta Gmail o utilizar Google/Supabase Auth.
+La navegación de Ajustes ofrece copia/restauración y elección de destino, no registro.
 
-Investigar Credential Manager y la integración con Supabase Auth.
+## 14.2. Destinos elegidos por el usuario
 
-No utilizar mecanismos OAuth obsoletos por comodidad.
+Usar SAF de Android para seleccionar documento ZIP en Drive u otro proveedor instalado;
+no usar API Drive ni scopes; no pedir permiso de acceso global a carpetas.
+El proveedor externo puede requerir su propia sesión independientemente de la app.
 
-## 14.2. Autorización Drive
+## 14.3. Contenido e integridad
 
-Distinguir explícitamente:
+El ZIP siempre incluye originales EPUB/PDF/MOBI, metadatos, notas, subrayados,
+marcadores, localizadores, versiones y relaciones. Verificar tamaño/hash SHA-256
+y rechazar ausencias, alteraciones, rutas no declaradas y compresión maliciosa.
+No copiar claves IA, tokens ni credenciales.
 
-**Autenticación:** identificar quién es el usuario.
+## 14.4. Restauración
 
-**Autorización:** obtener permiso para acceder a determinados archivos de Drive.
-
-Investigar Google AuthorizationClient.
-
-Solicitar permisos de Drive cuando el usuario active realmente esta función.
-
-Preferir el alcance mínimo suficiente:
-
-`https://www.googleapis.com/auth/drive.file`
-
-No solicitar acceso completo a Drive sin una necesidad demostrada.
-
-Verificar el comportamiento real del alcance para archivos creados por la aplicación y archivos existentes seleccionados por el usuario.
-
-## 14.3. Configuración del proyecto Google Cloud
-
-Crear documentación paso a paso para el administrador:
-
-1. Acceder a Google Cloud Console.
-2. Crear o seleccionar proyecto.
-3. Habilitar Google Drive API.
-4. Configurar pantalla de consentimiento OAuth.
-5. Definir nombre y datos de la aplicación.
-6. Configurar los scopes necesarios.
-7. Configurar usuarios de prueba cuando proceda.
-8. Crear credenciales OAuth apropiadas para Android.
-9. Registrar applicationId/package name.
-10. Obtener la huella de certificado de la firma correspondiente.
-11. Configurar los clientes OAuth necesarios para la integración con Supabase.
-12. Configurar dominios y redirecciones cuando correspondan.
-13. Validar autenticación.
-14. Validar autorización de Drive.
-15. Revisar requisitos de verificación para distribución futura.
-
-Las instrucciones deben distinguir certificados de desarrollo y de producción.
-
-No incluir una clave de firma real en Git.
-
-## 14.4. Configuración dentro de la app
-
-Crear:
-
-`Ajustes > Cuenta y Google Drive`
-
-Funciones:
-
-- Iniciar sesión.
-- Ver cuenta activa.
-- Conectar Drive.
-- Comprobar autorización.
-- Mostrar carpeta de biblioteca.
-- Elegir o confirmar almacenamiento autorizado.
-- Ver espacio disponible cuando pueda determinarse.
-- Activar sincronización.
-- Consultar pendientes.
-- Reintentar transferencias.
-- Desconectar Drive.
-- Cerrar sesión.
-
-## 14.5. Carpeta de libros
-
-Crear una carpeta propia:
-
-`Biblioteca IA`
-
-Gestionar identificadores estables de carpetas y archivos.
-
-No depender exclusivamente de rutas por nombre.
-
-El usuario debe poder localizar sus archivos desde Google Drive.
-
-Evitar duplicar libros innecesariamente.
-
-## 14.6. Transferencias
-
-Implementar:
-
-- Subidas reanudables.
-- Descargas.
-- Reintentos acotados.
-- Cancelaciones.
-- Comprobación de hashes.
-- Gestión de permisos revocados.
-- Archivos borrados externamente.
-- Archivos modificados externamente.
-- Errores de cuota.
-- Problemas de red.
-- Recuperación de operaciones interrumpidas.
-
-No borrar el archivo local antes de confirmar su disponibilidad remota.
+Materializar originales en almacenamiento privado y actualizar Room en una transacción;
+preservar ejemplares ya existentes, reintentos y posiciones más recientes.
+No prometer sincronización automática. Registrar evidencia en Android real.
 
 ---
 
@@ -2109,26 +2025,22 @@ No ejecutar toda la suite después de cada cambio menor.
 6. Cerrar y reabrir.
 7. Verificar preferencias.
 
-### Escenario C — Google
+### Escenario C — Backup completo en ubicación elegida
 
-1. Iniciar sesión.
-2. Autorizar Drive.
-3. Crear carpeta.
-4. Subir libro.
-5. Verificar Drive.
-6. Descargar en otro dispositivo.
-7. Comprobar integridad.
+1. Importar EPUB, PDF y MOBI, subrayar y anotar.
+2. Elegir «Guardar copia completa» en Ajustes.
+3. Seleccionar Drive o almacenamiento local desde el selector Android.
+4. Verificar que ZIP incluye todos los originales y el JSON con versiones.
+5. Comprobar que falta/corrupción de un solo libro cancela la operación.
 
-### Escenario D — Sincronización
+### Escenario D — Restauración en otro dispositivo sin cuenta
 
-1. Leer en móvil.
-2. Subrayar.
-3. Sincronizar.
-4. Abrir en tablet.
-5. Verificar posición.
-6. Verificar subrayados.
-7. Crear nota.
-8. Sincronizar de vuelta.
+1. Crear anotaciones y avanzar lectura en el móvil A.
+2. Guardar copia ZIP y llevarla manualmente al móvil B.
+3. Restaurarla sin OAuth o credenciales de Biblioteca IA.
+4. Abrir los libros EPUB/PDF/MOBI restaurados sin revincular.
+5. Comprobar posiciones, citas, notas, subrayados y versiones.
+6. Restaurar de nuevo para verificar idempotencia y preservación de datos existentes.
 
 ### Escenario E — IA textual
 
@@ -2374,11 +2286,11 @@ No declares la versión 1.0 terminada hasta comprobar:
 - Subrayados persistentes.
 - Cuaderno global.
 - Modo OLED.
-- Cuenta Google.
-- Permisos Drive.
-- Transferencias verificadas.
-- Sincronización real.
-- Aislamiento multiusuario.
+- Modo local sin cuenta, Gmail ni OAuth.
+- Copia completa en ubicación SAF elegida por el usuario.
+- Archivos físicos EPUB/PDF/MOBI verificados por SHA-256.
+- Restauración offline en dispositivo nuevo con marcas y notas intactas.
+- Protección frente a ZIP corrupto, ausencias y reintentos.
 - Gemini operativo.
 - Groq operativo.
 - Respaldo operativo.
