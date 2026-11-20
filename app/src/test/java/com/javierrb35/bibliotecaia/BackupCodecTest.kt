@@ -111,11 +111,44 @@ class BackupCodecTest {
     }
 
     @Test
-    fun `valores ausentes tolerados con valores por defecto honestos`() {
+    fun `rechaza copia truncada en vez de fingir biblioteca vacia`() {
         val minimal = """{"manifest":{"app":"biblioteca-ia","formatVersion":1}}"""
-        val restored = BackupCodec.fromJson(minimal)
-        assertTrue(restored.books.isEmpty())
-        assertTrue(restored.annotations.isEmpty())
+        try {
+            BackupCodec.fromJson(minimal)
+            throw AssertionError("Una copia sin libros ni notas no es una copia válida.")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("incompleta"))
+        }
+    }
+
+    @Test
+    fun `admite copia antigua sin historial de versiones`() {
+        val old = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
+        old.remove("annotationVersions") // Formato antiguo, sin este campo nuevo.
+        val restored = BackupCodec.fromJson(old.toString())
+        assertEquals(1, restored.books.size)
+        assertEquals(1, restored.annotations.size)
+        assertTrue(restored.versions.isEmpty())
+    }
+
+    @Test
+    fun `rechaza arrays dañados o entradas no estructuradas`() {
+        val valid = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
+        valid.put("annotations", "no-es-un-array")
+        try {
+            BackupCodec.fromJson(valid.toString())
+            throw AssertionError("El array de anotaciones es inválido.")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("dañada"))
+        }
+        val malformed = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
+        malformed.put("books", JSONArray().put(17))
+        try {
+            BackupCodec.fromJson(malformed.toString())
+            throw AssertionError("Las entradas de libros deben ser objetos.")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("dañada"))
+        }
     }
 
     @Test
