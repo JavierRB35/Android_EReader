@@ -1,38 +1,41 @@
 # QA de integridad y recuperación — BibliotecaAI v0.1 (20-11-2026)
 
-**Estado: NO ACEPTADA hasta resolver #36 y completar pruebas físicas.** Inspección estática de `main` @ `ca3083a9b9c73d33dd254f093963da44895860b8`. PR #23 fusionada con merge `f87cc523adc23fbe6ed778f3c666fb6798eff465`. Coordinación #24. Referencias #3 y #10.
+**Estado: pendiente de aceptación física, no certificada para datos reales.** Coordinación [#24](https://github.com/JavierRB35/Android_EReader/issues/24). Referencias #3, #10, #23, #32, #34, #35 y #36.
 
-## Evidencia y límites
-- Implementación: `CompleteBackupArchive` serializa `biblioteca.json` más `books/<id>.bin`, verifica bytes/tamaño/SHA-256, rechaza entradas inesperadas y duplicadas, limita bytes por original (512 MiB), JSON (16 MiB), originales (4 GiB total) y número de libros (10 000).
-- `BackupCodec.toJson` exporta libros, categorías, etiquetas, colecciones, relaciones, anotaciones (incl. notas/subrayados), versiones y posiciones. El ZIP **no está cifrado**. No se detecta serialización explícita de claves BYOK, contraseñas ni tokens en el esquema del codec; falta inspección del ZIP generado en dispositivo.
-- `CompleteBackupManager.restoreFrom` prepara originales en almacenamiento privado antes de llamar a `BackupManager.restoreJson` (transacción Room); ante error elimina solo archivos finales registrados como creados. El componente usa archivos temporales, verifica hash y no sustituye archivos diferentes. No equivale a una transacción entre el sistema de archivos y Room ni certifica tolerancia ante terminación abrupta.
-- Pruebas existentes: `CompleteBackupArchiveTest` comprueba ZIP, SHA, originales ausentes/corruptos y estructura; `BackupRestoreInstrumentedTest` prueba conflictos, remapeos, transacción Room e idempotencia; `CompleteBackupRestoreInstrumentedTest` prueba combinación ZIP/Room, pero NO la entrada SAF real ni `CompleteBackupManager.restoreFrom`.
-- Evidencia histórica declarada en PR #23: quality gate [44803507753](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507753), emulador [44803508024](https://github.com/JavierRB35/Android_EReader/actions/runs/44803508024), startup [44803507780](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507780), todos SUCCESS según PR. Corresponden a SHA funcional `5334ca51`, **no** al SHA auditado. No atribuirles aprobación de v0.1 final.
-- **SHA probado en esta auditoría:** ninguno ejecutado por el agente (revisión de código solamente). **SHA inspeccionado:** `ca3083a9b9c73d33dd254f093963da44895860b8`. Los checks lanzados después de este SHA no sustituyen QA física.
+## Cronología verificada y alcance
+- Auditoría original: `main@ca3083a9b9c73d33dd254f093963da44895860b8` (archivo único todavía no integrado en esa instantánea).
+- **Actualización:** [PR #34](https://github.com/JavierRB35/Android_EReader/pull/34) **fusionada** en `93937abe0c09d8d7c3975df604fbd5a4bc5df2b3`. El código actual crea `BibliotecaIA-completa.zip`, conserva un URI SAF persistente, verifica la copia escrita por SHA-256, intenta recuperar el ZIP anterior y conserva la copia anterior en almacenamiento privado si falla el proveedor. El problema de nombre con marca temporal indicado en el informe original **ya tiene corrección integrada**; no tratarlo como fallo pendiente sin reproducirlo.
+- El exportador también **corrige en main** la lectura de rutas originales: usa `database.backupDao().booksAll()`, no las rutas eliminadas intencionadamente al deserializar JSON. Esto aborda el bloqueo reproducible [#35](https://github.com/JavierRB35/Android_EReader/issues/35).
+- **[PR #32](https://github.com/JavierRB35/Android_EReader/pull/32) sigue abierta/conflictiva** en el momento de actualizar este documento. Aporta mejoras adicionales de revinculación de ficheros existentes corruptos, validación estricta del formato y regresión end-to-end. Sus resultados [quality](https://github.com/JavierRB35/Android_EReader/actions/runs/44809083806) y [emulador](https://github.com/JavierRB35/Android_EReader/actions/runs/44809083811) son históricos **sobre HEAD de su rama `8fc495d8541bdfeeb0e0bf357647ef25ff4ba1f2`**, no sobre main reciente.
+- La API SAF de proveedores externos **no ofrece atomicidad universal** al sobrescribir; no se ha verificado la recuperación en Drive real. La corrección de #34 mitiga el riesgo, pero no lo elimina sin ensayos de dispositivo y proveedor.
 
-## Matriz de regresión (PASS solo con ejecución y evidencia)
-| Caso | Estado a 20/11 | Evidencia/acción pendiente |
+## Evidencia de código y pruebas existentes
+- `CompleteBackupArchive` genera `biblioteca.json` y los originales `books/<id>.bin` con SHA-256 y tamaño. Rechaza ZIP incompletos, entradas extrañas y duplicados; límites: 512 MiB por libro, 4 GiB de originales, 16 MiB JSON y 10.000 libros.
+- `BackupCodec` incorpora libros, categorías, etiquetas, colecciones, relaciones, anotaciones (notas/subrayados), versiones y posiciones. El ZIP **no está cifrado** y no incorpora expresamente secretos BYOK, contraseñas ni tokens mediante el esquema de serialización. Verificar el archivo real generado y la advertencia de UI.
+- `BackupManager.restoreJson` aplica una transacción Room e inserciones aditivas. `CompleteBackupManager.restoreFrom` coloca originales antes del commit y elimina ficheros nuevos si falla. La ejecución previa de tests de ZIP/Room no sustituye ensayos con un proveedor SAF real.
+- Los checks de la PR #34 sobre `31dfa107` figuran verdes en la coordinación #24, pero **no prueban Samsung/Drive ni el SHA final de main**. La publicación automática exige éxito del quality gate y startup smoke sobre exactamente el mismo SHA de main. Solo publicar cuando la Release nueva conste con APK firmada y SHA-256, no por el mero éxito de un job con `skip`.
+
+## Matriz de regresión y bloqueos
+| Caso | Estado | Evidencia / bloqueo |
 | --- | --- | --- |
-| Export ZIP completo con EPUB/PDF/MOBI y relaciones | Parcial (código + pruebas unitarias EPUB/PDF) | Añadir MOBI y SAF end-to-end |
-| SHA-256, tamaño, original ausente, ZIP manipulado | Parcial (JUnit existente, ejecuciones históricas) | Ejecutar sobre SHA final y validar ZIP exportado |
-| Restaurar biblioteca vacía y abrir 3 formatos sin ruta antigua | BLOQUEADO | Dispositivo/emulador: `restoreFrom` real + abrir tres lectores |
-| Restauración aditiva y dos importaciones idénticas | Parcial (Room instrumentada en SHA anterior) | Repetir flujo completo con notas preexistentes y categorías/colecciones |
-| Notas, subrayados, marcadores, versiones y posiciones por libro | Parcial (persistencia probada por componente) | Comparar recuentos y contenido antes/después; comprobar marcas visibles |
-| SAF almacenamiento local y Google Drive como proveedor | BLOQUEADO | Samsung con Drive instalado; sin OAuth ni API Drive |
-| Cancelación, corrupción, denegación, interrupción, espacio bajo | Parcial (rechazo ZIP por componente) | Casos de escritura/lectura SAF real e interrupciones; verificar copia previa |
-| Backup único reemplazable sin pérdida del anterior | RIESGO P0 | #36: nombre timestamp + borrado en excepción del URI |
-| ZIP sin secretos y aviso de no cifrado | Parcial (revisión del codec/UI) | Buscar secretos en ZIP real y comprobar aviso visible en móvil |
-| Actualizar APK conservando Room, originales y marcas | BLOQUEADO | Instalar encima con mismo applicationId, certificado y versionCode superior |
+| ZIP EPUB/PDF/MOBI + metadatos | Parcial | Estructura en código; prueba de los tres formatos en PR #32, aún sin integrar |
+| SHA-256 y tamaños de cada original | Parcial | JVM histórica; verificar ZIP real en Samsung |
+| Exportación SAF repetida al mismo archivo | Corrección integrada, **sin QA física** | PR #34; comprobar ausencia de `(1).zip` en Drive/local |
+| Restaurar biblioteca vacía y reabrir tres libros | Pendiente | Samsung o Android de prueba; sin rutas anteriores |
+| Restaurar aditivamente con datos existentes, notas y posiciones | Parcial | Room instrumentada; ensayo integral físico pendiente |
+| ZIP truncado, hash alterado, ausencia de original | Parcial | JVM histórica; corrupción real del destino sin mutar datos |
+| Cancelar, denegar permisos, cortar Internet, espacio bajo, interrumpir | Pendiente | SAF real y conservación del respaldo previo |
+| Backup libre de secretos y aviso de ZIP sin cifrar | Parcial | Serialización revisada, comprobar ZIP/UI en dispositivo |
+| Actualización APK conservando biblioteca | Pendiente | Instalar sobre versión existente con misma firma, versionCode superior |
+| PR #32 reparación de originales corruptos/formato desconocido | **Pendiente de integrar** | No asumir presente en main |
 
-## Procedimiento exacto de aceptación manual (no usar biblioteca personal como experimento)
-1. En un Samsung **de prueba**, con Drive instalado, crear biblioteca con 1 EPUB, 1 PDF y 1 MOBI lícitos; registrar SHA-256/tamaño de cada original, dos posiciones distintas, etiquetas, categoría, colección, nota, subrayado, marcador y versión. Capturar recuentos, nunca secretos.
-2. Ajustes → Exportar copia completa. Elegir **Archivos / Almacenamiento interno** mediante selector SAF. Comprobar ZIP, lista de entradas y hash/tamaño de cada original respecto al origen. Repetir con **Google Drive** desde el selector del sistema (sin autenticar BibliotecaAI). Confirmar que se puede recuperar el ZIP exportado. Verificar mensaje «ZIP no cifrado».
-3. En perfil/dispositivo de prueba vacío, importar ZIP con Ajustes → Restaurar; desconectar red y abrir los tres libros. Verificar relación de notas, marcadores, subrayados, versión y posición tras cerrar y reabrir.
-4. En otra biblioteca **de prueba** con libro diferente y notas propias, importar el mismo ZIP dos veces; comprobar que no desaparecen los datos previos, no se duplica ningún elemento y la unión contiene todo. Repetir usando un libro ya existente con idéntico SHA pero diferente ID.
-5. Sobre copias **desechables** del ZIP: truncar, modificar un byte del original, eliminar un `books/*.bin`, introducir una entrada extra, cancelar selector, denegar acceso, cortar conectividad al proveedor, simular espacio lleno y forzar interrupción. Tras cada fallo, volver a abrir la base, comprobar recuentos, archivos y que la última copia válida permanece intacta.
-6. Probar instalación de APK nueva **sin desinstalar**, misma firma y `versionCode` superior; abrir libros y anotaciones preexistentes. Guardar modelo Android, API, versión anterior/nueva, SHA APK, logs depurados y resultado PASS/FAIL.
+## Pasos de prueba manual reproducible
+1. Solo en un **dispositivo/perfil de prueba**, importar EPUB/PDF/MOBI lícitos y registrar tamaño/SHA-256, anotaciones, versiones, categorías, etiquetas, colecciones y dos posiciones diferentes. Nunca subir libros o claves privadas a incidencias públicas.
+2. Ajustes → Exportar copia completa → escoger almacenamiento local; comprobar ZIP. Repetir exportación y verificar que se **sustituye el mismo documento**, sin segundo archivo. Hacer idéntico ensayo mediante Google Drive instalado como proveedor del selector SAF, sin OAuth de la app.
+3. Restaurar en biblioteca de prueba vacía; desconectar red, abrir los tres libros, revisar SHA y anotaciones visibles. Después restaurar sobre biblioteca con datos previos e importar dos veces: sin borrados ni duplicados.
+4. Sobre copias **desechables**, truncar ZIP, alterar bytes, eliminar original, cancelar, denegar acceso, cortar conectividad, simular poco espacio e interrumpir durante la escritura. Comparar inventario antes/después; comprobar recuperación desde copia local de emergencia.
+5. Instalar APK actualizada **encima** de la existente, sin desinstalar y con el mismo certificado: inspeccionar libros, notas, posiciones, categorías y colecciones. Guardar logcat/versión/resultado.
+6. Registrar cada resultado como PASS/FAIL/BLOQUEADO con identificador de prueba, SHA del commit, versión del APK, dispositivo/proveedor y enlace de evidencia. **No marcar como superadas pruebas no ejecutadas.**
 
-## Bloqueantes
-- #36: sustitución segura del único ZIP y pruebas end-to-end SAF/Drive/errores.
-- Sin acceso desde este agente al Samsung, proveedor Drive real ni datos privados. Ningún caso físico figura como superado.
-- CI sobre SHA final y regresión completa tras integración de otros agentes.
+## Decisión de QA
+Sin certificación de backup/restore completo sobre Samsung/Drive. Es admisible publicar una **compilación de desarrollo identificada como no aceptada** si sus gates verificables pasan, pero no anunciar v0.1 estable o recomendar usarla como única custodia de datos privados hasta la aceptación física. No fusionar PR #32 sin resolver conflictos y repetir CI.
