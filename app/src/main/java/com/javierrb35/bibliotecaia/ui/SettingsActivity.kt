@@ -8,7 +8,9 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
+import android.content.res.ColorStateList
+import android.view.Gravity
+import com.google.android.material.card.MaterialCardView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -36,6 +38,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
+    private var activeSection: LinearLayout? = null
     private val backupPrefs by lazy {
         getSharedPreferences("biblioteca_backup_destination", MODE_PRIVATE)
     }
@@ -85,9 +88,13 @@ class SettingsActivity : AppCompatActivity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(24))
+            setPadding(dp(20), dp(12), dp(20), dp(32))
         }
-        val root = ScrollView(this).apply { addView(layout) }
+        val root = ScrollView(this).apply {
+            setBackgroundColor(getColor(R.color.bia_background))
+            clipToPadding = false
+            addView(layout)
+        }
         setContentView(root)
 
         header(layout, getString(R.string.settings_title))
@@ -330,47 +337,115 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- construcción de vistas (tokens del sistema de diseño) ----------
-
+    // Premium editorial settings; all existing backup and update callbacks are preserved.
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun header(parent: LinearLayout, text: String) {
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        top.addView(TextView(this).apply {
+            this.text = "‹"
+            textSize = 31f
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.bia_accent))
+            setBackgroundResource(R.drawable.bg_premium_note)
+            contentDescription = "Volver"
+            isClickable = true
+            isFocusable = true
+            minHeight = dp(48)
+            setOnClickListener { finish() }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(TextView(this).apply {
+            this.text = "BibliotecaAI"
+            textSize = 18f
+            setTypeface(Typeface.SERIF, Typeface.BOLD)
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(dp(12), 0, 0, 0)
+        })
+        parent.addView(top)
         parent.addView(TextView(this).apply {
-            setText(text)
-            textSize = 30f
+            this.text = text
+            textSize = 34f
             setTypeface(Typeface.SERIF)
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text))
+            setTextColor(getColor(R.color.bia_text))
+            setPadding(0, dp(15), 0, dp(3))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+        })
+        parent.addView(TextView(this).apply {
+            this.text = "Tu biblioteca, tus datos y tus preferencias"
+            textSize = 13f
+            setTextColor(getColor(R.color.bia_text_secondary))
+            setPadding(0, 0, 0, dp(10))
         })
     }
 
-    private fun section(parent: LinearLayout, text: String) {
+    private fun section(parent: LinearLayout, title: String) {
         parent.addView(TextView(this).apply {
-            setText(text)
+            text = title
             textSize = 14f
-            setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            setPadding(0, dp(28), 0, dp(4))
+            setTypeface(Typeface.DEFAULT_BOLD)
+            setTextColor(getColor(R.color.bia_accent))
+            setPadding(dp(3), dp(20), 0, dp(11))
+            androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
         })
+        val card = MaterialCardView(this).apply {
+            radius = dp(18).toFloat()
+            strokeColor = getColor(R.color.bia_outline)
+            strokeWidth = dp(1)
+            cardElevation = 0f
+            setCardBackgroundColor(getColor(R.color.bia_surface))
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+        }
+        card.addView(body)
+        parent.addView(card, LinearLayout.LayoutParams(-1, -2))
+        activeSection = body
     }
 
     private fun action(parent: LinearLayout, text: String, onClick: () -> Unit) {
-        parent.addView(Button(this).apply {
-            setText(text)
-            textAlignment = View.TEXT_ALIGNMENT_VIEW_START
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_accent))
-            background = null
-            setPadding(0, dp(12), 0, dp(12))
+        val target = activeSection ?: parent
+        if (target.childCount > 0) {
+            target.addView(View(this).apply {
+                setBackgroundColor(getColor(R.color.bia_outline))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+        }
+        val line = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), dp(7), dp(4), dp(7))
+            minimumHeight = dp(56)
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(0x44776644), null, null)
+            isClickable = true
+            isFocusable = true
+            contentDescription = text
             setOnClickListener { onClick() }
-        })
+        }
+        line.addView(TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTextColor(getColor(R.color.bia_text))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        line.addView(TextView(this).apply {
+            this.text = "›"
+            textSize = 25f
+            setTextColor(getColor(R.color.bia_accent))
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(28), dp(42)))
+        target.addView(line, LinearLayout.LayoutParams(-1, -2))
     }
 
     private fun hint(parent: LinearLayout, text: String) {
-        parent.addView(TextView(this).apply {
-            setText(text)
-            textSize = 13f
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text_secondary))
-            setPadding(0, dp(8), 0, dp(8))
+        (activeSection ?: parent).addView(TextView(this).apply {
+            this.text = text
+            textSize = 12f
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setTextColor(getColor(R.color.bia_text_secondary))
+            setPadding(dp(6), dp(10), dp(6), dp(15))
         })
     }
 }
