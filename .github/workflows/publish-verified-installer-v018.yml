@@ -1,0 +1,118 @@
+name: One-time publish verified in-app installer v0.1.8
+
+# User-directed one-time publication from a previously verified, signed,
+# immutable GitHub Actions artifact. Never signs third-party PR code.
+on:
+  push:
+    branches:
+      - release/publish-verified-installer-v018-20261120
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Verify signed installer APK then publish official release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout release-source lineage
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source is integrated into main and CI was green
+        shell: bash
+        env:
+          GH_TOKEN: $\{{ github.token }}
+          SOURCE_SHA: a73122e58513a4b68122dae11357f1e9cc21e9ac
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main
+          head_sha="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/44809407765 --jq .head_sha)"
+          conclusion="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/44809407765 --jq .conclusion)"
+          [[ "$head_sha" == "$SOURCE_SHA" && "$conclusion" == "success" ]] ||
+            { echo "::error::The signed source workflow is unverified"; exit 1; }
+          for workflow in android-ci.yml android-startup-smoke.yml; do
+            count="$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&event=push&head_sha=$SOURCE_SHA&per_page=50" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+            [[ "$count" -ge 1 ]] || { echo "::error::No green $workflow on source commit"; exit 1; }
+          done
+
+      - name: Download signed artifact from the successful official build
+        uses: actions/download-artifact@v4
+        with:
+          repository: $\{{ github.repository }}
+          run-id: 44809407765
+          github-token: $\{{ github.token }}
+          name: verified-auto-release
+          path: dist/
+
+      - name: Install Android verifier tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Verify exact artifact, package, version and owner certificate
+        shell: bash
+        env:
+          ANDROID_RELEASE_CERT_SHA256: $\{{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk="dist/BibliotecaIA-v0.1.8.apk"
+          test -s "$apk"
+          test -s "$apk.sha256"
+          (cd dist && sha256sum -c BibliotecaIA-v0.1.8.apk.sha256)
+          exact="$(sha256sum "$apk" | awk '{print $1}')"
+          [[ "$exact" == "ca6702154c3a8fd2e3e343a7e704870e9065f23f9b8d5ee7a5b76b38807755e2" ]] ||
+            { echo "::error::APK SHA-256 does not match the original signed build"; exit 1; }
+          tools="$ANDROID_HOME/build-tools/34.0.0"
+          verified="$("$tools/apksigner" verify --verbose --print-certs "$apk")"
+          cert="$(printf '%s\n' "$verified" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+          approved="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" | tr -d '[:space:]:-' | tr '[:upper:]' '[:lower:]')"
+          [[ "$approved" =~ ^[0-9a-f]{64}$ && "$cert" == "$approved" ]] ||
+            { echo "::error::APK signer is not the approved owner certificate"; exit 1; }
+          badging="$("$tools/aapt" dump badging "$apk" | head -n1)"
+          [[ "$badging" == *"name='com.javierrb35.bibliotecaia'"* &&
+             "$badging" == *"versionCode='100008'"* &&
+             "$badging" == *"versionName='0.1.8'"* ]] ||
+            { echo "::error::APK package/version mismatch"; exit 1; }
+          echo "Verified the exact official v0.1.8 signed APK and its checksum."
+
+      - name: Publish GitHub Release without overwriting newer releases
+        shell: bash
+        env:
+          GH_TOKEN: $\{{ github.token }}
+          SOURCE_SHA: a73122e58513a4b68122dae11357f1e9cc21e9ac
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.8 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v0.1.8 already published; do not overwrite."
+            exit 0
+          fi
+          latest="$(gh api repos/$GITHUB_REPOSITORY/releases/latest --jq .tag_name)"
+          if ! python3 - "$latest" <<'PY'
+          import re,sys
+          latest=sys.argv[1]
+          m=re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)",latest)
+          if not m:
+              sys.exit(f"Unrecognized latest version {latest}")
+          sys.exit(0 if tuple(map(int,m.groups())) < (0,1,8) else 1)
+          PY
+          then
+            echo "A release >= v0.1.8 is already available; do not publish an older update."
+            exit 0
+          fi
+          gh release create v0.1.8 \
+            dist/BibliotecaIA-v0.1.8.apk \
+            dist/BibliotecaIA-v0.1.8.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "Biblioteca IA v0.1.8" \
+            --notes "Primera APK firmada con instalación de actualizaciones desde Biblioteca IA: descarga HTTPS, verificación de SHA-256 y certificado, sin pasar por el navegador. La instalación final requiere aprobación de Android. Construida a partir del commit integrado $SOURCE_SHA. Versión de desarrollo, no declaración de QA física completa." \
+            --latest
+          echo "Officially published: https://github.com/$GITHUB_REPOSITORY/releases/tag/v0.1.8"
