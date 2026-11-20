@@ -36,6 +36,8 @@ class PdfPageView(context: Context) : View(context) {
         // The render thread may still hold the previous display list. Let GC release its bitmap.
         bitmap = value; fit()
     }
+    /** The visible bounded page bitmap; callers must not recycle it. */
+    fun currentBitmap(): Bitmap? = bitmap
     fun clear() { bitmap = null; invalidate() }
     fun fit() { zoom = 1f; panX = 0f; panY = 0f; invalidate() }
     fun fitWidth() {
