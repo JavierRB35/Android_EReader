@@ -25,6 +25,7 @@ import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
+import com.javierrb35.bibliotecaia.study.SelectionAnchors
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -206,9 +207,10 @@ class MobiReaderActivity : AppCompatActivity() {
         for (mark in annotations) {
             if (mark.quote.isBlank() || mark.locator == null) continue
             val at = validatedMarkOffset(mark) ?: continue
-            val start = (at - offset).coerceAtLeast(0)
-            val end = (at + mark.quote.length - offset).coerceAtMost(rendered.length)
-            if (start >= end) continue
+            val range = SelectionAnchors.visibleRange(text, at, mark.quote, offset, endOffset)
+                ?: continue
+            val start = range.first
+            val end = range.last + 1
             if (mark.kind == "HIGHLIGHT") {
                 rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else if (mark.kind == "NOTE") {
@@ -230,8 +232,7 @@ class MobiReaderActivity : AppCompatActivity() {
                 return@runCatching null
             locator.optInt("offset", -1)
         }.getOrNull() ?: return null
-        return at.takeIf { it >= 0 && it <= text.length - mark.quote.length &&
-            text.regionMatches(it, mark.quote, 0, mark.quote.length) }
+        return at.takeIf { SelectionAnchors.exactMatch(text, it, mark.quote) }
     }
 
     private fun showSavedMark(mark: AnnotationEntity) {
