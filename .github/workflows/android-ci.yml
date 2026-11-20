@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   android:
-    name: JVM tests, debug build and unsigned release build
+    name: JVM tests, instrumented test APK, debug and unsigned release
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -48,12 +48,15 @@ jobs:
           set -euo pipefail
           # Readium + Room/KSP need a larger heap on the hosted Linux runner.
           # Override is CI-only: do NOT alter gradle.properties / AndroidIDE ARM64 limits.
-          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
+          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease \
             --no-daemon --max-workers=2 \
             '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
             -Dorg.gradle.vfs.watch=false
           test -s app/build/outputs/apk/debug/app-debug.apk
+          # Compile instrumented tests (including Room restore/EPUB reader),
+          # but do not claim they were run on a physical device or emulator.
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           # Unsigned release artifact is a prerequisite for the separate signing workflow.
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
 
