@@ -85,7 +85,7 @@
         <string name="service_not_configured">sin configurar (ver docs/setup)</string>
         <string name="settings_backup">Copia de seguridad</string>
         <string name="settings_backup_export">Actualizar copia completa (mismo archivo)…</string>
-        <string name="settings_backup_change_file">Elegir o cambiar archivo de copia…</string>
+                <string name="settings_backup_change_file">Elegir o cambiar archivo de copia…</string>
         <string name="settings_backup_choose_file">Elige un ZIP existente para sustituirlo en cada copia o crea uno nuevo una sola vez. La aplicación recordará el archivo elegido.</string>
         <string name="settings_backup_choose_existing">Elegir existente</string>
         <string name="settings_backup_choose_new">Crear nuevo</string>
@@ -157,4 +157,25 @@
     <string name="backup_error_generic">No se ha podido completar la operación.</string>
     <string name="backup_legacy_warning">Esta copia JSON antigua NO contiene los archivos EPUB/PDF/MOBI. Puedes recuperar el catálogo y las notas, pero deberás revincular los libros manualmente.</string>
     <string name="backup_legacy_result">Metadatos restaurados: %1$d libros añadidos. Los archivos originales no estaban incluidos en el JSON; revincúlalos para poder leerlos.</string>
+    <!-- UX book details; preserved alongside backup and updater texts. -->
+    <string name="detail_organization_title">Organización</string>
+    <string name="detail_organization_hint">Toca para editar o crear</string>
+    <string name="detail_assignment_empty">Sin asignar · toca para añadir</string>
+    <string name="detail_favorite_short">☆ Favorito</string>
+    <string name="detail_favorite_selected">★ Favorito</string>
+    <string name="detail_file_compact">Archivo · %1$s</string>
+    <string name="detail_assignment_existing">Selecciona las opciones existentes</string>
+    <string name="detail_assignment_none_available">Aún no hay elementos. Crea uno ahora.</string>
+    <string name="detail_assignment_new_category">Crear y asignar categoría…</string>
+    <string name="detail_assignment_new_tag">Crear y asignar etiqueta…</string>
+    <string name="detail_assignment_new_collection">Crear y asignar colección…</string>
+    <string name="detail_assignment_save">Guardar</string>
+    <string name="detail_assignment_failed">No se pudo guardar: %1$s</string>
+    <string name="detail_assignment_load_failed">No se pudo cargar la organización de este libro.</string>
+    <string name="detail_status_update_failed">No se pudo cambiar el estado de lectura.</string>
+    <string name="detail_assignment_content">Editar %1$s. Seleccionadas: %2$s</string>
+    <string name="detail_status_content">Estado: %1$s. Toca para cambiar.</string>
+    <string name="detail_added_content">Añadido: %1$s</string>
+    <string name="detail_size_content">Tamaño: %1$s</string>
+    <string name="detail_new_item_hint">También puedes escribir un nuevo nombre para crearlo y asignarlo.</string>
 </resources>
