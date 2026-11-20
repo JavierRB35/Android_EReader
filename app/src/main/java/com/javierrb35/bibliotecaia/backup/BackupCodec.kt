@@ -170,13 +170,22 @@ object BackupCodec {
         return List(length()) { i -> transform(getJSONObject(i)) }
     }
 
+    private fun safePathSegment(value: String, label: String): String {
+        require(value.isNotBlank() && value.length <= 255 &&
+            value != "." && value != ".." &&
+            value.none { it == '/' || it == '\\' || it.code < 32 || it.code == 127 }) {
+            "Copia dañada: $label contiene una ruta o nombre no permitido."
+        }
+        return value
+    }
+
     private fun bookFrom(o: JSONObject): BookEntity = BookEntity(
-        id = o.getString("id"),
+        id = safePathSegment(o.getString("id"), "identificador del libro"),
         title = o.getString("title"),
         authors = o.optString("authors").ifEmpty { null },
         format = runCatching { com.javierrb35.bibliotecaia.data.BookFormat.valueOf(o.getString("format")) }
             .getOrDefault(com.javierrb35.bibliotecaia.data.BookFormat.EPUB),
-        fileName = o.optString("fileName", "libro"),
+        fileName = safePathSegment(o.optString("fileName", "libro"), "nombre del libro"),
         localPath = "", // se reconstruye en la restauración; el archivo debe existir o reimportarse
         contentHash = o.getString("contentHash"),
         sizeBytes = o.optLong("sizeBytes", 0),
