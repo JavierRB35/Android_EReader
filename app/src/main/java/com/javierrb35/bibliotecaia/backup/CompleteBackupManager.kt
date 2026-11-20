@@ -6,9 +6,11 @@ import android.provider.DocumentsContract
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import kotlin.coroutines.coroutineContext
 
 /**
  * Full, user-initiated, portable backup through Android's SAF document picker.
@@ -31,6 +33,7 @@ class CompleteBackupManager(
         try {
             // Fail closed on damaged/missing originals before writing to Drive/provider.
             for (book in books) {
+                coroutineContext.ensureActive()
                 val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
                 val source = File(book.localPath).canonicalFile
                 require(source.parentFile == requiredDir && source.name == book.fileName) {
@@ -41,8 +44,18 @@ class CompleteBackupManager(
                 CompleteBackupArchive.write(output, json, books)
             }
             try {
+                coroutineContext.ensureActive()
                 context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-                    archive.inputStream().use { source -> source.copyTo(output, 64 * 1024) }
+                    archive.inputStream().use { source ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val count = source.read(buffer)
+                            if (count < 0) break
+                            if (count > 0) output.write(buffer, 0, count)
+                        }
+                    }
+                    coroutineContext.ensureActive()
                     output.flush()
                 } ?: throw IllegalArgumentException("La ubicación elegida no permite escribir.")
             } catch (e: Exception) {
@@ -73,12 +86,14 @@ class CompleteBackupManager(
             val content = context.contentResolver.openInputStream(uri)?.use { input ->
                 CompleteBackupArchive.read(input, stage)
             } ?: throw IllegalArgumentException("No se puede leer el archivo de copia.")
+            coroutineContext.ensureActive()
             val fromArchive = BackupCodec.fromJson(content.json).books
             val existingByHash = database.backupDao().booksAll().associateBy { it.contentHash }
             val finalPaths = linkedMapOf<String, String>()
             val booksBase = File(context.filesDir, "books").canonicalFile
 
             for (incoming in fromArchive) {
+                coroutineContext.ensureActive()
                 val local = existingByHash[incoming.contentHash] ?: incoming
                 val already = File(local.localPath)
                 if (local.localPath.isNotBlank() && already.isFile &&
@@ -112,7 +127,15 @@ class CompleteBackupManager(
                     val tmp = File.createTempFile(".restore-", ".tmp", dir)
                     try {
                         staged.inputStream().use { source ->
-                            tmp.outputStream().use { sink -> source.copyTo(sink, 64 * 1024) }
+                            tmp.outputStream().use { sink ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    coroutineContext.ensureActive()
+                                    val count = source.read(buffer)
+                                    if (count < 0) break
+                                    if (count > 0) sink.write(buffer, 0, count)
+                                }
+                            }
                         }
                         require(tmp.length() == incoming.sizeBytes &&
                             OriginalLinker(context.filesDir).sha256Hex(tmp) == incoming.contentHash &&
@@ -126,6 +149,7 @@ class CompleteBackupManager(
                 }
                 finalPaths[incoming.contentHash] = destination.absolutePath
             }
+            coroutineContext.ensureActive()
             // Room transaction restores metadata and file paths together.
             // Staged originals are verified/materialized before any DB mutation.
             val report = BackupManager(database, appVersion)
