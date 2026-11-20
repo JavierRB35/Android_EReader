@@ -1,0 +1,78 @@
+name: Android emulator OCR and reader verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/**'
+      - 'app/build.gradle'
+      - '.github/workflows/android-emulator-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reader-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    name: PDF OCR, annotation and reader instrumented tests (API 34)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Diagnose and permit KVM when the runner exposes it
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "No /dev/kvm on hosted runner: use explicitly enabled TCG fallback."
+          fi
+
+      - name: Run instrumented Android tests in an x86_64 emulator
+        # Emulator 37+ refuses -accel off unless this is explicitly enabled.
+        # KVM is still preferred when the hosted runner exposes /dev/kvm.
+        env:
+          ANDROID_I_WANT_MY_TCG: 'yes'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          profile: pixel_5
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          # The runner executes each script line separately; do not use shell continuations.
+          script: sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+
+      - name: Archive emulator test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-reader-results
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 7

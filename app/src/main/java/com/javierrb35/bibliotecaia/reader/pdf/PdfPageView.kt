@@ -4,18 +4,45 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Color
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 
 /** Single page, bounded bitmap; pinch zoom, pan and double-tap reset. */
+data class PdfPaintedMark(
+    val annotationId: String, val bounds: PdfOcrRect, val kind: String = "HIGHLIGHT"
+)
+
 class PdfPageView(context: Context) : View(context) {
     private var bitmap: Bitmap? = null
     private var zoom = 1f
     private var panX = 0f
     private var panY = 0f
     private val matrix = Matrix()
+    private var marks: List<PdfPaintedMark> = emptyList()
+    private var onMarkedTap: ((String) -> Unit)? = null
+    private val markerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(95, 212, 180, 131)
+        style = Paint.Style.FILL
+    }
+    private val markerStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 177, 116, 37)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+    private val noteFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Stronger, warm shading distinguishes notes from plain underlines.
+        color = Color.argb(135, 212, 180, 131)
+        style = Paint.Style.FILL
+    }
+    fun onMarkedTap(listener: (String) -> Unit) { onMarkedTap = listener }
+    fun showMarks(updated: List<PdfPaintedMark>) {
+        marks = updated.filter { it.bounds.valid() }
+        invalidate()
+    }
     private val scaleDetector = ScaleGestureDetector(context,
         object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -29,14 +56,37 @@ class PdfPageView(context: Context) : View(context) {
             panX -= distanceX; panY -= distanceY; constrainPan(); invalidate(); return true
         }
         override fun onDoubleTap(e: MotionEvent): Boolean { fit(); return true }
-        override fun onSingleTapUp(e: MotionEvent): Boolean { performClick(); return true }
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            val image = bitmap
+            if (image != null && marks.isNotEmpty()) {
+                val inverse = Matrix()
+                if (matrix.invert(inverse)) {
+                    val p = floatArrayOf(e.x, e.y)
+                    inverse.mapPoints(p)
+                    val nx = p[0] / image.width
+                    val ny = p[1] / image.height
+                    val hit = marks.lastOrNull {
+                        nx >= it.bounds.left && nx <= it.bounds.right &&
+                            ny >= it.bounds.top && ny <= it.bounds.bottom
+                    }
+                    if (hit != null) {
+                        onMarkedTap?.invoke(hit.annotationId)
+                        return true
+                    }
+                }
+            }
+            performClick()
+            return true
+        }
     })
     init { contentDescription = "Página PDF. Pellizca para ampliar y arrastra para desplazarte."; isFocusable = true }
     fun display(value: Bitmap) {
         // The render thread may still hold the previous display list. Let GC release its bitmap.
-        bitmap = value; fit()
+        bitmap = value; marks = emptyList(); fit()
     }
-    fun clear() { bitmap = null; invalidate() }
+    /** The visible bounded page bitmap; callers must not recycle it. */
+    fun currentBitmap(): Bitmap? = bitmap
+    fun clear() { bitmap = null; marks = emptyList(); invalidate() }
     fun fit() { zoom = 1f; panX = 0f; panY = 0f; invalidate() }
     fun fitWidth() {
         val image = bitmap ?: return
@@ -61,6 +111,23 @@ class PdfPageView(context: Context) : View(context) {
         matrix.setScale(scale, scale)
         matrix.postTranslate((width - image.width * scale) / 2 + panX, (height - image.height * scale) / 2 + panY)
         canvas.drawBitmap(image, matrix, null)
+        if (marks.isNotEmpty()) {
+            // Draw in bitmap pixels through the same matrix as the PDF page.
+            // This keeps every mark locked to its text through zoom and pan.
+            canvas.save()
+            canvas.concat(matrix)
+            for (mark in marks) {
+                val b = mark.bounds
+                val left = b.left * image.width
+                val top = b.top * image.height
+                val right = b.right * image.width
+                val bottom = b.bottom * image.height
+                canvas.drawRect(left, top, right, bottom,
+                    if (mark.kind == "NOTE") noteFill else markerFill)
+                canvas.drawLine(left, bottom, right, bottom, markerStroke)
+            }
+            canvas.restore()
+        }
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
