@@ -172,8 +172,10 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
                 // which may contain addresses or other user-specific details.
                 val errorCode = runCatching {
                     val stream = connection.errorStream ?: return@runCatching ""
-                    val data = stream.use { it.readNBytes(4096) }
-                    JSONObject(String(data, Charsets.UTF_8)).optString("code")
+                    val data = ByteArray(4096)
+                    val count = stream.use { it.read(data) }
+                    if (count <= 0) "" else
+                        JSONObject(String(data, 0, count, Charsets.UTF_8)).optString("code")
                 }.getOrDefault("")
                 throw AccountFailure(when {
                     status == 429 -> AccountFailure.Reason.RATE_LIMIT
