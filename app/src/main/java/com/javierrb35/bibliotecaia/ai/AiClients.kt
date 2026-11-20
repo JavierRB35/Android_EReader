@@ -17,8 +17,8 @@ object AiClients {
     const val GEMINI = "gemini"
     const val GROQ = "groq"
 
-    const val GEMINI_MODEL = "gemini-2.0-flash"
-    const val GROQ_MODEL = "llama-3.1-8b-instant"
+    const val GEMINI_MODEL = "gemini-3.6-flash"
+    const val GROQ_MODEL = "openai/gpt-oss-20b"
 
     const val GEMINI_KEYS_URL = "https://aistudio.google.com/apikey"
     const val GROQ_KEYS_URL = "https://console.groq.com/keys"

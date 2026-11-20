@@ -29,6 +29,13 @@ import com.javierrb35.bibliotecaia.study.SelectionAnchors
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
@@ -43,6 +50,10 @@ class MobiReaderActivity : AppCompatActivity() {
                 .putExtra("book_id", bookId).putExtra("locator", locatorJson))
         }
         private const val CHUNK = 12000
+        // The last reading position must survive Activity destruction. The
+        // lifecycle-bound UI scope is cancelled when the screen is closed.
+        private val positionWrites = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val positionMutex = Mutex()
     }
     private lateinit var bookId: String
     private lateinit var root: LinearLayout
@@ -57,6 +68,8 @@ class MobiReaderActivity : AppCompatActivity() {
     private var loaded = false
     private var annotations = emptyList<AnnotationEntity>()
     private var selectedAbsoluteOffset = 0
+    private var pendingPosition: Job? = null
+    @Volatile private var positionRevision = 0L
     private var touchX = 0f
     private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
@@ -147,6 +160,15 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         }
         scroll = ScrollView(this).apply { addView(content) }
+        scroll.setOnScrollChangeListener { _, _, _, _, _ ->
+            if (loaded) {
+                pendingPosition?.cancel()
+                pendingPosition = lifecycleScope.launch {
+                    delay(850)
+                    savePosition(visibleOffset())
+                }
+            }
+        }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val navigation = LinearLayout(this)
         previous = button("Anterior") { showChunk((offset - CHUNK).coerceAtLeast(0)) }
@@ -220,7 +242,7 @@ class MobiReaderActivity : AppCompatActivity() {
             if (mark.kind == "HIGHLIGHT") {
                 rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else if (mark.kind == "NOTE") {
-                rendered.setSpan(BackgroundColorSpan(0xffb59b62.toInt()),
+                rendered.setSpan(BackgroundColorSpan(0x66b59b62),
                     start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
@@ -291,11 +313,39 @@ class MobiReaderActivity : AppCompatActivity() {
         if (obj.optString("format") == "MOBI") obj.optInt("offset", 0) else 0
     }.getOrDefault(0)
     private fun savePosition(at: Int) {
-        if (loaded) lifecycleScope.launch {
-            repository.savePosition(bookId, locator(at), at.toFloat() / text.length)
+        if (!loaded || text.isEmpty()) return
+        val id = bookId
+        val bounded = at.coerceIn(0, text.length)
+        val location = locator(bounded)
+        val progress = bounded.toFloat() / text.length
+        val revision = ++positionRevision
+        val repo = ReadingRepository(applicationContext)
+        // UNDISPATCHED schedules this write before the Activity can finish;
+        // serialized writes prevent an old chunk-start from replacing a later
+        // precise scroll position.
+        positionWrites.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                positionMutex.withLock {
+                    if (revision == positionRevision) {
+                        repo.savePosition(id, location, progress)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                android.util.Log.e("BibliotecaMobiPosition", "Unable to persist reading position", failure)
+            }
         }
     }
-    override fun onPause() { if (loaded) savePosition(visibleOffset()); super.onPause() }
+    override fun onPause() {
+        pendingPosition?.cancel()
+        if (loaded) savePosition(visibleOffset())
+        super.onPause()
+    }
+    override fun onDestroy() {
+        pendingPosition?.cancel()
+        super.onDestroy()
+    }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("offset", visibleOffset()); super.onSaveInstanceState(outState)
     }
