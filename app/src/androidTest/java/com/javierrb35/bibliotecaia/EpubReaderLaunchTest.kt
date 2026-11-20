@@ -72,6 +72,12 @@ class EpubReaderLaunchTest {
                 Thread.sleep(200)
             }
             assertTrue("EPUB reader never mounted its Readium navigator", ready)
+            instrumentation.runOnMainSync {
+                val nativeText = activity.findViewById<android.widget.TextView>(R.id.epub_native_text)
+                assertNotNull("Scriptura native text reader must exist", nativeText)
+                assertTrue("EPUB must use native TextView selection by default",
+                    nativeText.isTextSelectable)
+            }
             assertTrue("EPUB reader closed during opening", !activity.isFinishing && !activity.isDestroyed)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
