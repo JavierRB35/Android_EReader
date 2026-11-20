@@ -34,7 +34,8 @@ class PdfOcrDeviceTest {
         val hash = "fixed-edition-hash-for-instrumented-test"
         var pageBitmap: Bitmap? = null
         try {
-            PdfDocument().use { document ->
+            val document = PdfDocument()
+            try {
                 val page = document.startPage(PdfDocument.PageInfo.Builder(1200, 800, 1).create())
                 page.canvas.drawColor(Color.WHITE)
                 page.canvas.drawText("BIBLIOTECA", 80f, 220f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -43,8 +44,8 @@ class PdfOcrDeviceTest {
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 })
                 document.finishPage(page)
-                pdf.outputStream().use(document::writeTo)
-            }
+                pdf.outputStream().use { output -> document.writeTo(output) }
+            } finally { document.close() }
             ParcelFileDescriptor.open(pdf, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                 PdfRenderer(fd).use { renderer ->
                     renderer.openPage(0).use { page ->
