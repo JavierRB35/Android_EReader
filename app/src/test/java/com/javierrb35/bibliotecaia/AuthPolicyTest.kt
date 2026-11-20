@@ -30,4 +30,18 @@ class AuthPolicyTest {
         assertFalse(AuthPolicy.validClientId("123456-example.apps.googleusercontent.com.evil.test"))
         assertFalse(AuthPolicy.validClientId(""))
     }
+    @Test fun validEmailAddressesAndPasswordsForAccountRegistration() {
+        assertTrue(AuthPolicy.validEmail("usuario@gmail.com"))
+        assertTrue(AuthPolicy.validEmail("usuario+libros@googlemail.com"))
+        assertTrue(AuthPolicy.validEmail("persona@example.org"))
+        assertTrue(AuthPolicy.validPassword("claveSegura2026"))
+        assertTrue(AuthPolicy.validPassword("ochochar"))
+        for (email in listOf("", "sin-arroba", "@gmail.com", "nombre@", "nombre@@gmail.com",
+            "nombre@gmai..com", "nombre@-gmail.com", "nombre@gmail.com.evil/abc", "a b@gmail.com")) {
+            assertFalse(email, AuthPolicy.validEmail(email))
+        }
+        assertFalse(AuthPolicy.validPassword("1234567"))
+        assertFalse(AuthPolicy.validPassword("x".repeat(129)))
+    }
+
 }
