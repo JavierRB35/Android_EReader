@@ -20,9 +20,8 @@
   modifica exportación/restauración ZIP streaming, comprobación SHA-256, staging seguro,
   reubicación de originales y asignación atómica de rutas Room. Importación JSON previa
   queda heredada con advertencia de ausencia de libros.
-- **Evidencia pendiente:** CI JVM/Android, test de restauración real en un teléfono,
-  proveedor Drive SAF, espacio insuficiente/interrupción, recuperación de EPUB/PDF/MOBI,
-  anotaciones/subrayados visibles tras reiniciar. No etiquetar la versión 1.0 como completa.
+- **Evidencia automatizada APROBADA en la rama:** [quality gate #44803507753](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507753) SUCCESS (JVM, compilaciones debug/release sin firmar y APK AndroidTest), [emulador #44803508024](https://github.com/JavierRB35/Android_EReader/actions/runs/44803508024) SUCCESS con **16/16 pruebas instrumentadas**, incluido ZIP completo → originales → Room/revinculación y los tests de lectura; [arranque Android #44803507780](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507780) SUCCESS.
+- **Evidencia todavía pendiente:** restaurar en teléfono físico (Drive como proveedor SAF y destino local), espacio insuficiente/interrupción, reinstalación/móvil nuevo y marcas visibles en libros importados. No etiquetar la versión 1.0 como completa; [PR #23](https://github.com/JavierRB35/Android_EReader/pull/23) LISTA PARA REVISIÓN, sin merge.
 - Otros agentes continúan con anotaciones y lectura en ramas separadas; revisar
   `docs/COORDINATION.md` e Issues #3/#10 antes de integrar.
 
