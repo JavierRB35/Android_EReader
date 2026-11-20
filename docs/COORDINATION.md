@@ -85,3 +85,22 @@ Cada adopción: copia de ficheros → resolución de conflictos sobre main actua
 tests + verificación en emulador → merge a main con crédito al trabajo original. Los
 worktrees originales NO se tocan; sus ramas quedan como historial. Si algún agente se
 reactiva, debe leer este documento y `git fetch` antes de continuar.
+
+
+## DIRECTRIZ DEL PROPIETARIO — SIN CUENTAS, BACKUP ÍNTEGRO SAF (20-11-2026)
+
+Se cierra **PR #20 sin merge**: quedan **prohibidos** OAuth Google, alta de usuarios
+Gmail y requisito de cuenta Supabase. No fusionar esa rama ni reactivar su flujo.
+
+La fuente de datos de V1 es Room y los EPUB/PDF/MOBI importados. Backup manual mediante
+selector SAF en **destino que el usuario elija** (Drive, local, USB u otro proveedor),
+**incluyendo obligatoriamente los archivos físicos de TODOS los libros**, notas,
+subrayados, marcadores, categorías, colecciones, relaciones, versiones y posiciones.
+Aborta por falta de original/hash; restauración sin sobreescrituras destructivas.
+
+**Reserva de trabajo:** este agente gestiona rama
+`feature/complete-saf-backup-no-accounts-20261120`, exclusivamente
+`backup/CompleteBackup*`, `backup/BackupManager.kt`, `ui/SettingsActivity.kt`,
+textos de Ajustes, documentación y pruebas de backup. Los agentes de EPUB/PDF y
+anotaciones continúan en ramas separadas; **NO sobrescribir estos archivos reservados**.
+**Entrega al integrador:** [PR #23](https://github.com/JavierRB35/Android_EReader/pull/23) disponible para revisión; código `5334ca51` pasó [CI #44803507753](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507753), [16 pruebas Android #44803508024](https://github.com/JavierRB35/Android_EReader/actions/runs/44803508024) y [arranque #44803507780](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507780). **No se fusiona sin coordinación** ni se publica release por esta PR. QA Drive SAF en teléfono y restauración de libro real siguen pendientes.

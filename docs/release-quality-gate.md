@@ -34,13 +34,13 @@ El workflow no lee claves API, credenciales Supabase, keystores ni secretos de G
 
 ## Cierre funcional independiente de CI
 
-El agente Android se responsabiliza de demostrar en un **teléfono físico con Google Drive como proveedor SAF**:
+El agente Android se responsabiliza de demostrar en un **teléfono físico con Google Drive u otro DocumentsProvider elegido mediante SAF**:
 1. Desde Ajustes, exportar JSON y recuperarlo en un segundo dispositivo o instalación, conservando categorías, colecciones, notas, versiones, posiciones y marcadores.
-2. Seleccionar originales EPUB/PDF/MOBI en Drive, guardarlos localmente para lectura offline y revincularlos por hash tras restauración. El JSON **no** guarda los binarios. No dar por buena una ruta/URI del dispositivo antiguo.
+2. Seleccionar originales EPUB/PDF/MOBI en Drive, guardarlos localmente para lectura offline y revincularlos por hash tras restauración. El ZIP completo **SÍ incluye los originales EPUB/PDF/MOBI** y sus datos; las copias JSON previas son heredadas e incompletas. No dar por buena una ruta/URI del dispositivo antiguo.
 3. Configuración BYOK de Gemini/Groq, validación auténtica de credenciales, almacenamiento local cifrado, revocación y prueba de consulta RAG con citas verificables y errores visibles, sin enviar libros completos de forma predeterminada.
 4. OCR real, accesibilidad TalkBack/escala de fuente, tablet y prueba `sh ./build-on-phone.sh` en AndroidIDE ARM64, según alcance de aceptación de la 1.0.
 5. Prueba sin conexión, falta de permisos o espacio, reinicio/reinstalación y actualización desde una versión instalada firmada con el **mismo** certificado.
 
-Supabase conserva su infraestructura, pero no es una dependencia de 1.0: no obligar al usuario a autenticarse ni activar automáticamente `SyncEngine`.
+No activar OAuth, Google Sign-In, Gmail ni `SyncEngine`. El backup completo no utiliza cuentas ni API Drive. Probar backup y restore reales en el teléfono.
 
 La prueba CI es necesaria, **no suficiente**. Registrar resultados evidenciados en `docs/DEVELOPMENT_STATE.md`; no prometer 1.0 instalada/firmada hasta disponer de pruebas y secretos reales.

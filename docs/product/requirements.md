@@ -1,6 +1,6 @@
 # Requisitos funcionales — Biblioteca IA (condensado)
 
-Fuente completa: `docs/product/master-prompt.md` (Prompt Maestro multiagente). Este documento resume el alcance; en caso de duda prevalece el Prompt Maestro.
+Fuente completa: `docs/product/master-prompt.md`, **con la directriz vinculante del 20/11/2026 añadida al inicio**. La [ADR-008 revisada](../architecture/adr-008-saf-drive-byok-v1.md) prevalece sobre pasajes históricos contradictorios.
 
 ## 1. Formatos y lectura (V1)
 
@@ -34,17 +34,20 @@ Fuente completa: `docs/product/master-prompt.md` (Prompt Maestro multiagente). E
 - Credenciales: aportadas por el usuario, cifradas, nunca en APK/repo/logs/backups. Historial persistente de conversaciones con proveedor/modelo/referencias/tokens.
 - Blindar el sistema frente a prompt injection desde el contenido de libros.
 
-## 6. Cuentas y almacenamiento
+## 6. Sin cuentas y elección de destino para copias (directriz vinculante del propietario)
 
-- **Modo local sin cuenta**: importar, leer, anotar, categorías, cuaderno, exportar/restaurar copias. Datos en el dispositivo.
-- **Modo autenticado (Google)**: Drive (scope mínimo `drive.file`), Supabase Auth, sincronización, IA, backups nube. Conversión local→cuenta: idempotente, reanudable, sin eliminar datos locales antes de verificar.
-- Autenticación (identidad) ≠ autorización (Drive). Credential Manager; no OAuth obsoletos. Carpeta propia `Biblioteca IA` en Drive con identificadores estables; no borrar local antes de confirmar remoto.
+- **No se permite OAuth ni cuentas Google/Gmail/Supabase en la app.** No hay pantalla de registro, cuenta activa ni autorización Drive por API. Toda la biblioteca y sus funciones principales permanecen locales y offline.
+- Se conserva en el dispositivo una copia privada de los originales EPUB, PDF y MOBI importados.
+- **Copia completa obligatoria** en archivo ZIP exportado con Storage Access Framework: el usuario elige Drive, almacenamiento local, USB u otro proveedor ofrecido por Android. Una cuenta que pida el proveedor externo no se gestiona dentro de Biblioteca IA.
+- Cada ZIP contiene **todos los libros físicos importados** y catálogo, colecciones, categorías, etiquetas, relaciones, notas, historial de versiones, marcadores, subrayados y posiciones. Se verifica SHA-256 de cada original, rechazando backups incompletos.
+- **Restaurar ZIP** en otro dispositivo reconstruye originales legibles offline y datos con transacción local y deduplicación por hash, sin sobrescribir datos existentes. Archivo JSON antiguo solo como importación heredada de metadatos, con advertencia de que faltan libros.
+- No incluir en backups API keys BYOK, sesiones, secretos ni tokens; los ZIP contienen libros y anotaciones en claro y deben guardarse de forma privada. Sin sincronización automática entre dispositivos.
 
-## 7. Datos y sincronización
+## 7. Datos y protección local
 
-- Supabase PostgreSQL + RLS por usuario en todas las operaciones; multiusuario desde el diseño; Room local con operaciones pendientes.
-- Sincronización incremental idempotente con detección de conflictos; **no perder anotaciones concurrentes** por sobrescritura silenciosa; posiciones de lectura sin retrocesos silenciosos.
-- Protección V1: sincronización + copias periódicas + versiones de notas + papelera (30 días) + restauración verificada + exportación manual (sin credenciales). La sincronización NO es copia de seguridad; prever segunda vía independiente. Probar: eliminación/recuperación, interrupciones, corrupción, reinstalación, concurrencia.
+- Room/SQLite como fuente de verdad de la instalación. El código heredado Supabase y SyncEngine no se invoca desde la app ni constituye un requisito de V1.
+- Importación por hash, notas versionadas, papelera, operaciones de respaldo/restauración reintentables y sin pérdida. Comprobar borrado y recuperación, interrupción, corrupción, reinstalación, pruebas con proveedor SAF y espacio insuficiente.
+- Las copias las inicia el usuario. No afirmar una sincronización inexistente ni pedir credenciales para proteger su biblioteca.
 
 ## 8. Distribución y actualización
 
