@@ -1,3 +1,5 @@
+@file:OptIn(org.readium.r2.shared.ExperimentalReadiumApi::class)
+
 package com.javierrb35.bibliotecaia.reader.epub
 
 import kotlinx.coroutines.Dispatchers
