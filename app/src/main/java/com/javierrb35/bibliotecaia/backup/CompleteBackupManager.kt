@@ -6,11 +6,13 @@ import android.provider.DocumentsContract
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
+import kotlin.coroutines.coroutineContext
 
 /**
  * Full, user-initiated, portable backup through Android's SAF document picker.
@@ -201,12 +203,14 @@ class CompleteBackupManager(
             val content = context.contentResolver.openInputStream(uri)?.use { input ->
                 CompleteBackupArchive.read(input, stage)
             } ?: throw IllegalArgumentException("No se puede leer el archivo de copia.")
+            coroutineContext.ensureActive()
             val fromArchive = BackupCodec.fromJson(content.json).books
             val existingByHash = database.backupDao().booksAll().associateBy { it.contentHash }
             val finalPaths = linkedMapOf<String, String>()
             val booksBase = File(context.filesDir, "books").canonicalFile
 
             for (incoming in fromArchive) {
+                coroutineContext.ensureActive()
                 val local = existingByHash[incoming.contentHash] ?: incoming
                 val already = File(local.localPath)
                 if (local.localPath.isNotBlank() && already.isFile &&
@@ -219,20 +223,36 @@ class CompleteBackupManager(
                 require(dir.parentFile == booksBase && (dir.isDirectory || dir.mkdirs())) {
                     "Ruta de destino del libro inválida."
                 }
-                val destination = File(dir, local.fileName).canonicalFile
-                require(destination.parentFile == dir) { "Nombre de archivo inseguro." }
-                if (destination.exists()) {
-                    require(destination.isFile &&
-                        OriginalLinker(context.filesDir).sha256Hex(destination) == incoming.contentHash) {
-                        "Ya hay un archivo distinto en la ubicación del libro. No se sobrescribe."
-                    }
-                } else {
+                val originalDestination = File(dir, local.fileName).canonicalFile
+                require(originalDestination.parentFile == dir) { "Nombre de archivo inseguro." }
+                // A corrupt file may occupy the canonical path. Never overwrite or
+                // delete it: materialize the verified original under a unique safe
+                // name in the SAME private book directory, then relink Room.
+                val validExisting = originalDestination.isFile &&
+                    originalDestination.length() == incoming.sizeBytes &&
+                    OriginalLinker(context.filesDir).sha256Hex(originalDestination) == incoming.contentHash
+                val destination = if (originalDestination.exists() && !validExisting) {
+                    val extension = incoming.format.name.lowercase(java.util.Locale.ROOT)
+                    File(dir, "recuperado-${UUID.randomUUID()}.$extension").canonicalFile
+                } else originalDestination
+                require(destination.parentFile == dir && (!destination.exists() || validExisting)) {
+                    "No hay una ubicación segura para recuperar este libro."
+                }
+                if (!validExisting) {
                     val staged = content.staged[CompleteBackupArchive.entryName(incoming.id)]
                         ?: throw IllegalArgumentException("Falta un original verificado.")
                     val tmp = File.createTempFile(".restore-", ".tmp", dir)
                     try {
                         staged.inputStream().use { source ->
-                            tmp.outputStream().use { sink -> source.copyTo(sink, 64 * 1024) }
+                            tmp.outputStream().use { sink ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    coroutineContext.ensureActive()
+                                    val count = source.read(buffer)
+                                    if (count < 0) break
+                                    if (count > 0) sink.write(buffer, 0, count)
+                                }
+                            }
                         }
                         require(tmp.length() == incoming.sizeBytes &&
                             OriginalLinker(context.filesDir).sha256Hex(tmp) == incoming.contentHash &&
@@ -246,6 +266,7 @@ class CompleteBackupManager(
                 }
                 finalPaths[incoming.contentHash] = destination.absolutePath
             }
+            coroutineContext.ensureActive()
             // Room transaction restores metadata and file paths together.
             // Staged originals are verified/materialized before any DB mutation.
             val report = BackupManager(database, appVersion)

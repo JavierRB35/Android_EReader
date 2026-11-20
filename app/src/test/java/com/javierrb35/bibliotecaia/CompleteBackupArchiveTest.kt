@@ -27,7 +27,11 @@ class CompleteBackupArchiveTest {
         val file = dir.newFile(fileName)
         file.writeBytes(body)
         return BookEntity(id, "Título " + id, null,
-            if (fileName.endsWith(".pdf")) BookFormat.PDF else BookFormat.EPUB,
+            when {
+                fileName.endsWith(".pdf") -> BookFormat.PDF
+                fileName.endsWith(".mobi") -> BookFormat.MOBI
+                else -> BookFormat.EPUB
+            },
             fileName, file.absolutePath, hash(body), body.size.toLong(), 1)
     }
 
@@ -56,15 +60,18 @@ class CompleteBackupArchiveTest {
     @Test fun roundTripContainsEveryOriginalAlongsideNotesVersionsAndPositions() {
         val first = book("book-one", "first.epub", "EPUB fichero original".toByteArray())
         val second = book("book-two", "second.pdf", "%PDF fichero original".toByteArray())
-        val bytes = write(listOf(first, second))
+        val third = book("book-three", "third.mobi", "MOBI bytes originales".toByteArray())
+        val bytes = write(listOf(first, second, third))
         val stage = dir.newFolder("extract")
         val full = CompleteBackupArchive.read(ByteArrayInputStream(bytes), stage)
-        assertEquals(2, full.bookCount)
-        assertEquals(first.sizeBytes + second.sizeBytes, full.bytes)
+        assertEquals(3, full.bookCount)
+        assertEquals(first.sizeBytes + second.sizeBytes + third.sizeBytes, full.bytes)
         assertArrayEquals(File(first.localPath).readBytes(),
             full.staged.getValue(CompleteBackupArchive.entryName(first.id)).readBytes())
         assertArrayEquals(File(second.localPath).readBytes(),
             full.staged.getValue(CompleteBackupArchive.entryName(second.id)).readBytes())
+        assertArrayEquals(File(third.localPath).readBytes(),
+            full.staged.getValue(CompleteBackupArchive.entryName(third.id)).readBytes())
         val snapshot = BackupCodec.fromJson(full.json)
         assertEquals(1, snapshot.annotations.size)
         assertEquals("comentario", snapshot.annotations.single().body)

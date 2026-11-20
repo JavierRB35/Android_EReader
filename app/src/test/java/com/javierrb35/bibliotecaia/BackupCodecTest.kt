@@ -141,6 +141,18 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `el formato corrupto del libro no se acepta como EPUB`() {
+        val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 3))
+        root.getJSONArray("books").getJSONObject(0).put("format", "FORMATO_DESCONOCIDO")
+        try {
+            BackupCodec.fromJson(root.toString())
+            throw AssertionError("Nunca convertir silenciosamente un formato desconocido a EPUB")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message.orEmpty().contains("formato"))
+        }
+    }
+
+    @Test
     fun `sin portada de datos sensibles en el JSON`() {
         val json = BackupCodec.toJson(sample(), "0.1.0", 1)
         assertFalse(json.contains("localPath"))
