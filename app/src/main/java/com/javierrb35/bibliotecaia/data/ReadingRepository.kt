@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.room.withTransaction
 import java.util.UUID
 
-class ReadingRepository(context: Context) {
-    private val db = AppDatabase.get(context.applicationContext)
+class ReadingRepository(private val db: AppDatabase) {
+    constructor(context: Context) : this(AppDatabase.get(context.applicationContext))
     private val dao = db.readingDao()
 
     suspend fun position(bookId: String) = dao.position(bookId)

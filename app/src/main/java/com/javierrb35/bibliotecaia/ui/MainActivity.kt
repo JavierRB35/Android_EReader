@@ -96,6 +96,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         observeCatalog()
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.mainNavigation)
+            .setOnItemSelectedListener { item ->
+                when (item.itemId) {
+                    R.id.navKnowledge -> KnowledgeActivity.start(this)
+                    R.id.navRead -> lifecycleScope.launch {
+                        val recent = db.bookDao().lastRead()
+                        if (recent == null) Toast.makeText(this@MainActivity, R.string.no_recent_book, Toast.LENGTH_LONG).show()
+                        else ReaderRouter.open(this@MainActivity, recent.id)
+                    }
+                }
+                item.itemId == R.id.navLibrary
+            }
     }
 
     private fun observeCatalog() {

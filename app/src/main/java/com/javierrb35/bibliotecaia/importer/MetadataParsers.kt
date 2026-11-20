@@ -20,14 +20,14 @@ object EpubMetadataParser {
 
     fun parse(openStream: () -> InputStream): ExtractedMetadata? = try {
         openStream().use { stream ->
-            ZipInputStream(stream.buffered()).use { zip ->
+            BoundedZipInputStream(stream.buffered()).use { zip ->
                 var opfPath: String? = null
                 var entry = zip.nextEntry
                 while (entry != null && opfPath == null) {
                     if (entry.name == "META-INF/container.xml") {
                         // Copiar la entrada a memoria: el parser DOM cierra el stream que recibe
                         // (Xerces) y cerraría el ZipInputStream en pleno recorrido.
-                        val doc = newDocument(zip.readBytes().inputStream())
+                        val doc = newDocument(zip.readEntry(1024 * 1024).inputStream())
                         val rootFiles = doc.getElementsByTagName("rootfile")
                         for (i in 0 until rootFiles.length) {
                             val el = rootFiles.item(i) as Element
@@ -45,11 +45,11 @@ object EpubMetadataParser {
 
                 // Segunda pasada: leer el OPF localizado
                 openStream().use { stream2 ->
-                    ZipInputStream(stream2.buffered()).use { zip2 ->
+                    BoundedZipInputStream(stream2.buffered()).use { zip2 ->
                         var e = zip2.nextEntry
                         while (e != null) {
                             if (e.name == opfPath) {
-                                val doc = newDocument(zip2.readBytes().inputStream())
+                                val doc = newDocument(zip2.readEntry(4 * 1024 * 1024).inputStream())
                                 return ExtractedMetadata(
                                     title = firstText(doc, "title"),
                                     authors = creatorList(doc)
@@ -75,7 +75,12 @@ object EpubMetadataParser {
         } catch (_: Exception) {
             // parser sin soporte de la feature: continúa (contenido local validado por ZIP)
         }
-        return factory.newDocumentBuilder().parse(stream)
+        val bytes = stream.readBytes()
+        val markup = String(bytes, Charsets.ISO_8859_1)
+        require(!markup.contains("<!DOCTYPE", true) && !markup.contains("<!ENTITY", true))
+        return factory.newDocumentBuilder().apply {
+            setEntityResolver { _, _ -> throw org.xml.sax.SAXException("External entities disabled") }
+        }.parse(bytes.inputStream())
     }
 
     private fun isDublinCore(el: Element) = el.namespaceURI?.startsWith("http://purl.org/dc/") == true

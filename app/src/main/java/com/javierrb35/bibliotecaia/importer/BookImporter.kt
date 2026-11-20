@@ -10,6 +10,12 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * Importación de libros en modo local (Prompt Maestro §8.6).
@@ -25,7 +31,7 @@ class BookImporter(
     /** Copia el stream a [dest] calculando hash y tamaño en una única pasada. */
     private class CopyResult(val hash: String, val sizeBytes: Long)
 
-    private fun copyComputingHash(source: InputStream, dest: File): CopyResult {
+    private suspend fun copyComputingHash(source: InputStream, dest: File): CopyResult {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         var size = 0L
         source.use { input ->
@@ -33,6 +39,8 @@ class BookImporter(
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
                 var read = input.read(buffer)
                 while (read >= 0) {
+                    coroutineContext.ensureActive()
+                    require(size + read <= 512L * 1024 * 1024) { "El archivo supera el límite de importación de 512 MiB." }
                     digest.update(buffer, 0, read)
                     output.write(buffer, 0, read)
                     size += read
@@ -47,19 +55,34 @@ class BookImporter(
      * Importa un libro desde un Uri de SAF. Devuelve la entidad registrada.
      * Lanza [ImportError] con mensajes aptos para el usuario.
      */
-    suspend fun import(uri: Uri): BookEntity {
+    suspend fun import(uri: Uri): BookEntity = withContext(Dispatchers.IO) {
         val fileName = queryDisplayName(uri) ?: DEFAULT_FILE_NAME
-        val tmp = File(context.cacheDir, "import_${System.currentTimeMillis()}.tmp")
+        val tmp = File(context.cacheDir, "import_${UUID.randomUUID()}.tmp")
+        var placedFile: File? = null
 
         val copy = try {
             context.contentResolver.openInputStream(uri)?.use { copyComputingHash(it, tmp) }
                 ?: throw ImportError.Reading(fileName, IllegalStateException("Sin acceso de lectura al archivo"))
+        } catch (e: CancellationException) {
+            tmp.delete()
+            throw e
         } catch (e: ImportError) {
             tmp.delete()
             throw e
         } catch (e: Exception) {
             tmp.delete()
             throw ImportError.Reading(fileName, e)
+        }
+
+        suspend fun cleanupPlacedFile() = withContext(NonCancellable) {
+            placedFile?.let { file ->
+                // Cancellation can race an INSERT commit. Never delete a registered original.
+                val registered = runCatching { bookDao.findByHash(copy.hash) }
+                if (registered.isSuccess && registered.getOrNull()?.localPath != file.absolutePath) {
+                    file.delete()
+                    file.parentFile?.delete() // removes only our now-empty UUID directory
+                }
+            }
         }
 
         try {
@@ -89,8 +112,10 @@ class BookImporter(
             // 4. Colocación definitiva: nunca se mueve antes de validar
             val bookId = UUID.randomUUID().toString()
             val targetDir = File(context.filesDir, "books/$bookId").apply { mkdirs() }
-            val safeName = fileName.replace(Regex("[/\\\\]"), "_")
+            val safeName = fileName.replace(Regex("[/\\\\\\x00-\\x1F]"), "_").take(180)
+                .takeUnless { it.isBlank() || it == "." || it == ".." } ?: DEFAULT_FILE_NAME
             val target = File(targetDir, safeName)
+            placedFile = target
             if (!tmp.renameTo(target)) {
                 tmp.copyTo(target, overwrite = true)
                 tmp.delete()
@@ -109,12 +134,18 @@ class BookImporter(
                 addedAt = System.currentTimeMillis()
             )
             bookDao.insert(entity)
-            return entity
+            entity
+        } catch (e: CancellationException) {
+            tmp.delete()
+            cleanupPlacedFile()
+            throw e
         } catch (e: ImportError) {
             tmp.delete()
+            cleanupPlacedFile()
             throw e
         } catch (e: Exception) {
             tmp.delete()
+            cleanupPlacedFile()
             throw ImportError.Reading(fileName, e)
         }
     }

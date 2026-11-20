@@ -58,4 +58,7 @@
         android:layout_width="match_parent" android:layout_height="wrap_content" android:indeterminate="true" android:visibility="gone"/>
     <com.google.android.material.button.MaterialButton android:id="@+id/btnImport" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:minHeight="56dp" android:layout_marginTop="8dp" android:layout_marginBottom="8dp" android:text="@string/action_import" app:cornerRadius="18dp"/>
+    <com.google.android.material.bottomnavigation.BottomNavigationView android:id="@+id/mainNavigation"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        app:menu="@menu/main_navigation" app:labelVisibilityMode="labeled" android:background="@color/bia_background" />
 </LinearLayout>

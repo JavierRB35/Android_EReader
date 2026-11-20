@@ -53,6 +53,8 @@ class BookDetailActivity : AppCompatActivity() {
         }
         load(bookId)
 
+        findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
+
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { cycleStatus() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
@@ -73,6 +75,11 @@ class BookDetailActivity : AppCompatActivity() {
                 showAssignments(loaded.id)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
     }
 
     private fun show(b: BookEntity) {
