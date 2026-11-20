@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.backup
 
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -117,7 +118,7 @@ class CompleteBackupIntegrityInstrumentedTest {
 
     @Test fun completeZipRoundTripRestoresPhysicalBookAndKnowledgeToEmptyRoom() = runBlocking {
         val id = UUID.randomUUID().toString()
-        val temp = File(ctx.cacheDir, "backup-roundtrip-$id").apply { mkdirs() }
+        val temp = File(ctx.cacheDir, "backup-test/backup-roundtrip-$id").apply { mkdirs() }
         val internal = File(ctx.filesDir, "books/$id").apply { mkdirs() }
         val filename = "portable.epub"
         val original = File(internal, filename)
@@ -149,7 +150,8 @@ class CompleteBackupIntegrityInstrumentedTest {
             dbSource.backupDao().insertPositionReplace(
                 ReadingPositionEntity(id, "cfi:3", 0.6f, 5L))
             val managerSource = CompleteBackupManager(ctx, dbSource, "0.1.0")
-            val exported = managerSource.exportTo(Uri.fromFile(zip))
+            val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".testbackup", zip)
+            val exported = managerSource.exportTo(uri)
             assertEquals(1, exported.books)
             assertEquals(bytes.size.toLong(), exported.originalBytes)
             assertTrue(zip.isFile && zip.length() > bytes.size)
@@ -157,7 +159,7 @@ class CompleteBackupIntegrityInstrumentedTest {
             // Emulate a different installation: no old local file or Room records.
             original.delete()
             val restored = CompleteBackupManager(ctx, dbDestination, "0.1.0")
-                .restoreFrom(Uri.fromFile(zip))
+                .restoreFrom(uri)
             assertEquals(1, restored.originals)
             assertArrayEquals(bytes, File(dbDestination.backupDao().booksAll()
                 .single().localPath).readBytes())
@@ -170,7 +172,7 @@ class CompleteBackupIntegrityInstrumentedTest {
 
             // A second restore adds nothing and preserves marks and originals.
             val again = CompleteBackupManager(ctx, dbDestination, "0.1.0")
-                .restoreFrom(Uri.fromFile(zip))
+                .restoreFrom(uri)
             assertEquals(0, again.report.booksRestored)
             assertEquals(0, again.report.annotationsRestored)
             assertEquals(1, dbDestination.backupDao().booksAll().size)
@@ -182,7 +184,7 @@ class CompleteBackupIntegrityInstrumentedTest {
             val damage = ByteArray(bytes.size) { 'x'.code.toByte() }
             damagedCanonical.writeBytes(damage)
             val healed = CompleteBackupManager(ctx, dbDestination, "0.1.0")
-                .restoreFrom(Uri.fromFile(zip))
+                .restoreFrom(uri)
             assertEquals(0, healed.report.booksRestored)
             val recoveredBook = dbDestination.backupDao().booksAll().single()
             assertNotEquals(damagedCanonical.absolutePath, recoveredBook.localPath)
@@ -195,7 +197,8 @@ class CompleteBackupIntegrityInstrumentedTest {
             val before = dbDestination.backupDao().booksAll()
             try {
                 CompleteBackupManager(ctx, dbDestination, "0.1.0")
-                    .restoreFrom(Uri.fromFile(corrupt))
+                    .restoreFrom(FileProvider.getUriForFile(
+                        ctx, ctx.packageName + ".testbackup", corrupt))
                 fail("Damaged ZIP must be rejected")
             } catch (_: IllegalArgumentException) {
                 // No DB rows must be changed by an invalid archive.
