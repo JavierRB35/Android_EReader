@@ -43,7 +43,12 @@ class BookDetailActivity : AppCompatActivity() {
     }
 
     private val db by lazy { AppDatabase.get(this) }
-    private val linker = com.javierrb35.bibliotecaia.backup.OriginalLinker(java.io.File(filesDir, "books"))
+    // Activity property initializers run BEFORE ContextWrapper.attachBaseContext().
+    // Accessing filesDir eagerly crashes when opening a book's details.
+    // OriginalLinker itself appends "books/<id>", so pass the app root once.
+    private val linker by lazy {
+        com.javierrb35.bibliotecaia.backup.OriginalLinker(filesDir)
+    }
     private val linkLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
