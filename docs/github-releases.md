@@ -2,6 +2,10 @@
 
 El workflow `.github/workflows/release-apk.yml` compila el APK `release` **sin firmar** en un runner Linux y lo alinea y firma con `zipalign` y `apksigner`. No modifica la compilación de AndroidIDE-Rv2 ni publica versiones al hacer push a `main`.
 
+**Memoria de compilación en GitHub Actions:** el build Linux de release utiliza `-Dorg.gradle.jvmargs=-Xmx3g` y Kotlin in-process, porque la primera compilación CI con heap predeterminado produjo `OutOfMemoryError` en Readium/Kotlin. Este valor es exclusivo del runner alojado y **no modifica** los límites del Gradle de AndroidIDE. Antes de emplear la firma definitiva, [PR #7](https://github.com/JavierRB35/Android_EReader/pull/7) prueba también `assembleRelease` y exige la existencia de `app-release-unsigned.apk`.
+
+**Criterio de bloqueo:** aunque `assembleRelease` sea satisfactorio, la APK resultante está **sin firmar**. La firma release requiere el keystore auténtico, sus secretos y comprobación de huella; no publicar etiquetas basándose solo en CI.
+
 ## Preparación de la firma
 
 1. **Reutilizar la clave de publicación existente** si ya se distribuyó alguna APK firmada con el mismo `applicationId` (`com.javierrb35.bibliotecaia`). Verificar localmente su alias y huella SHA-256 con `keytool -list -v -keystore ruta/a/clave.jks`. No subir la clave ni las contraseñas al repositorio, a un issue o al chat.
@@ -21,26 +25,26 @@ base64 -w 0 /ruta/segura/bibliotecaia-release.jks | gh secret set ANDROID_KEYSTO
 
 Las demás contraseñas se introducen mediante GitHub Settings o `gh secret set` sin escribirlas en la línea de comandos. Base64 **no cifra** el archivo: tratar su contenido como una clave privada.
 
-## Verificación manual de la firma (no publica releases)
+## Ensayo manual de firma, sin publicar versiones
 
-El mismo workflow puede ejecutarse **manualmente sobre `main`**, pero solo cuando esta modificación esté revisada e integrada en la rama principal. La ejecución manual compila, firma y verifica el APK y guarda un artefacto temporal de siete días. **El job de publicación solo se ejecuta al hacer push de un tag de versión**, nunca con el disparador manual.
+El mismo workflow acepta **Run workflow** desde GitHub Actions → **Publish signed APK** → rama `main`. No necesita tag, y su job `publish` se omite obligatoriamente en este modo. Conservará únicamente un artefacto temporal `signed-release-apk` durante siete días. No usar ese artefacto como v1.0 pública sin QA.
 
-Desde GitHub CLI autenticada:
+Además de los cuatro **Actions Secrets** indicados arriba, debes configurar una **Actions Variable pública** (no secret):
+
+`ANDROID_RELEASE_CERT_SHA256`: huella SHA-256 de la **clave definitiva realmente custodiada**, obtenida localmente con `keytool -list -v -keystore /ruta/a/la/clave.jks`. No inventar ni reutilizar una huella de pruebas; si existen APK ya distribuidas, debe coincidir con su certificado. El workflow admite los 32 bytes hexadecimales con o sin `:` y rechazará una huella vacía, malformada o distinta de `apksigner verify --print-certs`.
+
+En GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**. Registrar solo el valor público de la huella; nunca la contraseña ni el keystore en Variables.
+
+Para lanzar la prueba desde GitHub CLI (alternativa a la interfaz web):
 
 ```sh
 gh workflow run release-apk.yml -R JavierRB35/Android_EReader --ref main
 gh run list -R JavierRB35/Android_EReader --workflow release-apk.yml --event workflow_dispatch --limit 1
 ```
 
-Abrir la ejecución en [GitHub Actions](https://github.com/JavierRB35/Android_EReader/actions) para comprobar `Build, sign and verify APK`. Si finaliza correctamente, descargar el artefacto `signed-release-apk`, que contendrá `BibliotecaIA-main.apk` y su checksum, **sin crear una GitHub Release**.
+Comprueba en el run **Build, sign and verify APK = success**, **Publish GitHub Release = skipped**, la huella del certificado, el checksum `.sha256` y que no existe un tag/release nuevo. El archivo de prueba se denomina `BibliotecaIA-main.apk`, no `v1.0.0`.
 
-El workflow compara automáticamente la huella SHA-256 del certificado de firma del APK con la huella aprobada de la clave de publicación actual:
-
-`AD:26:7C:CB:94:11:8E:81:72:F2:E5:FC:20:2F:F0:C7:E0:07:AD:C5:BE:AA:0D:B8:85:06:E9:EA:FA:0F:F6:AE`
-
-La huella del certificado es pública y no revela la clave privada. Si la firma no coincide, el job falla. No modificar esta huella al rotar una clave sin analizar primero el efecto sobre las instalaciones existentes.
-
-Para comprobar nombres de secretos sin mostrarlos: `gh secret list -R JavierRB35/Android_EReader`. Los valores se gestionan solo en GitHub Actions Secrets, **nunca en Variables**, archivos del repositorio o logs.
+**No ejecutar un tag de producción** mientras falten firma auténtica, verificación AndroidIDE/teléfono, restauración Drive SAF y paridad de selección PDF. Para publicar v1.0, cambiar previamente `versionName` y aumentar `versionCode`; mantener el mismo certificado de publicación en todas las actualizaciones.
 
 ## Publicar una versión
 
