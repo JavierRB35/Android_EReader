@@ -12,7 +12,7 @@ class GoogleAccountSignIn(private val activity: Activity) {
     private val manager = CredentialManager.create(activity)
 
     suspend fun signIn(repository: AccountRepository): AccountSession {
-        if (!repository.configuration.configured) throw AccountFailure(AccountFailure.Reason.NOT_CONFIGURED)
+        if (!repository.configuration.googleConfigured) throw AccountFailure(AccountFailure.Reason.NOT_CONFIGURED)
         val nonce = AuthPolicy.nonce()
         val option = GetSignInWithGoogleOption.Builder(repository.configuration.googleWebClientId)
             .setNonce(AuthPolicy.nonceHash(nonce)).build()
