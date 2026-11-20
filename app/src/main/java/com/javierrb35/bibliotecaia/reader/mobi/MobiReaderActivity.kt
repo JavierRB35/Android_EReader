@@ -6,20 +6,31 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Html
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.UnderlineSpan
+import android.text.style.BackgroundColorSpan
+import android.net.Uri
 import android.view.View
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import kotlin.math.abs
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.ai.AiChatActivity
+import com.javierrb35.bibliotecaia.ai.AiKeyStore
+import com.javierrb35.bibliotecaia.study.DefinitionUi
+import com.javierrb35.bibliotecaia.study.SelectionAnchors
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -44,6 +55,10 @@ class MobiReaderActivity : AppCompatActivity() {
     private var offset = 0
     private var endOffset = 0
     private var loaded = false
+    private var annotations = emptyList<AnnotationEntity>()
+    private var selectedAbsoluteOffset = 0
+    private var touchX = 0f
+    private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
     private val preferences by lazy { getSharedPreferences("mobi_reader", MODE_PRIVATE) }
 
@@ -63,21 +78,72 @@ class MobiReaderActivity : AppCompatActivity() {
             typeface = Typeface.create("serif", Typeface.NORMAL)
             setLineSpacing(dp(5).toFloat(), 1.15f)
             setTextIsSelectable(true)
-            customSelectionActionModeCallback = object : ActionMode.Callback {
-                override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
-                    menu.add(0, 1121, 0, "Anotar"); return true
+
+        }
+        // Scriptura's native menu preserves Copy / Share / Select all.
+        DefinitionUi.attach(this, content, aiConfigured(), object : DefinitionUi.Delegate {
+            override fun openExternal(url: String) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addCategory(Intent.CATEGORY_BROWSABLE))
+                } catch (_: Exception) {
+                    Toast.makeText(this@MobiReaderActivity,
+                        "No se pudo abrir la fuente externa.", Toast.LENGTH_LONG).show()
                 }
-                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
-                override fun onDestroyActionMode(mode: ActionMode) = Unit
-                override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-                    if (item.itemId != 1121) return false
-                    val start = minOf(selectionStart, selectionEnd).coerceAtLeast(0)
-                    val end = maxOf(selectionStart, selectionEnd).coerceAtMost(length())
-                    if (start < end) AnnotationEditor.show(this@MobiReaderActivity, bookId,
-                        locator(offset + start), text.subSequence(start, end).toString())
-                    mode.finish()
-                    return true
+            }
+            override fun explainWithGemini(word: String) {
+                AiChatActivity.start(this@MobiReaderActivity, bookId, word, locator(selectedAbsoluteOffset))
+            }
+            override fun showError(message: String) {
+                Toast.makeText(this@MobiReaderActivity, message, Toast.LENGTH_LONG).show()
+            }
+        }, DefinitionUi.SelectionHandler { quote, start, _ ->
+            AnnotationEditor.show(this, bookId, locator(offset + start), quote, "NOTE")
+        }, DefinitionUi.UnderlineHandler { quote, start, _ ->
+            lifecycleScope.launch {
+                try {
+                    repository.addAnnotation(bookId, locator(offset + start), quote, "", "HIGHLIGHT")
+                    Toast.makeText(this@MobiReaderActivity,
+                        "Texto subrayado.", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this@MobiReaderActivity,
+                        "No se pudo guardar el subrayado.", Toast.LENGTH_LONG).show()
                 }
+            }
+        }, DefinitionUi.FragmentHandler { quote, start, _ ->
+            if (quote.length > 1200) {
+                Toast.makeText(this, "Selecciona un máximo de 1.200 caracteres.",
+                    Toast.LENGTH_LONG).show()
+            } else AiChatActivity.start(this, bookId, quote, locator(offset + start))
+        }, object : DefinitionUi.SelectionLifecycle {
+            override fun onSelectionChanged(start: Int, end: Int) {
+                if (start >= 0 && end > start) selectedAbsoluteOffset = offset + start
+            }
+            override fun onSelectionFinished() = Unit
+        })
+        val tapSlop = ViewConfiguration.get(this).scaledTouchSlop
+        content.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchX = event.x; touchY = event.y
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout() / 2 &&
+                        abs(event.x - touchX) <= tapSlop && abs(event.y - touchY) <= tapSlop) {
+                        val charAt = offset + content.getOffsetForPosition(event.x, event.y)
+                        val note = annotations.firstOrNull { saved ->
+                            val markAt = validatedMarkOffset(saved)
+                            markAt != null && charAt >= markAt &&
+                                charAt < markAt + saved.quote.length
+                        }
+                        if (note != null) {
+                            showSavedMark(note)
+                            true
+                        } else false
+                    } else false
+                }
+                else -> false
             }
         }
         scroll = ScrollView(this).apply { addView(content) }
@@ -109,6 +175,12 @@ class MobiReaderActivity : AppCompatActivity() {
                 title = book.title
                 loaded = true
                 showChunk(saved.coerceIn(0, text.lastIndex))
+                launch {
+                    repository.observeAnnotations(bookId).collect { notes ->
+                        annotations = notes
+                        if (loaded) paintMarks()
+                    }
+                }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
                 status.text = error.message ?: "No se pudo abrir el MOBI."
@@ -125,10 +197,86 @@ class MobiReaderActivity : AppCompatActivity() {
         if (endOffset < text.length && Character.isLowSurrogate(text[endOffset])) endOffset--
         content.text = text.substring(offset, endOffset)
         scroll.scrollTo(0, 0)
+        paintMarks()
         status.text = "${title} · MOBI texto · ${(offset * 100L / text.length)} %"
         previous.isEnabled = offset > 0
         next.isEnabled = endOffset < text.length
         savePosition(offset)
+    }
+
+    private fun aiConfigured() = AiKeyStore.providers().any { AiKeyStore.getKey(this, it) != null }
+
+    /** Restore the underline at the EXACT absolute offset, never at another matching quote. */
+    private fun paintMarks() {
+        if (!loaded || endOffset <= offset || endOffset > text.length) return
+        val rendered = SpannableString(text.substring(offset, endOffset))
+        for (mark in annotations) {
+            if (mark.quote.isBlank() || mark.locator == null) continue
+            val at = validatedMarkOffset(mark) ?: continue
+            val range = SelectionAnchors.visibleRange(text, at, mark.quote, offset, endOffset)
+                ?: continue
+            val start = range.first
+            val end = range.last + 1
+            if (mark.kind == "HIGHLIGHT") {
+                rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else if (mark.kind == "NOTE") {
+                rendered.setSpan(BackgroundColorSpan(0xffb59b62.toInt()),
+                    start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        val position = scroll.scrollY
+        content.setText(rendered, TextView.BufferType.SPANNABLE)
+        if (position != 0) scroll.post { scroll.scrollTo(0, position) }
+    }
+
+    private fun validatedMarkOffset(mark: AnnotationEntity): Int? {
+        if (mark.quote.isBlank() || mark.locator == null) return null
+        val at = runCatching {
+            val locator = JSONObject(mark.locator)
+            if (locator.optString("format") != "MOBI" || locator.optInt("textVersion", 1) != 1)
+                return@runCatching null
+            locator.optInt("offset", -1)
+        }.getOrNull() ?: return null
+        return at.takeIf { SelectionAnchors.exactMatch(text, it, mark.quote) }
+    }
+
+    private fun showSavedMark(mark: AnnotationEntity) {
+        if (mark.kind == "HIGHLIGHT") {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Subrayado")
+                .setMessage(mark.quote.take(1200))
+                .setNegativeButton("Cerrar", null)
+                .setPositiveButton("Quitar subrayado") { _, _ ->
+                    lifecycleScope.launch {
+                        try { repository.setDeleted(mark.id, true) }
+                        catch (_: Exception) {
+                            Toast.makeText(this@MobiReaderActivity,
+                                "No se pudo quitar el subrayado.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }.show()
+        } else {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Anotación")
+                .setMessage(mark.body.ifBlank { mark.quote }.take(1200))
+                .setNegativeButton("Cerrar", null)
+                .setPositiveButton("Editar") { _, _ -> AnnotationEditor.edit(this, mark) }
+                .setNeutralButton("Eliminar") { _, _ ->
+                    MaterialAlertDialogBuilder(this).setTitle("Eliminar anotación")
+                        .setMessage("¿Quieres eliminar esta nota? El libro no se modifica.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Eliminar") { _, _ ->
+                            lifecycleScope.launch {
+                                try { repository.setDeleted(mark.id, true) }
+                                catch (_: Exception) {
+                                    Toast.makeText(this@MobiReaderActivity,
+                                        "No se pudo eliminar la nota.", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }.show()
+                }.show()
+        }
     }
 
     private fun visibleOffset(): Int {

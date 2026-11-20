@@ -1,0 +1,276 @@
+package com.javierrb35.bibliotecaia.study;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.view.ActionMode;
+import android.view.Gravity;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+/** Menú de selección nativo + explicación navegable. Utilizado también en pruebas Android. */
+public final class DefinitionUi {
+    private static final int DEFINE_ACTION_ID=0x5C120;
+    /** Reuse exactly the Scriptura study actions with EPUB's Readium selection callback. */
+    public static void populateSelectionMenu(Menu menu) {
+        if(menu==null)return;
+        addIfAbsent(menu,DEFINE_ACTION_ID,"Definir",MenuItem.SHOW_AS_ACTION_ALWAYS);
+        addIfAbsent(menu,ANNOTATE_ACTION_ID,"Anotar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        addIfAbsent(menu,UNDERLINE_ACTION_ID,"Subrayar",MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        addIfAbsent(menu,GEMINI_FRAGMENT_ACTION_ID,"Interpretar con IA",MenuItem.SHOW_AS_ACTION_NEVER);
+    }
+    private static void addIfAbsent(Menu menu,int id,String title,int show) {
+        if(menu.findItem(id)==null)menu.add(Menu.NONE,id,Menu.CATEGORY_SECONDARY,title).setShowAsAction(show);
+    }
+    public static boolean isDefinition(int itemId){return itemId==DEFINE_ACTION_ID;}
+    public static boolean isAnnotate(int itemId){return itemId==ANNOTATE_ACTION_ID;}
+    public static boolean isUnderline(int itemId){return itemId==UNDERLINE_ACTION_ID;}
+    public static boolean isExplain(int itemId){return itemId==GEMINI_FRAGMENT_ACTION_ID;}
+    public static boolean isStudyAction(int itemId){
+        return isDefinition(itemId)||isAnnotate(itemId)||isUnderline(itemId)||isExplain(itemId);
+    }
+    private static final int NAVY=Color.rgb(13,35,56);
+    private static final int GOLD=Color.rgb(149,100,44);
+    private static final int MUTED=Color.rgb(71,89,105);
+    private DefinitionUi(){}
+
+    public interface Delegate {
+        void openExternal(String url);
+        void explainWithGemini(String word);
+        void showError(String message);
+    }
+    public interface SelectionHandler {
+        void onAnnotate(String quote,int start,int end);
+    }
+    public interface UnderlineHandler {
+        void onUnderline(String quote,int start,int end);
+    }
+    private static final int ANNOTATE_ACTION_ID=0x5C121;
+    private static final int UNDERLINE_ACTION_ID=0x5C122;
+    private static final int GEMINI_FRAGMENT_ACTION_ID=0x5C123;
+    public interface FragmentHandler {
+        void onExplainSelection(String selected,int start,int end);
+    }
+    /** Permite al lector mantener una selección al tocar una acción fija externa. */
+    public interface SelectionLifecycle {
+        void onSelectionChanged(int start,int end);
+        void onSelectionFinished();
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,Delegate delegate){
+        attach(activity,textView,geminiEnabled,delegate,null,null,null);
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,
+                              Delegate delegate,SelectionHandler selectionHandler){
+        attach(activity,textView,geminiEnabled,delegate,selectionHandler,null,null);
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,
+                              Delegate delegate,SelectionHandler selectionHandler,
+                              UnderlineHandler underlineHandler){
+        attach(activity,textView,geminiEnabled,delegate,selectionHandler,underlineHandler,null);
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,
+                              Delegate delegate,SelectionHandler selectionHandler,
+                              UnderlineHandler underlineHandler,FragmentHandler fragmentHandler){
+        attach(activity,textView,geminiEnabled,delegate,selectionHandler,
+            underlineHandler,fragmentHandler,null);
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,
+                              Delegate delegate,SelectionHandler selectionHandler,
+                              UnderlineHandler underlineHandler,FragmentHandler fragmentHandler,
+                              SelectionLifecycle lifecycle){
+        // No reemplazar ni consumir las acciones nativas Copiar/Compartir/Seleccionar todo.
+        textView.setTextIsSelectable(true);
+        // Algunos TextView no se marcan como long-clickable por el motor de
+        // selección; sin este ajuste la pulsación nunca lanza ActionMode.
+        textView.setLongClickable(true);
+        textView.setCustomSelectionActionModeCallback(new ActionMode.Callback(){
+            private void ensureDefine(Menu menu){
+                if(menu.findItem(DEFINE_ACTION_ID)==null){
+                    MenuItem define=menu.add(Menu.NONE,DEFINE_ACTION_ID,Menu.CATEGORY_SECONDARY,"Definir");
+                    // Prioridad visible: en muchos móviles IF_ROOM la esconde bajo el desbordamiento.
+                    define.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+                }
+            }
+            private void ensureAnnotate(Menu menu){
+                if(selectionHandler!=null&&menu.findItem(ANNOTATE_ACTION_ID)==null){
+                    MenuItem annotate=menu.add(Menu.NONE,ANNOTATE_ACTION_ID,Menu.CATEGORY_SECONDARY,"Anotar");
+                    annotate.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                }
+            }
+            private void ensureUnderline(Menu menu){
+                if(underlineHandler!=null&&menu.findItem(UNDERLINE_ACTION_ID)==null){
+                    MenuItem underline=menu.add(Menu.NONE,UNDERLINE_ACTION_ID,
+                        Menu.CATEGORY_SECONDARY,"Subrayar");
+                    underline.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                }
+            }
+            private void ensureExplainFragment(Menu menu){
+                if(fragmentHandler!=null&&menu.findItem(GEMINI_FRAGMENT_ACTION_ID)==null){
+                    MenuItem explain=menu.add(Menu.NONE,GEMINI_FRAGMENT_ACTION_ID,
+                        Menu.CATEGORY_SECONDARY,"Interpretar con IA");
+                    explain.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                }
+            }
+            @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
+                ensureDefine(menu);
+                ensureAnnotate(menu);
+                ensureUnderline(menu);
+                ensureExplainFragment(menu);
+                reportSelection();
+                return true;
+            }
+            private void reportSelection(){
+                if(lifecycle!=null)
+                    lifecycle.onSelectionChanged(textView.getSelectionStart(),
+                        textView.getSelectionEnd());
+            }
+            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu){
+                ensureDefine(menu);
+                ensureAnnotate(menu);
+                ensureUnderline(menu);
+                ensureExplainFragment(menu);
+                reportSelection();
+                return true;
+            }
+            @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){
+                if(item.getItemId()==GEMINI_FRAGMENT_ACTION_ID&&fragmentHandler!=null){
+                    int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    if(start<0||end<=start)return true;
+                    String selected=textView.getText().subSequence(start,end).toString();
+                    mode.finish();
+                    fragmentHandler.onExplainSelection(selected,start,end);
+                    return true;
+                }
+                if(item.getItemId()==UNDERLINE_ACTION_ID&&underlineHandler!=null){
+                    final int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    if(start<0||end<=start)return true;
+                    String selected=textView.getText().subSequence(start,end).toString();
+                    mode.finish();
+                    underlineHandler.onUnderline(selected,start,end);
+                    return true;
+                }
+                if(item.getItemId()==ANNOTATE_ACTION_ID && selectionHandler!=null){
+                    final int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    if(start<0||end<=start)return true;
+                    String selected=textView.getText().subSequence(start,end).toString();
+                    mode.finish();
+                    selectionHandler.onAnnotate(selected,start,end);
+                    return true;
+                }
+                if(item.getItemId()!=DEFINE_ACTION_ID)return false;
+                final String selected=WordMeaning.selection(textView.getText().toString(),
+                    textView.getSelectionStart(),textView.getSelectionEnd());
+                if(selected==null){
+                    delegate.showError("Selecciona una sola palabra para consultar su significado.");
+                    return true;
+                }
+                mode.finish();
+                show(activity,selected,geminiEnabled,delegate);
+                return true;
+            }
+            @Override public void onDestroyActionMode(ActionMode mode){
+                if(lifecycle!=null)lifecycle.onSelectionFinished();
+            }
+        });
+    }
+
+    public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate){
+        if(!WordMeaning.oneWord(word)){
+            delegate.showError("La consulta debe contener una sola palabra.");
+            return;
+        }
+        int pad=dp(activity,16);
+        int maxHeight=(int)(activity.getResources().getDisplayMetrics().heightPixels*.68f);
+        LinearLayout content=new LinearLayout(activity);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(pad,pad,pad,pad);
+        content.setBackgroundColor(Color.WHITE);
+        addText(activity,content,word,22,NAVY,true,0);
+        String local=WordMeaning.local(word);
+        addText(activity,content,local!=null?local:
+            "Este término no figura todavía en el glosario local. Puedes consultar las fuentes externas que aparecen abajo.",
+            15,NAVY,false,9);
+        addText(activity,content,local!=null?
+            "Glosario orientativo de Biblioteca IA. El sentido varía según el pasaje.":
+            "Las consultas externas solo envían la palabra elegida; requieren conexión.",
+            12,MUTED,false,8);
+        final ScrollView scroll=new ScrollView(activity);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
+        AlertDialog dialog=new AlertDialog.Builder(activity)
+            .setTitle("Definición y fuentes")
+            .setView(scroll)
+            .setNegativeButton("Cerrar",(d,w)->d.dismiss())
+            .create();
+        String catholic=WordMeaning.catholicArticleUrl(word);
+        if(catholic!=null){
+            addLink(activity,content,"Enciclopedia Católica · Abrir artículo",catholic,dialog,delegate);
+        } else {
+            addText(activity,content,"Enciclopedia Católica: no hay un artículo verificado para este término.",12,MUTED,false,10);
+        }
+        addLink(activity,content,"Wikipedia · Buscar «"+word+"»",
+            WordMeaning.wikipediaSearchUrl(word),dialog,delegate);
+        addLink(activity,content,"Wikcionario · Buscar «"+word+"»",
+            WordMeaning.wiktionarySearchUrl(word),dialog,delegate);
+        if(geminiEnabled){
+            TextView ai=addText(activity,content,"✦ Explicar esta palabra en su pasaje con Gemini",14,GOLD,true,12);
+            ai.setMinHeight(dp(activity,48));
+            ai.setGravity(Gravity.CENTER_VERTICAL);
+            ai.setOnClickListener(v->{dialog.dismiss();delegate.explainWithGemini(word);});
+        }
+        // Medida segura: nunca acceder a LayoutParams sin comprobar que existe.
+        // El contenido es desplazable incluso cuando la ventana se limita a
+        // una fracción de la altura del teléfono.
+        dialog.setOnShowListener(ignored->{
+            try{
+                int width=(int)(activity.getResources().getDisplayMetrics().widthPixels*.91f);
+                android.view.ViewGroup.LayoutParams lp=scroll.getLayoutParams();
+                if(lp!=null){
+                    lp.height=Math.min(maxHeight,
+                        Math.max(dp(activity,240),content.getMeasuredHeight()));
+                    scroll.setLayoutParams(lp);
+                }
+                if(dialog.getWindow()!=null)dialog.getWindow().setLayout(width,-2);
+            }catch(RuntimeException error){
+                android.util.Log.e("BibliotecaIADefinir","No se pudo ajustar el tamaño del globo",error);
+            }
+        });
+        try{dialog.show();}
+        catch(RuntimeException error){
+            android.util.Log.e("BibliotecaIADefinir","No se pudo mostrar la definición",error);
+            delegate.showError("No se pudo abrir el globo de la definición.");
+        }
+    }
+    private static TextView addText(Activity activity,LinearLayout dest,String text,int sp,
+                                    int color,boolean bold,int space){
+        TextView label=new TextView(activity);
+        label.setText(text);label.setTextSize(sp);label.setTextColor(color);
+        if(bold)label.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+        lp.topMargin=dp(activity,space);
+        dest.addView(label,lp);
+        return label;
+    }
+    private static void addLink(Activity activity,LinearLayout content,String label,String uri,
+                                AlertDialog dialog,Delegate delegate){
+        TextView link=addText(activity,content,label,15,GOLD,true,12);
+        link.setMinHeight(dp(activity,48));
+        link.setGravity(Gravity.CENTER_VERTICAL);
+        link.setContentDescription(label);
+        link.setOnClickListener(v->{
+            dialog.dismiss();
+            delegate.openExternal(uri);
+        });
+    }
+    private static int dp(Activity a,float n){
+        return (int)(a.getResources().getDisplayMetrics().density*n+0.5f);
+    }
+}
