@@ -167,11 +167,22 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
                 connection.outputStream.use { it.write(bytes) }
             }
             val status = connection.responseCode
-            if (status !in 200..299) throw AccountFailure(when (status) {
-                400, 401, 403, 422 -> AccountFailure.Reason.REJECTED
-                429 -> AccountFailure.Reason.RATE_LIMIT
-                else -> AccountFailure.Reason.SERVICE
-            })
+            if (status !in 200..299) {
+                // Only inspect the bounded error *code*. Never display bodies,
+                // which may contain addresses or other user-specific details.
+                val errorCode = runCatching {
+                    val stream = connection.errorStream ?: return@runCatching ""
+                    val data = stream.use { it.readNBytes(4096) }
+                    JSONObject(String(data, Charsets.UTF_8)).optString("code")
+                }.getOrDefault("")
+                throw AccountFailure(when {
+                    status == 429 -> AccountFailure.Reason.RATE_LIMIT
+                    errorCode == "email_address_not_authorized" ->
+                        AccountFailure.Reason.EMAIL_DELIVERY_UNAVAILABLE
+                    status in listOf(400, 401, 403, 422) -> AccountFailure.Reason.REJECTED
+                    else -> AccountFailure.Reason.SERVICE
+                })
+            }
             if (status == 204) return JSONObject()
             val bytes = connection.inputStream.use { input ->
                 val out = java.io.ByteArrayOutputStream()
