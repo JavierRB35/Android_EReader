@@ -497,7 +497,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     }
 
     private fun showSavedTextMark(note: AnnotationEntity) {
-        SavedAnnotationSheet.show(this, repository, listOf(note))
+        // Readium reports one activated decoration. Include other notes on
+        // the exact same DOM locator so a second annotation is not hidden.
+        // Avoid searching by quote alone: the same words can occur elsewhere.
+        val overlapping = annotations.filter {
+            it.kind in setOf("NOTE", "HIGHLIGHT") &&
+                it.locator == note.locator && it.quote == note.quote
+        }
+        SavedAnnotationSheet.show(this, repository, overlapping.ifEmpty { listOf(note) })
     }
 
     private fun button(label: String, action: () -> Unit) = MaterialButton(this, null,
