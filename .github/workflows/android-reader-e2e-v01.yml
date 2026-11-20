@@ -1,4 +1,4 @@
-name: Android v0.1 reading journey - MOBI and contextual AI
+name: Android v0.1 reading journeys - MOBI and EPUB plus contextual AI
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     paths:
       - 'app/src/main/java/com/javierrb35/bibliotecaia/reader/**'
       - 'app/src/main/java/com/javierrb35/bibliotecaia/ai/BookTextSource.kt'
-      - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/reader/mobi/MobiReadingJourneyDeviceTest.kt'
+      - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/reader/**'
       - '.github/workflows/android-reader-e2e-v01.yml'
   workflow_dispatch:
 
@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mobi-journey:
-    name: Reader UI annotate-close-reopen-edit-delete and two books (API 34)
+  reader-journeys:
+    name: Reader UI mark-close-reopen-edit-delete in MOBI and EPUB (API 34)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -42,7 +42,7 @@ jobs:
           else
             echo "No KVM available; emulator falls back to TCG."
           fi
-      - name: Run MOBI reader journey on real Android emulator
+      - name: Run MOBI and EPUB reader journeys on real Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ANDROID_I_WANT_MY_TCG: 'yes'
@@ -56,12 +56,12 @@ jobs:
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
-          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.EpubReadingJourneyDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
       - name: Archive test XML and failure context
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobi-reading-journey-results
+          name: epub-mobi-reading-journeys-results
           path: |
             app/build/outputs/androidTest-results/connected/
             app/build/reports/androidTests/connected/
