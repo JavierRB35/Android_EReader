@@ -28,7 +28,6 @@
             android:name=".ui.OrganizeActivity"
             android:exported="false" />
         <activity android:name=".ui.KnowledgeActivity" android:exported="false" />
-        <activity android:name=".ui.AccountActivity" android:exported="false" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" />
         <activity android:name=".ai.AiSetupActivity" android:exported="false" />
         <activity android:name=".ai.AiChatActivity" android:exported="false" />
