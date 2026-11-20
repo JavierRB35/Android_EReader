@@ -8,7 +8,13 @@ plugins {
 def authProperties = new Properties()
 def localAuthFile = rootProject.file('local.properties')
 if (localAuthFile.exists()) localAuthFile.withInputStream { authProperties.load(it) }
-def publicAuthValue = { name -> (authProperties.getProperty(name) ?: System.getenv(name) ?: '').trim() }
+// Public-only defaults for BibliotecaIA: a publishable/anon key is meant for apps.
+// Secrets, provider client secrets and service_role must NEVER be bundled.
+// local.properties or CI environment may override these values.
+def publicDefaults = new Properties()
+def publicDefaultsFile = rootProject.file('config/biblioteca-auth-public.properties')
+if (publicDefaultsFile.exists()) publicDefaultsFile.withInputStream { publicDefaults.load(it) }
+def publicAuthValue = { name -> (authProperties.getProperty(name) ?: System.getenv(name) ?: publicDefaults.getProperty(name) ?: '').trim() }
 def publicSupabaseKey = publicAuthValue('BIBLIOTECA_SUPABASE_KEY')
 if (publicSupabaseKey && !publicSupabaseKey.startsWith('sb_publishable_')) {
     try {
