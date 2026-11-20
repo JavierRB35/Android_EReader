@@ -6,6 +6,27 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## DIRECTRIZ NUEVA Y ESTADO — 20/11/2026
+
+- **Sin cuentas:** el propietario prohíbe OAuth, registro con Gmail y acceso mediante
+  usuario Google/Supabase. [PR #20](https://github.com/JavierRB35/Android_EReader/pull/20)
+  cerrada **SIN MERGE**. La pantalla de cuenta se retira de la navegación y el manifest
+  en la nueva rama de backup; no reactivar la autenticación heredada.
+- **Cambio obligatorio de backup:** formato principal ZIP completo con **todos los archivos
+  originales EPUB/PDF/MOBI** más catálogo, subrayados, marcadores, notas/versiones,
+  categorías, etiquetas, colecciones, relaciones y posiciones. Selector SAF permite
+  elegir Drive, local u otro proveedor SIN API Drive ni credenciales de Biblioteca IA.
+- **Desarrollo en curso — NO INTEGRADO:** rama `feature/complete-saf-backup-no-accounts-20261120`
+  modifica exportación/restauración ZIP streaming, comprobación SHA-256, staging seguro,
+  reubicación de originales y asignación atómica de rutas Room. Importación JSON previa
+  queda heredada con advertencia de ausencia de libros.
+- **Evidencia pendiente:** CI JVM/Android, test de restauración real en un teléfono,
+  proveedor Drive SAF, espacio insuficiente/interrupción, recuperación de EPUB/PDF/MOBI,
+  anotaciones/subrayados visibles tras reiniciar. No etiquetar la versión 1.0 como completa.
+- Otros agentes continúan con anotaciones y lectura en ramas separadas; revisar
+  `docs/COORDINATION.md` e Issues #3/#10 antes de integrar.
+
+
 
 ## Entrega verificada posterior a 71a89c4 — IA de lectura EPUB/MOBI
 
