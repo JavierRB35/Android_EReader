@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bia_background">#000000</color>
-    <color name="bia_surface">#161819</color>
-    <color name="bia_surface_high">#242729</color>
-    <color name="bia_text">#E8DFCE</color>
-    <color name="bia_text_secondary">#AAA79E</color>
-    <color name="bia_accent">#D4B483</color>
-    <color name="bia_outline">#414343</color>
+    <color name="bia_background">#080807</color>
+    <color name="bia_surface">#1B1A18</color>
+    <color name="bia_surface_high">#28241F</color>
+    <color name="bia_text">#F4E8D7</color>
+    <color name="bia_text_secondary">#B8B0A6</color>
+    <color name="bia_accent">#E9C282</color>
+    <color name="bia_accent_low">#776044</color>
+    <color name="bia_outline">#49443D</color>
     <string name="bia_library_eyebrow">TU ESPACIO DE LECTURA</string>
     <string name="bia_local">En este dispositivo</string>
     <string name="bia_importing">Importando libro…</string>
@@ -20,7 +21,26 @@
     <string name="bia_progress">%1$d %% leído</string>
     <string name="bia_not_started">Por descubrir</string>
     <string name="bia_recent">Abierto recientemente</string>
+    <string name="premium_brand">BibliotecaAI</string>
+    <string name="premium_library_subtitle">Tu biblioteca personal de lectura e investigación</string>
+    <string name="premium_import">Importar</string>
     <style name="Widget.BibliotecaIA.Filter" parent="Widget.Material3.Chip.Filter">
         <item name="ensureMinTouchTargetSize">true</item>
+        <item name="chipBackgroundColor">@color/bia_surface</item>
+        <item name="chipStrokeColor">@color/bia_outline</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="chipCornerRadius">18dp</item>
+        <item name="chipMinHeight">42dp</item>
+        <item name="android:textColor">@color/bia_text</item>
+    </style>
+    <style name="Widget.BibliotecaIA.NavItem">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
     </style>
 </resources>
