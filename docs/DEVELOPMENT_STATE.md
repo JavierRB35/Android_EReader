@@ -123,3 +123,18 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 2. Vigilar pushes de `feature/reader-epub` (EPUB staged: EpubOpener/EpubReaderActivity/EpubSafety + test instrumentado), `feature/reader-integration` (wiring: ReaderRouter, KnowledgeActivity, navegación 3 espacios §9.1, endurecimiento de importación con BoundedZipInputStream), `feature/google-auth` (10 ficheros en curso). **Conflicto anticipado ya analizado:** su wiring edita MainActivity/activity_main desde base pre-diseño → al integrar, aplicar su cableado funcional sobre las versiones de diseño de main. Puntos calientes: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`, `BookDetailActivity.kt`.
 3. Los lectores integrados (`reader/`) están **aislados** (sin registro en Manifest): el cableado en ficha/catálogo lo completa el agente de integración; el coordinador lo verificará al llegar a `main`.
 4. Actualizar este documento en cada integración. AndroidIDE-Rv2 en teléfono sigue pendiente de disponibilidad.
+
+
+## Nueva funcionalidad en revisión — instalación sin navegar a GitHub (20/11/2026)
+
+- **Petición del propietario:** reemplazar los botones que llevaban a GitHub por
+  **«Instalar actualización»** y descarga en la propia Biblioteca IA, como Scriptura.
+- [PR #30](https://github.com/JavierRB35/Android_EReader/pull/30), rama
+  `feature/in-app-verified-apk-installer-20261120`: descarga y comprueba la APK
+  firmada y el fichero SHA-256, paquetes y certificado, y abre instalador nativo
+  de Android con autorización del usuario; FileProvider restringido a caché
+  `updates/`, notificaciones ya no llevan a GitHub. Sin cuentas ni OAuth.
+- **En revisión, NO integrada a main.** CI Android y tests de URL/hash/FileProvider
+  pendientes. Prueba física necesaria de descargas, permiso instalar desde esta
+  fuente, confirmar/rechazar instalación y preservar libros/notas. No declarar
+  instalación silenciosa ni QA física realizada.
