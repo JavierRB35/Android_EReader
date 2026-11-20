@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +45,7 @@ class AiChatActivity : AppCompatActivity() {
     private var bookTitle: String = ""
     private var selectedQuote: String? = null
     private var selectedLocator: String? = null
+    private var selectionConsentGiven = false
     private var chapters: List<BookTextSource.Fragment> = emptyList()
     private var progress: Float = 0f
     private val history = mutableListOf<Pair<String, String>>()
@@ -125,6 +127,20 @@ class AiChatActivity : AppCompatActivity() {
     private fun ask() {
         val question = questionInput.text?.toString()?.trim().orEmpty()
         if (question.isEmpty()) return
+        if (selectedQuote != null && !selectionConsentGiven) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Consulta externa · Fragmento seleccionado")
+                .setMessage("Si continúas, se enviará la cita seleccionada y " +
+                    "hasta tres fragmentos pertinentes del libro al proveedor de IA que " +
+                    "hayas configurado. No se envía el archivo completo ni las notas " +
+                    "privadas. Consulta sus condiciones de privacidad.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Enviar") { _, _ ->
+                    selectionConsentGiven = true
+                    ask()
+                }.show()
+            return
+        }
         addBubble(question, isUser = true)
         val thinking = addBubble(getString(R.string.ai_thinking))
 
