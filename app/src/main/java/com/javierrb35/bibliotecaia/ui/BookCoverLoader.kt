@@ -20,12 +20,15 @@ object BookCoverLoader {
     private val mutex = Mutex()
 
     suspend fun load(book: BookEntity): Bitmap? = withContext(Dispatchers.IO) {
-        if (book.format != BookFormat.EPUB) return@withContext null
         mutex.withLock {
             cache.get(book.contentHash)?.let { return@withLock it }
             if (missing.get(book.contentHash) == true) return@withLock null
-            val bytes = EpubCoverSource.read(File(book.localPath))
-            val bitmap = bytes?.let { decode(it) }
+            val bitmap = when (book.format) {
+                BookFormat.EPUB -> EpubCoverSource.read(File(book.localPath))?.let { decode(it) }
+                BookFormat.PDF -> PdfCoverSource.read(File(book.localPath))
+                // MOBI: sin extractor de portada aún (docs/design-system.md); ficha tipográfica
+                BookFormat.MOBI -> null
+            }
             if (bitmap == null) missing.put(book.contentHash, true)
             else cache.put(book.contentHash, bitmap)
             bitmap
