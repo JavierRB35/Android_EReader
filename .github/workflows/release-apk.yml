@@ -1,0 +1,143 @@
+name: Publish signed APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, sign and verify APK
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out version tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check version and origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a semantic version tag such as v0.1.0" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "Release tag must point to a commit included in main" >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          build_file = pathlib.Path("app/build.gradle").read_text(encoding="utf-8")
+          version = re.search(r"""^\s*versionName\s+["']([^"']+)["']""", build_file, re.MULTILINE)
+          expected = os.environ["GITHUB_REF_NAME"][1:]
+          if version is None or version.group(1) != expected:
+              sys.exit(f"Tag version {expected} must match app/build.gradle versionName")
+          PY
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK 34
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build unsigned release APK
+        run: sh ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+
+      - name: Sign and verify release APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64 secret}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+
+          unsigned_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$unsigned_apk"
+          keystore="$RUNNER_TEMP/bibliotecaia-release.jks"
+          aligned_apk="$RUNNER_TEMP/bibliotecaia-aligned.apk"
+          build_tools="$ANDROID_HOME/build-tools/34.0.0"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          test -s "$keystore"
+          "$build_tools/zipalign" -f 4 "$unsigned_apk" "$aligned_apk"
+          mkdir -p dist
+          signed_apk="dist/BibliotecaIA-$GITHUB_REF_NAME.apk"
+          "$build_tools/apksigner" sign \
+            --ks "$keystore" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$signed_apk" "$aligned_apk"
+          "$build_tools/apksigner" verify --verbose --print-certs "$signed_apk"
+          (cd dist && sha256sum "BibliotecaIA-$GITHUB_REF_NAME.apk" > "BibliotecaIA-$GITHUB_REF_NAME.apk.sha256")
+
+      - name: Keep verified APK for publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-apk
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Retrieve signed APK
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release-apk
+          path: dist/
+
+      - name: Create release only once
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -s "dist/BibliotecaIA-$GITHUB_REF_NAME.apk"
+          test -s "dist/BibliotecaIA-$GITHUB_REF_NAME.apk.sha256"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: refusing to overwrite it" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/BibliotecaIA-$GITHUB_REF_NAME.apk" \
+            "dist/BibliotecaIA-$GITHUB_REF_NAME.apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Biblioteca IA $GITHUB_REF_NAME" \
+            --generate-notes
