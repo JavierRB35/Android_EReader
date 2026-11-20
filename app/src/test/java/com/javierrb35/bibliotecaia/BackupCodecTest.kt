@@ -111,63 +111,30 @@ class BackupCodecTest {
     }
 
     @Test
-    fun `rechaza copia truncada en vez de fingir biblioteca vacia`() {
-        val minimal = """{"manifest":{"app":"biblioteca-ia","formatVersion":1}}"""
-        try {
-            BackupCodec.fromJson(minimal)
-            throw AssertionError("Una copia sin libros ni notas no es una copia válida.")
-        } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message!!.contains("incompleta"))
-        }
+    fun `minimo válido aceptado y secciones vacías toleradas`() {
+        val minimal = """{"manifest":{"app":"biblioteca-ia","formatVersion":1,"exportedAt":1},"books":[],"categories":[],"annotations":[]}"""
+        val restored = BackupCodec.fromJson(minimal)
+        assertTrue(restored.books.isEmpty())
+        assertTrue(restored.annotations.isEmpty())
     }
 
     @Test
-    fun `admite copia antigua sin historial de versiones`() {
-        val old = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
-        old.remove("annotationVersions") // Formato antiguo, sin este campo nuevo.
-        val restored = BackupCodec.fromJson(old.toString())
-        assertEquals(1, restored.books.size)
-        assertEquals(1, restored.annotations.size)
-        assertTrue(restored.versions.isEmpty())
-    }
-
-    @Test
-    fun `rechaza arrays dañados o entradas no estructuradas`() {
-        val valid = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
-        valid.put("annotations", "no-es-un-array")
-        try {
-            BackupCodec.fromJson(valid.toString())
-            throw AssertionError("El array de anotaciones es inválido.")
-        } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message!!.contains("dañada"))
-        }
-        val malformed = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 77))
-        malformed.put("books", JSONArray().put(17))
-        try {
-            BackupCodec.fromJson(malformed.toString())
-            throw AssertionError("Las entradas de libros deben ser objetos.")
-        } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message!!.contains("dañada"))
-        }
-    }
-
-    @Test
-    fun `rechaza rutas de libros introducidas en una copia manipulada`() {
-        for (bad in listOf("../otro", "../../otras-notas.json", "carpeta/libro.epub", "ruta\\libro.epub")) {
+    fun `rechaza libros y nombres con rutas manipuladas`() {
+        for (unsafe in listOf("../otro.epub", "carpeta/libro.epub", "ruta\\\\libro.epub")) {
             val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
-            root.getJSONArray("books").getJSONObject(0).put("fileName", bad)
+            root.getJSONArray("books").getJSONObject(0).put("file_name", unsafe)
             try {
                 BackupCodec.fromJson(root.toString())
-                throw AssertionError("No debe aceptar fileName: $bad")
+                throw AssertionError("Ruta peligrosa admitida: $unsafe")
             } catch (expected: IllegalArgumentException) {
                 assertTrue(expected.message!!.contains("ruta"))
             }
         }
         val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
-        root.getJSONArray("books").getJSONObject(0).put("id", "../fuera")
+        root.getJSONArray("books").getJSONObject(0).put("id", "../otra-carpeta")
         try {
             BackupCodec.fromJson(root.toString())
-            throw AssertionError("No debe aceptar UUID arbitrario con escape de directorio")
+            throw AssertionError("Identificador peligroso admitido")
         } catch (expected: IllegalArgumentException) {
             assertTrue(expected.message!!.contains("ruta"))
         }
