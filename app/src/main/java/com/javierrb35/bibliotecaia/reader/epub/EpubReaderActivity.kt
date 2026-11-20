@@ -138,7 +138,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
                         fragment.applyDecorations(saved.filter { it.kind == "HIGHLIGHT" }.mapNotNull { note ->
-                            parseLocator(note.locator)?.let { Decoration(note.id, it, Decoration.Style.Highlight(note.color)) }
+                            parseLocator(note.locator)?.let { Decoration(note.id, it, Decoration.Style.Underline(note.color)) }
                         }, "annotations")
                     }
                 }
@@ -263,9 +263,41 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun showAnnotations() {
         if (annotations.isEmpty()) { toast("Aún no tienes notas ni marcadores en este libro."); return }
-        MaterialAlertDialogBuilder(this).setTitle("Notas y marcadores")
-            .setItems(annotations.map { (it.quote.ifBlank { it.body.ifBlank { "Marcador" } }).take(100) }.toTypedArray()) { _, index ->
-                parseLocator(annotations[index].locator)?.let { navigator?.go(it) }
+        MaterialAlertDialogBuilder(this).setTitle("Mis subrayados y anotaciones")
+            .setItems(annotations.map { note ->
+                val kind = when (note.kind) {
+                    "HIGHLIGHT" -> "Subrayado"
+                    "BOOKMARK" -> "Marcador"
+                    else -> "Nota"
+                }
+                kind + " · " + (note.quote.ifBlank { note.body.ifBlank { "Punto de lectura" } }).take(100)
+            }.toTypedArray()) { _, index ->
+                val note = annotations[index]
+                val choices = if (note.kind == "HIGHLIGHT")
+                    arrayOf("Ir al texto", "Quitar subrayado")
+                else arrayOf("Ir al texto", "Editar nota", "Eliminar anotación")
+                MaterialAlertDialogBuilder(this).setTitle(note.quote.ifBlank { "Anotación" })
+                    .setItems(choices) { _, selected ->
+                        when (selected) {
+                            0 -> parseLocator(note.locator)?.let { navigator?.go(it) }
+                            1 -> if (note.kind == "HIGHLIGHT") {
+                                lifecycleScope.launch {
+                                    try { repository.setDeleted(note.id, true) }
+                                    catch (_: Exception) { toast("No se pudo quitar el subrayado.") }
+                                }
+                            } else AnnotationEditor.edit(this, note)
+                            2 -> MaterialAlertDialogBuilder(this)
+                                .setTitle("Eliminar anotación")
+                                .setMessage("¿Quieres eliminar esta anotación? El libro original no cambiará.")
+                                .setNegativeButton("Cancelar", null)
+                                .setPositiveButton("Eliminar") { _, _ ->
+                                    lifecycleScope.launch {
+                                        try { repository.setDeleted(note.id, true) }
+                                        catch (_: Exception) { toast("No se pudo eliminar la anotación.") }
+                                    }
+                                }.show()
+                        }
+                    }.setNegativeButton("Cerrar", null).show()
             }.setNegativeButton("Cerrar", null).show()
     }
 
