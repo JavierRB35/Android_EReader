@@ -11,6 +11,7 @@ import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Tasks
+import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -76,6 +77,19 @@ class PdfOcrDeviceTest {
             assertEquals(boxes, PdfOcrAnchors.overlayBoxes(locator, 0, quote, hash,
                 PdfOcrStore.load(context, bookId, 0, hash)))
 
+            // A saved NOTE must be painted too, not only a HIGHLIGHT.
+            // The quote and exact locator are the same as the OCR selection.
+            val persistedNote = AnnotationEntity(
+                id = "note-1", bookId = bookId, locator = locator, quote = quote,
+                body = "Reflexión sobre el texto", kind = "NOTE",
+                color = 0xffd4b483.toInt(), createdAt = 1, updatedAt = 1
+            )
+            val noteRects = PdfOcrAnnotationMarks.forPage(
+                listOf(persistedNote), 0, hash, PdfOcrStore.load(context, bookId, 0, hash)
+            )
+            assertEquals(boxes, noteRects.map { it.bounds })
+            assertTrue(noteRects.all { it.kind == "NOTE" })
+
             instrumentation.runOnMainSync {
                 val view = PdfPageView(context)
                 view.layout(0, 0, 1200, 800)
@@ -87,8 +101,15 @@ class PdfOcrDeviceTest {
                 view.draw(Canvas(marked))
                 assertFalse("No se dibujó ningún píxel del subrayado sobre PDF",
                     unmarked.sameAs(marked))
+                view.showMarks(noteRects)
+                val noteMarked = Bitmap.createBitmap(1200, 800, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(noteMarked))
+                assertFalse("La nota no marca ningún píxel del PDF", unmarked.sameAs(noteMarked))
+                assertFalse("La nota no se diferencia del subrayado",
+                    marked.sameAs(noteMarked))
                 view.changeZoom(1.5f)
-                view.draw(Canvas(marked))
+                view.draw(Canvas(noteMarked))
+                noteMarked.recycle()
                 marked.recycle()
                 unmarked.recycle()
                 view.clear()
