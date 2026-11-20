@@ -19,22 +19,23 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.R
-import com.javierrb35.bibliotecaia.auth.AuthConfiguration
+import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
+import com.javierrb35.bibliotecaia.updates.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Ajustes (Prompt Maestro §14.4/§18.4): cuenta, estado real de servicios, copia de
- * seguridad local y comprobación de actualizaciones. Estados obtenidos de comprobaciones
- * reales — nunca conectividad ficticia.
+ * Ajustes: biblioteca local, copia completa voluntaria vía SAF y actualizaciones.
+ * Sin registro de cuenta, OAuth ni acceso directo a Drive. El usuario elige proveedor.
  */
 class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
+    private var backupBusy = false
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -46,12 +47,16 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private val exportBackup = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
+        ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? -> if (uri != null) exportTo(uri) }
 
     private val importBackup = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) confirmRestore(uri) }
+
+    private val importLegacyJson = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? -> if (uri != null) confirmLegacyRestore(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,24 +70,17 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
 
-        section(layout, getString(R.string.settings_account))
-        action(layout, getString(R.string.settings_account_open)) {
-            startActivity(Intent(this, AccountActivity::class.java))
-        }
-
-        section(layout, getString(R.string.settings_services))
-        val services = TextView(this).apply {
-            textSize = 14f
-            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text_secondary))
-            setPadding(0, dp(12), 0, dp(12))
-        }
-        layout.addView(services)
-        refreshServices(services)
-
         section(layout, getString(R.string.settings_backup))
-        action(layout, getString(R.string.settings_backup_export)) { exportBackup.launch(backupFileName()) }
-        action(layout, getString(R.string.settings_backup_restore)) { importBackup.launch(arrayOf("application/json")) }
+        action(layout, getString(R.string.settings_backup_export)) {
+            if (!backupBusy) exportBackup.launch(backupFileName())
+        }
+        action(layout, getString(R.string.settings_backup_restore)) {
+            if (!backupBusy) importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+        }
         hint(layout, getString(R.string.settings_backup_note))
+        action(layout, getString(R.string.settings_backup_legacy)) {
+            if (!backupBusy) importLegacyJson.launch(arrayOf("application/json"))
+        }
 
         section(layout, getString(R.string.settings_updates))
         action(layout, getString(R.string.settings_updates_check)) { checkUpdates() }
@@ -97,37 +95,30 @@ class SettingsActivity : AppCompatActivity() {
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
     }
 
-    private fun refreshServices(services: TextView) {
-        lifecycleScope.launch {
-            val books = withContext(Dispatchers.IO) { db.bookDao().count() }
-            val authConfigured = AuthConfiguration.fromBuild().configured
-            services.text = getString(
-                R.string.settings_services_summary,
-                books,
-                serviceState(authConfigured),
-                serviceState(authConfigured),
-            )
-        }
-    }
-
-    private fun serviceState(configured: Boolean): String =
-        if (configured) getString(R.string.service_ready) else getString(R.string.service_not_configured)
-
     private fun backupFileName(): String {
-        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.ROOT).format(java.util.Date())
-        return "BibliotecaIA-copia-$stamp.json"
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.ROOT)
+            .format(java.util.Date())
+        return "BibliotecaIA-completa-$stamp.zip"
     }
 
     private fun exportTo(uri: Uri) {
+        if (backupBusy) return
+        backupBusy = true
         lifecycleScope.launch {
             try {
-                val json = withContext(Dispatchers.IO) { BackupManager(db, BuildConfig.VERSION_NAME).exportJson() }
-                contentResolver.openOutputStream(uri)?.use { output ->
-                    output.write(json.toByteArray(Charsets.UTF_8))
-                } ?: throw IllegalStateException("Sin salida")
-                Toast.makeText(this@SettingsActivity, R.string.backup_export_ok, Toast.LENGTH_LONG).show()
+                val report = withContext(Dispatchers.IO) {
+                    CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
+                        .exportTo(uri)
+                }
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.backup_export_done_title)
+                    .setMessage(getString(R.string.backup_export_done_full, report.books))
+                    .setPositiveButton(R.string.dialog_ok, null).show()
             } catch (e: Exception) {
-                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
+                    e.message ?: getString(R.string.backup_error_generic)), Toast.LENGTH_LONG).show()
+            } finally {
+                backupBusy = false
             }
         }
     }
@@ -137,34 +128,61 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle(R.string.settings_backup_restore)
             .setMessage(R.string.backup_restore_confirm)
             .setPositiveButton(R.string.dialog_ok) { _, _ -> restoreFrom(uri) }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .show()
+            .setNegativeButton(R.string.dialog_cancel, null).show()
     }
 
     private fun restoreFrom(uri: Uri) {
+        if (backupBusy) return
+        backupBusy = true
         lifecycleScope.launch {
             try {
-                val json = withContext(Dispatchers.IO) {
-                    contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                        ?: throw IllegalStateException("Sin lectura")
+                val result = withContext(Dispatchers.IO) {
+                    CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
+                        .restoreFrom(uri)
                 }
-                val report = withContext(Dispatchers.IO) { BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(json) }
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_restore_done_title)
-                    .setMessage(
-                        getString(
-                            R.string.backup_restore_done,
-                            report.booksRestored, report.booksSkipped,
-                            report.annotationsRestored, report.annotationsSkipped,
-                            report.positionsUpdated,
-                        )
-                    )
-                    .setPositiveButton(R.string.dialog_ok, null)
-                    .show()
-            } catch (e: IllegalArgumentException) {
-                Toast.makeText(this@SettingsActivity, e.message, Toast.LENGTH_LONG).show()
+                    .setMessage(getString(R.string.backup_restore_done_full,
+                        result.originals, result.report.annotationsRestored,
+                        result.report.versionsRestored, result.report.positionsUpdated))
+                    .setPositiveButton(R.string.dialog_ok, null).show()
             } catch (e: Exception) {
-                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
+                    e.message ?: getString(R.string.backup_error_generic)), Toast.LENGTH_LONG).show()
+            } finally {
+                backupBusy = false
+            }
+        }
+    }
+
+    private fun confirmLegacyRestore(uri: Uri) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.settings_backup_legacy)
+            .setMessage(R.string.backup_legacy_warning)
+            .setPositiveButton(R.string.dialog_ok) { _, _ -> restoreLegacy(uri) }
+            .setNegativeButton(R.string.dialog_cancel, null).show()
+    }
+
+    private fun restoreLegacy(uri: Uri) {
+        if (backupBusy) return
+        backupBusy = true
+        lifecycleScope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) {
+                    val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                        it.readText()
+                    } ?: throw IllegalArgumentException("Archivo no legible.")
+                    BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(text)
+                }
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.backup_restore_done_title)
+                    .setMessage(getString(R.string.backup_legacy_result, report.booksRestored))
+                    .setPositiveButton(R.string.dialog_ok, null).show()
+            } catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
+                    e.message ?: getString(R.string.backup_error_generic)), Toast.LENGTH_LONG).show()
+            } finally {
+                backupBusy = false
             }
         }
     }
@@ -192,11 +210,8 @@ class SettingsActivity : AppCompatActivity() {
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
                 .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
-                .setPositiveButton("Descargar APK") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl)))
-                }
-                .setNeutralButton("Ver novedades") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
+                .setPositiveButton("Instalar actualización") { _, _ ->
+                    UpdateInstaller.start(this@SettingsActivity, release)
                 }
                 .setNegativeButton(R.string.dialog_cancel, null)
                 .show()

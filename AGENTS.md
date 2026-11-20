@@ -1,6 +1,6 @@
 # AGENTS.md — Orientación central para agentes
 
-Proyecto: **Biblioteca IA** — aplicación Android para leer (EPUB/PDF/MOBI), anotar y consultar con IA (Gemini principal / Groq respaldo), con biblioteca personal sincronizada (Google Drive + Supabase), modo local sin cuenta y modo OLED negro puro.
+Proyecto: **Biblioteca IA** — aplicación Android para leer (EPUB/PDF/MOBI), anotar y consultar con IA (Gemini principal / Groq respaldo), con biblioteca local sin cuentas ni OAuth, copia íntegra ZIP en destino SAF seleccionado y modo OLED negro puro.
 Referencia funcional: Scriptura para Android.
 
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; la URL antigua redirige, pero usar siempre la canónica).
@@ -40,7 +40,7 @@ Referencia funcional: Scriptura para Android.
 ## Convenciones
 
 - Kotlin + XML Views (no Compose; ver ADR-002). Package/applicationId: `com.javierrb35.bibliotecaia` (estable; no cambiar: afecta a firmas y actualizaciones).
-- Offline-first; datos locales en Room/SQLite; sincronización eventual verificable; datos separados por usuario desde el diseño inicial.
+- Offline-first; Room/SQLite y originales locales; no activar registro, OAuth ni sincronización remota; backup íntegro mediante SAF en destino elegido.
 - Etiquetado honesto obligatorio del estado: **Implementado / Verificado localmente / Verificado en dispositivo / Verificado con servicio / Pendiente**. No afirmar compilación AndroidIDE si solo se compiló en otro entorno; no prometer porcentajes de ahorro energético sin mediciones.
 - Pruebas: seleccionar por riesgo según protocolo §7–8 (Niveles 0–4); no ejecutar toda la suite tras cada cambio menor; no inventar resultados.
 - Dependencias: justificar cada una; compatibilidad AndroidIDE primero; investigar motores existentes (Readium Kotlin Toolkit para EPUB, ML Kit para OCR) antes de implementar uno propio.
@@ -49,3 +49,14 @@ Referencia funcional: Scriptura para Android.
 ## Fuera de alcance (no implementar)
 
 Pagos, suscripciones, tienda de libros, redes sociales, recomendaciones comerciales, funciones de colaboración.
+
+
+## DIRECTRIZ OBLIGATORIA POSTERIOR — 20/11/2026
+
+No incorporar cuentas, registro Gmail, OAuth Google ni API Drive a Biblioteca IA. La PR #20
+se cerró sin fusionar. Cada copia exportada con SAF debe incluir **todos los originales
+EPUB/PDF/MOBI y el catálogo completo con notas, marcas, versiones, relaciones y posiciones**.
+Se descarta toda copia aparentemente exitosa que omita un original, preserve un hash
+incorrecto o no permita reconstrucción offline en otro dispositivo. Elegir Drive u otro
+proveedor solo mediante selector del sistema. Leer
+`docs/architecture/adr-008-saf-drive-byok-v1.md` antes de tocar el backup o Ajustes.

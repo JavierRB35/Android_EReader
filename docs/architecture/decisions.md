@@ -40,3 +40,15 @@ Formato breve: contexto → decisión → motivación. Añadir nuevas decisiones
 - **Contexto:** §7.1 lista «Favoritos» como estante junto a los estados de lectura; si fuera un estado pisaría el estado real (En lectura, etc.).
 - **Decisión:** (a) `favorite` es columna booleana propia de `books` añadida en la **migración explícita v1→v2** (`ALTER TABLE ... ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`), verificada en real sobre datos existentes; (b) las tablas N:M no declaran claves foráneas con CASCADE; la limpieza de referencias al eliminar categorías/etiquetas/colecciones se hace con `@Transaction` lógica en los DAOs (borrar refs primero, luego la entidad).
 - **Motivación:** favorito ortogonal al estado; migración no destructiva (§15.7); evitar riesgo de migración de FKs en la V1 local manteniendo la misma integridad garantizada en código. Revisar al diseñar el modelo Supabase multiusuario.
+
+
+## Decisión vigente 2026-11-20 — Backup completo sin cuentas (ADR-008 revisada)
+
+- **Sin OAuth, sin registro Gmail ni usuario Google/Supabase en Biblioteca IA.** Cancelada PR #20.
+- Toda copia de seguridad debe empaquetar los archivos **originales** de todos los libros
+  EPUB/PDF/MOBI importados, junto al catálogo y todas las marcas/notas/versiones/posiciones.
+- SAF de Android presenta Drive u otros proveedores **elegidos** por el usuario: la app
+  no se autentica en Drive ni solicita acceso global a sus carpetas.
+- ZIP verificado mediante SHA-256 por original antes de exportar/restaurar, con límites
+  anti-bombas y preservación del contenido local. JSON sin binarios = formato heredado.
+- Prevalece sobre decisiones y prompts anteriores con sincronización/identidad.

@@ -120,6 +120,12 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
+    // Notification returns to this Activity without leaving the application.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
