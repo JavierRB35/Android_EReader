@@ -70,17 +70,9 @@ interface BackupDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertVersionsIgnore(versions: List<AnnotationVersionEntity>): List<Long>
 
-    /** Posiciones: la más reciente de la copia gana solo si es más nueva que la local. */
-    @Query(
-        """
-        INSERT INTO reading_positions (bookId, locator, progress, updatedAt)
-        VALUES (:bookId, :locator, :progress, :updatedAt)
-        ON CONFLICT(bookId) DO UPDATE SET
-            locator = excluded.locator,
-            progress = excluded.progress,
-            updatedAt = excluded.updatedAt
-        WHERE excluded.updatedAt > reading_positions.updatedAt
-        """
-    )
-    suspend fun upsertPositionIfNewer(bookId: String, locator: String, progress: Float, updatedAt: Long)
+    @Query("SELECT * FROM reading_positions WHERE bookId = :bookId")
+    suspend fun positionFor(bookId: String): ReadingPositionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPositionReplace(position: ReadingPositionEntity)
 }

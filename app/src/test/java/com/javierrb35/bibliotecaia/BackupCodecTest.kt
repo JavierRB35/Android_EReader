@@ -111,8 +111,8 @@ class BackupCodecTest {
     }
 
     @Test
-    fun `valores ausentes tolerados con valores por defecto honestos`() {
-        val minimal = """{"manifest":{"app":"biblioteca-ia","formatVersion":1}}"""
+    fun `minimo válido aceptado y secciones vacías toleradas`() {
+        val minimal = """{"manifest":{"app":"biblioteca-ia","formatVersion":1,"exportedAt":1},"books":[],"categories":[],"annotations":[]}"""
         val restored = BackupCodec.fromJson(minimal)
         assertTrue(restored.books.isEmpty())
         assertTrue(restored.annotations.isEmpty())
