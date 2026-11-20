@@ -143,7 +143,14 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.txtRecentCoverFallback).text = latest.title
                 val coverView = findViewById<ImageView>(R.id.imgRecentCover)
                 coverView.setImageDrawable(null)
-                val bitmap = BookCoverLoader.load(latest)
+                val bitmap = try {
+                    BookCoverLoader.load(latest)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A missing/corrupt original cannot crash the home screen.
+                    null
+                }
                 if (bitmap != null && !isDestroyed) coverView.setImageBitmap(bitmap)
                 card.contentDescription = getString(R.string.bia_ux_continue_a11y, latest.title)
                 card.setOnClickListener { ReaderRouter.open(this@MainActivity, latest.id) }
