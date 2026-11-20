@@ -5,6 +5,7 @@
 **Última actualización:** 2026-11-20
 **Fase actual:** Incremento 0 — Auditoría y base (completado y publicado en `main`)
 **Rama de trabajo:** `main` (bootstrap inicial; el trabajo funcional posterior se realiza en ramas `feature/<área>`)
+**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` — el propietario renombró el repositorio desde `Androdi_EReader` (detectado en el push inicial; la URL antigua redirige). Usar siempre la URL canónica.
 
 ---
 

@@ -3,6 +3,8 @@
 Proyecto: **Biblioteca IA** — aplicación Android para leer (EPUB/PDF/MOBI), anotar y consultar con IA (Gemini principal / Groq respaldo), con biblioteca personal sincronizada (Google Drive + Supabase), modo local sin cuenta y modo OLED negro puro.
 Referencia funcional: Scriptura para Android.
 
+**Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; la URL antigua redirige, pero usar siempre la canónica).
+
 ## Documentos autoritativos (leer en este orden)
 
 1. `docs/protocol/ai-development-protocol.md` — **PROTOCOLO DE DESARROLLO obligatorio** (niveles de verificación, Git, seguridad, criterios de finalización). Tiene prioridad sobre lo demás salvo instrucciones superiores del entorno.
