@@ -146,7 +146,7 @@ class AiChatActivity : AppCompatActivity() {
         })
         root.addView(top)
         val scroll = ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             isVerticalScrollBarEnabled = false
         }
         conversation = LinearLayout(this).apply {
@@ -359,7 +359,7 @@ class AiChatActivity : AppCompatActivity() {
     private fun addSaveInterpretation(answer: String, provider: String) {
         val quote = selectedQuote ?: return
         val locator = selectedLocator ?: return
-        conversation.addView(Button(this).apply {
+        conversation.addView(MaterialButton(this).apply {
             text = "Guardar en mis anotaciones"
             isAllCaps = false
             minHeight = dp(48)
