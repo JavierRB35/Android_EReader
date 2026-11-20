@@ -42,7 +42,7 @@ class CompleteBackupIntegrityInstrumentedTest {
         val db = database()
         try {
             val validBytes = "epub ORIGINAL intacto".toByteArray()
-            val corruptBytes = "epub ORIGINAL mutado".toByteArray()
+            val corruptBytes = "epub ORIGINAL mutado!".toByteArray()
             assertEquals(validBytes.size, corruptBytes.size)
             val damaged = File(dir, "local-corrupt.epub").apply { writeBytes(corruptBytes) }
             val recovered = File(dir, "from-zip.epub").apply { writeBytes(validBytes) }
@@ -179,10 +179,8 @@ class CompleteBackupIntegrityInstrumentedTest {
             val corrupt = File(temp, "corrupt.zip").apply { writeText("not a ZIP") }
             val before = dbDestination.backupDao().booksAll()
             try {
-                restored.let {
-                    CompleteBackupManager(ctx, dbDestination, "0.1.0")
-                        .restoreFrom(Uri.fromFile(corrupt))
-                }
+                CompleteBackupManager(ctx, dbDestination, "0.1.0")
+                    .restoreFrom(Uri.fromFile(corrupt))
                 fail("Damaged ZIP must be rejected")
             } catch (_: IllegalArgumentException) {
                 // No DB rows must be changed by an invalid archive.
