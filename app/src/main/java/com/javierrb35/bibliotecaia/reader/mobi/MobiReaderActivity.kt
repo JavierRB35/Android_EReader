@@ -196,8 +196,8 @@ class MobiReaderActivity : AppCompatActivity() {
         endOffset = (offset + CHUNK).coerceAtMost(text.length)
         if (endOffset < text.length && Character.isLowSurrogate(text[endOffset])) endOffset--
         content.text = text.substring(offset, endOffset)
-        paintMarks()
         scroll.scrollTo(0, 0)
+        paintMarks()
         status.text = "${title} · MOBI texto · ${(offset * 100L / text.length)} %"
         previous.isEnabled = offset > 0
         next.isEnabled = endOffset < text.length
