@@ -27,7 +27,7 @@ jobs:
       - name: Verify source is integrated into main and CI was green
         shell: bash
         env:
-          GH_TOKEN: $\{{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: a73122e58513a4b68122dae11357f1e9cc21e9ac
         run: |
           set -euo pipefail
@@ -46,9 +46,9 @@ jobs:
       - name: Download signed artifact from the successful official build
         uses: actions/download-artifact@v4
         with:
-          repository: $\{{ github.repository }}
+          repository: ${{ github.repository }}
           run-id: 44809407765
-          github-token: $\{{ github.token }}
+          github-token: ${{ github.token }}
           name: verified-auto-release
           path: dist/
 
@@ -60,7 +60,7 @@ jobs:
       - name: Verify exact artifact, package, version and owner certificate
         shell: bash
         env:
-          ANDROID_RELEASE_CERT_SHA256: $\{{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           apk="dist/BibliotecaIA-v0.1.8.apk"
@@ -86,7 +86,7 @@ jobs:
       - name: Publish GitHub Release without overwriting newer releases
         shell: bash
         env:
-          GH_TOKEN: $\{{ github.token }}
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: a73122e58513a4b68122dae11357f1e9cc21e9ac
         run: |
           set -euo pipefail
