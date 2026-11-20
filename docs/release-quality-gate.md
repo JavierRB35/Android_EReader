@@ -7,13 +7,18 @@ Estado: **workflow propuesto**, hasta que el coordinador lo integre y exista una
 Se ejecuta sobre PR a `main`, pushes a `main` y manualmente después de integrarse. Usa JDK 17, Android SDK 34 y las versiones Gradle/AGP/Kotlin **ya fijadas por el proyecto**. Ejecuta:
 
 ```sh
-sh ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --max-workers=2
+sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --no-daemon --max-workers=2
 ```
+
+El runner utiliza un override de memoria Gradle `-Xmx3g` y compilación Kotlin en proceso **solo en CI**; `gradle.properties` y AndroidIDE conservan sus límites propios.
 
 Esta comprobación garantiza, **solo tras pasar en GitHub Actions**:
 - que compila la variante debug en Linux;
 - que los tests JVM se ejecutan y pasan;
-- que se genera un archivo `app-debug.apk` no vacío.
+- que se genera un archivo `app-debug.apk` no vacío;
+- que se genera el artefacto `app-release-unsigned.apk` (sin firmar), exactamente el que consume el workflow de firma posterior. Ese APK release sin firma no se distribuye.
+
+La prueba de CI [#44767999620](https://github.com/JavierRB35/Android_EReader/actions/runs/44767999620) ya validó **77/77 JVM y assembleDebug** (antes de incorporar `assembleRelease`); el nuevo paso de release requiere validación en la siguiente ejecución del workflow.
 
 El workflow no lee claves API, credenciales Supabase, keystores ni secretos de GitHub Actions; su `GITHUB_TOKEN` solo puede leer repositorio. Para evitar distribuir binarios de una PR aún no aceptada, solo guarda la APK debug cuando el código llega a `main` o la ejecución es manual. Se guardan resultados de tests siete días.
 
