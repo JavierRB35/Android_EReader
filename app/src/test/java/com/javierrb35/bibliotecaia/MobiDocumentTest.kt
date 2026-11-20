@@ -64,6 +64,7 @@ class MobiDocumentTest {
     }
     @Test fun detectsLegacyDrmBeforeReadingEncryptedMobiHeader() {
         val file = mobi("secret".toByteArray(), encrypted = 1)
+        "TEXtREAd".toByteArray().copyInto(file, 60)
         file[96 + 16] = 0
         val error = assertThrows(MobiDocument.Unsupported::class.java) { read(file) }
         assertTrue(error.message!!.contains("DRM"))
