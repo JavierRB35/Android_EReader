@@ -206,7 +206,7 @@ class SettingsActivity : AppCompatActivity() {
         return try {
             val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            require(resultFlags and mask == mask) {
+            require((resultFlags and mask) == mask) {
                 getString(R.string.settings_backup_permission_error)
             }
             contentResolver.takePersistableUriPermission(uri, mask)
