@@ -132,6 +132,25 @@ class CompleteBackupArchiveTest {
         }
     }
 
+    @Test fun zipWithoutAnnotationVersionsIsNotACompleteBackup() {
+        val book = book("versions", "versions.epub", "original".toByteArray())
+        val partialJson = org.json.JSONObject(json(listOf(book)))
+            .apply { remove("annotationVersions") }.toString()
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(ZipEntry("biblioteca.json"))
+            zip.write(partialJson.toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry(CompleteBackupArchive.entryName(book.id)))
+            zip.write(File(book.localPath).readBytes())
+            zip.closeEntry()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupArchive.read(ByteArrayInputStream(bytes.toByteArray()),
+                dir.newFolder("bad-versions"))
+        }
+    }
+
     @Test fun emptyLibraryProducesValidPortableArchive() {
         val bytes = write(emptyList())
         val unpacked = CompleteBackupArchive.read(
