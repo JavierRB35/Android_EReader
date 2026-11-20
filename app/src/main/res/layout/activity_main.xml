@@ -10,8 +10,8 @@
     android:paddingTop="8dp">
 
     <!-- Short header: the tools are recognizable, but never compete with the book list. -->
-    <LinearLayout android:layout_width="match_parent" android:layout_height="56dp"
-        android:orientation="horizontal" android:gravity="center_vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="56dp" android:orientation="horizontal" android:gravity="center_vertical">
         <TextView android:id="@+id/txtTitle"
             android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
             android:text="@string/library_title" android:textSize="28sp" android:fontFamily="serif"
