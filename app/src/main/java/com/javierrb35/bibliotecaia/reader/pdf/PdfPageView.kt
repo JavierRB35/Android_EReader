@@ -23,7 +23,7 @@ class PdfPageView(context: Context) : View(context) {
     private var panY = 0f
     private val matrix = Matrix()
     private var marks: List<PdfPaintedMark> = emptyList()
-    private var onMarkedTap: ((String) -> Unit)? = null
+    private var onMarkedTap: ((List<String>) -> Unit)? = null
     private val markerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(95, 212, 180, 131)
         style = Paint.Style.FILL
@@ -38,7 +38,7 @@ class PdfPageView(context: Context) : View(context) {
         color = Color.argb(135, 212, 180, 131)
         style = Paint.Style.FILL
     }
-    fun onMarkedTap(listener: (String) -> Unit) { onMarkedTap = listener }
+    fun onMarkedTap(listener: (List<String>) -> Unit) { onMarkedTap = listener }
     fun showMarks(updated: List<PdfPaintedMark>) {
         marks = updated.filter { it.bounds.valid() }
         invalidate()
@@ -65,12 +65,15 @@ class PdfPageView(context: Context) : View(context) {
                     inverse.mapPoints(p)
                     val nx = p[0] / image.width
                     val ny = p[1] / image.height
-                    val hit = marks.lastOrNull {
+                    // Same position can contain a NOTE and an underline (or
+                    // several notes). Scriptura lets the reader choose which
+                    // annotation to open instead of silently taking the last.
+                    val hits = marks.asReversed().filter {
                         nx >= it.bounds.left && nx <= it.bounds.right &&
                             ny >= it.bounds.top && ny <= it.bounds.bottom
-                    }
-                    if (hit != null) {
-                        onMarkedTap?.invoke(hit.annotationId)
+                    }.map { it.annotationId }.distinct()
+                    if (hits.isNotEmpty()) {
+                        onMarkedTap?.invoke(hits)
                         return true
                     }
                 }
