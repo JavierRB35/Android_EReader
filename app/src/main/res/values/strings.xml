@@ -77,16 +77,16 @@
     <string name="organize_collection_name">Nombre de la colección</string>
 
     <string name="settings_title">Ajustes</string>
-        <string name="settings_account">Cuenta y Google</string>
-        <string name="settings_account_open">Cuenta y Google Drive…</string>
+        <string name="settings_account">Cuenta (función retirada)</string>
+        <string name="settings_account_open">Sin cuenta: utiliza una copia de seguridad</string>
         <string name="settings_services">Estado de servicios</string>
         <string name="settings_services_summary">Biblioteca local: %1$d libros\nSupabase: %2$s\nGoogle: %3$s</string>
         <string name="service_ready">listo</string>
         <string name="service_not_configured">sin configurar (ver docs/setup)</string>
         <string name="settings_backup">Copia de seguridad</string>
-        <string name="settings_backup_export">Exportar copia (metadatos y anotaciones)</string>
-        <string name="settings_backup_restore">Restaurar copia…</string>
-        <string name="settings_backup_note">La copia incluye metadatos, organización y anotaciones; los archivos de libros deben reimportarse si falta alguno. La restauración es aditiva: nunca borra ni sobrescribe lo que ya tienes.</string>
+        <string name="settings_backup_export">Guardar copia completa (libros y anotaciones)…</string>
+        <string name="settings_backup_restore">Restaurar copia completa (.zip)…</string>
+        <string name="settings_backup_note">La copia completa incluye los originales EPUB/PDF/MOBI, subrayados, notas y versiones, marcadores, posiciones, etiquetas y colecciones. Elige dónde guardarla: Drive, memoria local u otro proveedor del selector Android. No se requiere cuenta en Biblioteca IA. Las copias ZIP no están cifradas: selecciona un destino privado.</string>
         <string name="settings_updates">Actualizaciones</string>
         <string name="settings_updates_check">Comprobar ahora</string>
         <string name="updates_none">Ya tienes la última versión.</string>
@@ -96,7 +96,7 @@
         <string name="settings_about">Acerca de</string>
         <string name="settings_about_text">Biblioteca IA %1$s — lector EPUB/PDF/MOBI con biblioteca personal y IA.</string>
         <string name="backup_export_ok">Copia exportada correctamente.</string>
-        <string name="backup_restore_confirm">La restauración es aditiva: añade libros y anotaciones de la copia sin borrar ni sobrescribir nada. ¿Continuar?</string>
+        <string name="backup_restore_confirm">La aplicación verificará todos los libros originales y su SHA-256 antes de restaurar. Se conservarán los datos ya existentes. ¿Restaurar la copia completa?</string>
         <string name="backup_restore_done_title">Restauración completada</string>
         <string name="backup_restore_done">Libros añadidos: %1$d (omitidos por existir: %2$d)\nAnotaciones añadidas: %3$d (omitidas: %4$d)\nPosiciones actualizadas: %5$d\n\nLos libros cuyo archivo no esté en este dispositivo deben reimportarse para poder leerse.</string>
         <string name="backup_error">Error de copia: %1$s</string>
@@ -143,4 +143,11 @@
     <string name="detail_link_ok">Original vinculado: ya puedes leerlo.</string>
     <string name="detail_link_nomatch">El archivo seleccionado no corresponde a este libro (hash distinto).</string>
     <string name="detail_link_error">No se pudo vincular: %1$s</string>
+    <string name="settings_backup_legacy">Restaurar copia antigua (.json, sin libros)…</string>
+    <string name="backup_export_done_title">Copia completa creada</string>
+    <string name="backup_export_done_full">Se han incluido %1$d libros originales, sus anotaciones y el historial de lectura. Conserva el ZIP en una ubicación privada: el archivo no está cifrado.</string>
+    <string name="backup_restore_done_full">Originales disponibles: %1$d\nAnotaciones añadidas: %2$d\nVersiones de notas añadidas: %3$d\nPosiciones actualizadas: %4$d\n\nTus libros y marcados existentes se han conservado.</string>
+    <string name="backup_error_generic">No se ha podido completar la operación.</string>
+    <string name="backup_legacy_warning">Esta copia JSON antigua NO contiene los archivos EPUB/PDF/MOBI. Puedes recuperar el catálogo y las notas, pero deberás revincular los libros manualmente.</string>
+    <string name="backup_legacy_result">Metadatos restaurados: %1$d libros añadidos. Los archivos originales no estaban incluidos en el JSON; revincúlalos para poder leerlos.</string>
 </resources>
