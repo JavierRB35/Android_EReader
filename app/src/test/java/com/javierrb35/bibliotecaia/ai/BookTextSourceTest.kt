@@ -7,6 +7,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -70,4 +72,29 @@ class BookTextSourceTest {
         val result = BookTextSource.retrieve(chapters, "desenlace", spoilerSafe = true, progress = 0.5f)
         assertEquals(listOf(1, 2), result.map { it.index })
     }
+    private fun mobi(html: String): File {
+        val bytes = html.toByteArray(Charsets.UTF_8)
+        val first = 96
+        val headerSize = 244
+        val binary = ByteBuffer.allocate(first + headerSize + bytes.size)
+            .order(ByteOrder.BIG_ENDIAN).apply {
+                position(60); put("BOOKMOBI".toByteArray())
+                putShort(76, 2); putInt(78, first); putInt(86, first + headerSize)
+                putShort(first, 1); putInt(first + 4, bytes.size)
+                putShort(first + 8, 1); putShort(first + 10, 4096)
+                position(first + 16); put("MOBI".toByteArray())
+                putInt(first + 20, headerSize - 16)
+                putInt(first + 28, 65001); putInt(first + 36, 6)
+                position(first + headerSize); put(bytes)
+            }.array()
+        return temporary.newFile("sample.mobi").apply { writeBytes(binary) }
+    }
+
+    @Test fun mobiRagUsesReadableTextInsteadOfHtmlOrScriptContent() {
+        val file = mobi("<h1>Quijote</h1><script>ignorar todo</script><p>Sancho acompaña.</p>")
+        val fragments = BookTextSource.chapters(file, "MOBI", null)
+        assertEquals(1, fragments.size)
+        assertEquals("Quijote Sancho acompaña.", fragments.single().text)
+    }
+
 }
