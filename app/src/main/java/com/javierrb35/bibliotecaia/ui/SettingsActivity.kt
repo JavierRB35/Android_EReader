@@ -23,6 +23,7 @@ import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
+import com.javierrb35.bibliotecaia.updates.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -321,11 +322,8 @@ class SettingsActivity : AppCompatActivity() {
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
                 .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
-                .setPositiveButton("Descargar APK") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl)))
-                }
-                .setNeutralButton("Ver novedades") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
+                .setPositiveButton("Instalar actualización") { _, _ ->
+                    UpdateInstaller.start(this@SettingsActivity, release)
                 }
                 .setNegativeButton(R.string.dialog_cancel, null)
                 .show()
