@@ -9,13 +9,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="20dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/organize_title"
-            android:textSize="30sp"
+            android:textSize="33sp"
             android:fontFamily="serif"
             android:textColor="@color/bia_text"
             android:accessibilityHeading="true" />
@@ -23,7 +23,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="23dp"
             android:text="@string/organize_section_categories"
             android:textSize="14sp"
             android:textStyle="bold"
@@ -31,7 +31,7 @@
 
         <Button
             android:id="@+id/btnAddCategory"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/organize_add"
@@ -54,7 +54,7 @@
 
         <Button
             android:id="@+id/btnAddTag"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/organize_add"
@@ -77,7 +77,7 @@
 
         <Button
             android:id="@+id/btnAddCollection"
-            style="@style/Widget.Material3.Button.TextButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/organize_add"
