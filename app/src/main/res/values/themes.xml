@@ -10,6 +10,9 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorBackground">@color/bia_background</item>
         <item name="colorPrimary">@color/bia_accent</item>
+        <!-- Native Android TextView selection handles: gold, never stock cyan. -->
+        <item name="colorControlActivated">@color/bia_accent</item>
+        <item name="android:colorAccent">@color/bia_accent</item>
         <item name="colorOnPrimary">@color/bia_background</item>
         <item name="colorPrimaryContainer">#42382A</item>
         <item name="colorOnPrimaryContainer">@color/bia_text</item>
