@@ -41,7 +41,19 @@ class CompleteBackupManager(
             }
             val manager = BackupManager(database, appVersion)
             val json = manager.exportJson()
-            val books = BackupCodec.fromJson(json).books
+            // BackupCodec deliberately clears localPath for safe *restoration*.
+            // Export must read the original private paths from Room instead.
+            val described = BackupCodec.fromJson(json).books
+            val books = database.backupDao().booksAll()
+            require(books.size == described.size &&
+                books.map { it.id to it.contentHash }.toSet() ==
+                    described.map { it.id to it.contentHash }.toSet() &&
+                books.associateBy { it.id }.all { (id, book) ->
+                    described.any { it.id == id &&
+                        it.fileName == book.fileName && it.sizeBytes == book.sizeBytes }
+                }) {
+                "La biblioteca cambió durante la preparación. Repite la copia."
+            }
             val archive = File.createTempFile("biblioteca-completa-", ".zip", context.cacheDir)
             try {
                 // Never touch the selected SAF document until every original is verified.
