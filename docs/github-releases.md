@@ -6,6 +6,16 @@ El workflow `.github/workflows/release-apk.yml` compila el APK `release` **sin f
 
 **Criterio de bloqueo:** aunque `assembleRelease` sea satisfactorio, la APK resultante está **sin firmar**. La firma release requiere el keystore auténtico, sus secretos y comprobación de huella; no publicar etiquetas basándose solo en CI.
 
+## Actualizaciones automáticas (mecanismo preferido)
+
+**Ya no hace falta crear una etiqueta ni lanzar manualmente el workflow de firma para cada actualización cotidiana.** Tras fusionar cambios a `main`, las CI `Android quality gate` y `Android startup smoke (emulator)` deben pasar en el mismo commit. Entonces `.github/workflows/auto-publish-updates.yml` crea una nueva versión de desarrollo `v0.1.N`, compila, verifica la firma del certificado definitivo y publica el APK y su SHA-256 en GitHub Releases automáticamente.
+
+La aplicación detecta la nueva versión desde el repositorio público al abrirse y periódicamente mientras está activa. En segundo plano, WorkManager y Android determinan cuándo comprobarla y, con permiso, muestran notificación. No se instalan APK sin consentimiento ni se borran datos.
+
+**Manual**: los pasos de etiquetas y `release-apk.yml` descritos más adelante se conservan para distribución excepcional y ensayos. La `versionName`/`versionCode` predeterminadas de AndroidIDE pueden ser inferiores a las de la compilación automática; no intentar instalar un APK manual de código de versión inferior sobre una actualización ya instalada.
+
+Más detalles, límites y validaciones: [docs/automatic-updates.md](automatic-updates.md).
+
 ## Preparación de la firma
 
 1. **Reutilizar la clave de publicación existente** si ya se distribuyó alguna APK firmada con el mismo `applicationId` (`com.javierrb35.bibliotecaia`). Verificar localmente su alias y huella SHA-256 con `keytool -list -v -keystore ruta/a/clave.jks`. No subir la clave ni las contraseñas al repositorio, a un issue o al chat.
