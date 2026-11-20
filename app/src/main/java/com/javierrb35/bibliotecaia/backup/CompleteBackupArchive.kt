@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.backup
 
 import com.javierrb35.bibliotecaia.data.BookEntity
+import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -27,6 +28,7 @@ object CompleteBackupArchive {
     }
 
     fun write(output: OutputStream, json: String, books: List<BookEntity>): Long {
+        validateCompleteMetadata(json)
         val snapshot = BackupCodec.fromJson(json)
         require(snapshot.books.map { it.id to it.contentHash }.toSet() ==
             books.map { it.id to it.contentHash }.toSet() && snapshot.books.size == books.size) {
@@ -104,6 +106,7 @@ object CompleteBackupArchive {
                         data.write(buffer, 0, n)
                     }
                     json = data.toString(Charsets.UTF_8.name())
+                    validateCompleteMetadata(json)
                     val books = BackupCodec.fromJson(json).books
                     require(books.size <= MAX_BOOKS) { "La copia contiene demasiados libros." }
                     books.forEach(::validateBook)
@@ -145,6 +148,24 @@ object CompleteBackupArchive {
             "Faltan originales: el archivo no es una copia completa."
         }
         return Contents(metadata, staged, total)
+    }
+
+    /** Legacy JSON import is allowed separately; a ZIP must preserve ALL sections. */
+    private fun validateCompleteMetadata(json: String) {
+        val root = JSONObject(json)
+        val keys = listOf("books", "categories", "tags", "collections",
+            "bookCategories", "bookTags", "collectionBooks", "annotations",
+            "annotationVersions", "readingPositions")
+        require(keys.all { root.optJSONArray(it) != null }) {
+            "El ZIP no contiene todas las secciones de la biblioteca."
+        }
+        val counts = root.optJSONObject("manifest")?.optJSONObject("counts")
+        require(counts != null &&
+            counts.optInt("books", -1) == root.getJSONArray("books").length() &&
+            counts.optInt("annotations", -1) == root.getJSONArray("annotations").length() &&
+            counts.optInt("versions", -1) == root.getJSONArray("annotationVersions").length() &&
+            counts.optInt("positions", -1) == root.getJSONArray("readingPositions").length()
+        ) { "El manifiesto de la copia completa no coincide con sus datos." }
     }
 
     fun entryName(id: String) = "books/" + id + ".bin"
