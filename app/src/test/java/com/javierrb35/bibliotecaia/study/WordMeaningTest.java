@@ -64,8 +64,8 @@ public class WordMeaningTest {
     }
     @Test public void rejectsUnsafeOrOverlongPhrases(){
         assertNull(WordMeaning.searchPhrase("fariseo?redirect=https://evil.test"));
-        assertNull(WordMeaning.searchPhrase("abc\\n\\u0000def"));
-        assertNull(WordMeaning.searchPhrase(new String(new char[170]).replace('\\0','a')));
+        assertNull(WordMeaning.searchPhrase("abc" + (char)0 + "def"));
+        assertNull(WordMeaning.searchPhrase(new String(new char[170]).replace((char)0,'a')));
         assertEquals("Martín Luther King Jr.",WordMeaning.searchPhrase("Martín Luther King Jr."));
     }
     @Test(expected=IllegalArgumentException.class)
