@@ -12,7 +12,9 @@ import android.view.ScaleGestureDetector
 import android.view.View
 
 /** Single page, bounded bitmap; pinch zoom, pan and double-tap reset. */
-data class PdfPaintedMark(val annotationId: String, val bounds: PdfOcrRect)
+data class PdfPaintedMark(
+    val annotationId: String, val bounds: PdfOcrRect, val kind: String = "HIGHLIGHT"
+)
 
 class PdfPageView(context: Context) : View(context) {
     private var bitmap: Bitmap? = null
@@ -30,6 +32,11 @@ class PdfPageView(context: Context) : View(context) {
         color = Color.argb(240, 177, 116, 37)
         style = Paint.Style.STROKE
         strokeWidth = 2f
+    }
+    private val noteFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Stronger, warm shading distinguishes notes from plain underlines.
+        color = Color.argb(135, 212, 180, 131)
+        style = Paint.Style.FILL
     }
     fun onMarkedTap(listener: (String) -> Unit) { onMarkedTap = listener }
     fun showMarks(updated: List<PdfPaintedMark>) {
@@ -115,7 +122,8 @@ class PdfPageView(context: Context) : View(context) {
                 val top = b.top * image.height
                 val right = b.right * image.width
                 val bottom = b.bottom * image.height
-                canvas.drawRect(left, top, right, bottom, markerFill)
+                canvas.drawRect(left, top, right, bottom,
+                    if (mark.kind == "NOTE") noteFill else markerFill)
                 canvas.drawLine(left, bottom, right, bottom, markerStroke)
             }
             canvas.restore()
