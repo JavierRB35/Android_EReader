@@ -177,7 +177,8 @@ object BackupCodec {
         title = o.getString("title"),
         contentHash = o.getString("content_hash").also { require(it.isNotBlank()) { "Libro sin hash en la copia." } },
         authors = o.optString("authors").ifEmpty { null },
-        format = runCatching { BookFormat.valueOf(o.getString("format")) }.getOrDefault(BookFormat.EPUB),
+        format = runCatching { BookFormat.valueOf(o.getString("format")) }
+            .getOrElse { throw IllegalArgumentException("La copia contiene un formato de libro desconocido.") },
         fileName = safePathSegment(o.optString("file_name", "libro"), "nombre del libro"),
         localPath = "", // se reconstruye en la restauración; revinculación por hash (ADR-008)
         sizeBytes = o.optLong("size_bytes", 0),
