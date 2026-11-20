@@ -328,6 +328,7 @@ class MobiReaderActivity : AppCompatActivity() {
         val backgrounds = intArrayOf(Color.BLACK, 0xff191b1d.toInt(), 0xfff4e7ce.toInt(), 0xfffaf9f5.toInt())
         val foreground = if (theme < 2) 0xffe8dfce.toInt() else 0xff302a24.toInt()
         root.setBackgroundColor(backgrounds[theme]); content.setTextColor(foreground); status.setTextColor(foreground)
+        content.setTextColorHighlight(if (theme < 2) 0x66D4B483 else 0x55C7A264)
         content.textSize = preferences.getFloat("size", 20f)
         window.statusBarColor = backgrounds[theme]; window.navigationBarColor = backgrounds[theme]
         window.decorView.systemUiVisibility = if (theme >= 2) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
