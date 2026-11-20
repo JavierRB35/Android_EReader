@@ -6,6 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.UnderlineSpan
+import android.text.style.BackgroundColorSpan
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import kotlin.math.abs
 import android.os.Bundle
 import android.view.ActionMode
 import android.view.Menu
@@ -76,6 +84,18 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var footer: LinearLayout
     private lateinit var positionLabel: TextView
     private lateinit var loading: TextView
+    private lateinit var webFrame: FrameLayout
+    private lateinit var nativeScroll: ScrollView
+    private lateinit var nativeText: TextView
+    private lateinit var nativeToggle: MaterialButton
+    private var nativeMode = true
+    private var nativeChapter: NativeEpubText.Chapter? = null
+    private var nativeIndex = 0
+    private var nativeLoading: Job? = null
+    private var nativeSave: Job? = null
+    private var nativeTouchX = 0f
+    private var nativeTouchY = 0f
+    private var nativeGeneration = 0
     private var themeIndex = 0
     private var fontScale = 1.1f
     private var scroll = false
@@ -90,13 +110,15 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         fontScale = preferences.getFloat("font", 1.1f).coerceIn(.75f, 2f)
         scroll = preferences.getBoolean("scroll", false)
         serif = preferences.getBoolean("serif", true)
+        nativeMode = preferences.getBoolean("native_selection", true)
         createLayout()
         val restored = savedInstanceState?.getString(LOCATION) ?: intent.getStringExtra(LOCATION)
         lifecycleScope.launch {
             try {
                 val book = AppDatabase.get(this@EpubReaderActivity).bookDao().findById(bookId)
                     ?: error("El libro ya no está en la biblioteca.")
-                val initial = parseLocator(restored ?: repository.position(bookId)?.locator)
+                val savedLocator = restored ?: repository.position(bookId)?.locator
+                val initial = parseLocator(savedLocator)
                 val opened = EpubOpener.open(applicationContext, File(book.localPath))
                 publication = opened
                 if (opened.isRestricted) error("Este EPUB está protegido y no se puede abrir.")
@@ -112,6 +134,15 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 }
                 navigator = fragment
                 loading.visibility = View.GONE
+                if (nativeMode) {
+                    val initialIndex = opened.readingOrder.indexOfFirst {
+                        initial?.href?.toString() == it.url().toString()
+                    }.coerceAtLeast(0)
+                    val initialOffset = NativeEpubAnchors.point(savedLocator)?.offset ?: 0
+                    showNativeChapter(initialIndex, initialOffset)
+                } else {
+                    showReadingSurface()
+                }
                 fragment.addInputListener(DirectionalNavigationAdapter(fragment))
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
@@ -123,21 +154,26 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 })
                 launch {
                     fragment.currentLocator.collect { locator ->
-                        latest = locator
-                        positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
-                        pendingSave?.cancel()
-                        pendingSave = lifecycleScope.launch {
-                            delay(900)
-                            try { persist(locator) }
-                            catch (cancelled: CancellationException) { throw cancelled }
-                            catch (_: Exception) { toast("No se pudo guardar la posición. Comprueba el espacio disponible.") }
+                        if (!nativeMode) {
+                            latest = locator
+                            positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
+                            pendingSave?.cancel()
+                            pendingSave = lifecycleScope.launch {
+                                delay(900)
+                                try { persist(locator) }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { toast("No se pudo guardar la posición. Comprueba el espacio disponible.") }
+                            }
                         }
                     }
                 }
                 launch {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
-                        fragment.applyDecorations(saved.filter { it.kind == "HIGHLIGHT" }.mapNotNull { note ->
+                        if (nativeMode && nativeChapter != null) paintNativeMarks()
+                        fragment.applyDecorations(saved.filter {
+                            it.kind == "HIGHLIGHT" && NativeEpubAnchors.point(it.locator) == null
+                        }.mapNotNull { note ->
                             parseLocator(note.locator)?.let { Decoration(note.id, it, Decoration.Style.Underline(note.color)) }
                         }, "annotations")
                     }
