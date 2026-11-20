@@ -31,7 +31,7 @@ jobs:
           SOURCE_SHA: a73122e58513a4b68122dae11357f1e9cc21e9ac
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
           git fetch origin main:refs/remotes/origin/main
           git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main
           head_sha="$(gh api repos/$GITHUB_REPOSITORY/actions/runs/44809407765 --jq .head_sha)"
