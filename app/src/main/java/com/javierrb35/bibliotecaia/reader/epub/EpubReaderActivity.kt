@@ -546,7 +546,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeScroll.setBackgroundColor(background)
         nativeText.setBackgroundColor(background)
         nativeText.setTextColor(text)
-        nativeText.setTextColorHighlight(if (themeIndex <= 1) 0x665A4730 else 0x66C7A264)
+        nativeText.setTextColorHighlight(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
         nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
         controls.setBackgroundColor(Color.parseColor("#17191C")); footer.setBackgroundColor(Color.parseColor("#17191C"))
