@@ -152,6 +152,28 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `rechaza rutas de libros introducidas en una copia manipulada`() {
+        for (bad in listOf("../otro", "../../otras-notas.json", "carpeta/libro.epub", "ruta\\libro.epub")) {
+            val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
+            root.getJSONArray("books").getJSONObject(0).put("fileName", bad)
+            try {
+                BackupCodec.fromJson(root.toString())
+                throw AssertionError("No debe aceptar fileName: $bad")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message!!.contains("ruta"))
+            }
+        }
+        val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.1.0", 1))
+        root.getJSONArray("books").getJSONObject(0).put("id", "../fuera")
+        try {
+            BackupCodec.fromJson(root.toString())
+            throw AssertionError("No debe aceptar UUID arbitrario con escape de directorio")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("ruta"))
+        }
+    }
+
+    @Test
     fun `sin portada de datos sensibles en el JSON`() {
         val json = BackupCodec.toJson(sample(), "0.1.0", 1)
         assertFalse(json.contains("localPath"))
