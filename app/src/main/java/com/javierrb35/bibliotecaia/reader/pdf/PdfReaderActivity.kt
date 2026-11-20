@@ -11,6 +11,8 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import kotlinx.coroutines.flow.collect
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +44,9 @@ class PdfReaderActivity : AppCompatActivity() {
     private var renderedPage = -1
     private var pendingRestore = 0
     private var bookTitle = "PDF"
+    private var contentHash = ""
+    private var marks: List<AnnotationEntity> = emptyList()
+    private var ocrSnapshot: PdfOcrSnapshot? = null
     private val repository by lazy { ReadingRepository(this) }
     private val replies by lazy { Messenger(Handler(Looper.getMainLooper()) { message -> receive(message); true }) }
     private val connection = object : ServiceConnection {
@@ -73,6 +78,9 @@ class PdfReaderActivity : AppCompatActivity() {
         }
         root.addView(status)
         image = PdfPageView(this)
+        image.onMarkedTap { annotationId ->
+            marks.firstOrNull { it.id == annotationId }?.let(::showSavedMark)
+        }
         root.addView(image, LinearLayout.LayoutParams(-1, 0, 1f))
         val nav = LinearLayout(this)
         previous = button("Anterior") { render(page - 1) }
@@ -88,15 +96,28 @@ class PdfReaderActivity : AppCompatActivity() {
             if (renderedPage != page) return@button
             val bitmap = image.currentBitmap() ?: return@button
             controls(false)
-            PdfOcrStudy(this, bookId, repository).open(page, bitmap,
-                status = { message -> status.text = message },
-                done = { if (!isDestroyed && !isFinishing) controls(true) }
+            val selectedPage = page
+            PdfOcrStudy(this, bookId, repository).open(selectedPage, bitmap, contentHash,
+                status = { message -> if (selectedPage == page) status.text = message },
+                done = { if (!isDestroyed && !isFinishing && selectedPage == page) controls(true) },
+                onSnapshot = { snapshot ->
+                    if (selectedPage == page && renderedPage == page) {
+                        ocrSnapshot = snapshot
+                        refreshHighlights()
+                    }
+                }
             )
         }.apply { contentDescription = "Reconocer texto local de la página y seleccionar para estudio" }
         root.addView(nav); root.addView(note); root.addView(ocr)
         setContentView(root)
         window.statusBarColor = Color.BLACK; window.navigationBarColor = Color.BLACK
         controls(false)
+        lifecycleScope.launch {
+            repository.observeAnnotations(bookId).collect { notes ->
+                marks = notes
+                refreshHighlights()
+            }
+        }
         bound = bindService(Intent(this, PdfRenderService::class.java), connection, Context.BIND_AUTO_CREATE)
         if (!bound) failure("No se pudo iniciar el lector PDF.")
     }
@@ -107,6 +128,7 @@ class PdfReaderActivity : AppCompatActivity() {
                 val book = AppDatabase.get(this@PdfReaderActivity).bookDao().findById(bookId)
                     ?: error("El libro ya no está en la biblioteca.")
                 bookTitle = book.title
+                contentHash = book.contentHash
                 if (pendingRestore < 0) pendingRestore = parsePage(intent.getStringExtra("locator")
                     ?: repository.position(bookId)?.locator)
                 withContext(Dispatchers.IO) {
@@ -146,6 +168,19 @@ class PdfReaderActivity : AppCompatActivity() {
                         if (requestGeneration == generation && !isFinishing) {
                             image.display(bitmap); decoded = null
                             page = requestedPage; renderedPage = page
+                            ocrSnapshot = null
+                            refreshHighlights()
+                            lifecycleScope.launch {
+                                val savedPage = requestedPage
+                                val cached = withContext(Dispatchers.IO) {
+                                    PdfOcrStore.load(this@PdfReaderActivity, bookId,
+                                        savedPage, contentHash)
+                                }
+                                if (renderedPage == savedPage && !isDestroyed) {
+                                    ocrSnapshot = cached
+                                    refreshHighlights()
+                                }
+                            }
                             status.text = "$bookTitle · ${page + 1} / $count"
                             controls(true)
                             repository.savePosition(bookId, locator(page), (page + 1).toFloat() / count)
@@ -165,6 +200,8 @@ class PdfReaderActivity : AppCompatActivity() {
     private fun render(index: Int) {
         if (index !in 0 until count) return
         generation++
+        image.showMarks(emptyList())
+        ocrSnapshot = null
         controls(false)
         status.text = "Cargando página ${index + 1}…"
         try {
@@ -174,6 +211,43 @@ class PdfReaderActivity : AppCompatActivity() {
             }) ?: failure("El lector no está disponible. Vuelve a abrir el libro.")
         } catch (_: RemoteException) { failure("Se perdió la conexión con el lector PDF.") }
     }
+
+    /** Reconstruct from Room; deleted annotations are excluded by the DAO. */
+    private fun refreshHighlights() {
+        if (!::image.isInitialized || renderedPage < 0 || contentHash.isBlank()) return
+        image.showMarks(marks.filter { it.kind == "HIGHLIGHT" }.flatMap { mark ->
+            PdfOcrAnchors.overlayBoxes(mark.locator, renderedPage,
+                mark.quote, contentHash, ocrSnapshot).map {
+                PdfPaintedMark(mark.id, it)
+            }
+        })
+    }
+
+    private fun showSavedMark(mark: AnnotationEntity) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (mark.kind == "HIGHLIGHT") "Subrayado PDF" else "Anotación")
+            .setMessage(mark.quote.take(1_200))
+            .setNegativeButton("Cerrar", null)
+            .setNeutralButton("Editar nota") { _, _ ->
+                AnnotationEditor.edit(this, mark)
+            }
+            .setPositiveButton("Quitar subrayado") { _, _ ->
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Eliminar subrayado")
+                    .setMessage("¿Quitar este subrayado sin modificar el PDF original?")
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Eliminar") { _, _ ->
+                        lifecycleScope.launch {
+                            try { repository.setDeleted(mark.id, true) }
+                            catch (_: Exception) {
+                                Toast.makeText(this@PdfReaderActivity,
+                                    "No se pudo quitar el subrayado.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }.show()
+            }.show()
+    }
+
     private fun controls(ready: Boolean) {
         previous.isEnabled = ready && page > 0; next.isEnabled = ready && page + 1 < count
         pageButton.isEnabled = ready; note.isEnabled = ready && renderedPage == page
