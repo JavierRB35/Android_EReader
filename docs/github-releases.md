@@ -25,6 +25,27 @@ base64 -w 0 /ruta/segura/bibliotecaia-release.jks | gh secret set ANDROID_KEYSTO
 
 Las demás contraseñas se introducen mediante GitHub Settings o `gh secret set` sin escribirlas en la línea de comandos. Base64 **no cifra** el archivo: tratar su contenido como una clave privada.
 
+## Ensayo manual de firma, sin publicar versiones
+
+El mismo workflow acepta **Run workflow** desde GitHub Actions → **Publish signed APK** → rama `main`. No necesita tag, y su job `publish` se omite obligatoriamente en este modo. Conservará únicamente un artefacto temporal `signed-release-apk` durante siete días. No usar ese artefacto como v1.0 pública sin QA.
+
+Además de los cuatro **Actions Secrets** indicados arriba, debes configurar una **Actions Variable pública** (no secret):
+
+`ANDROID_RELEASE_CERT_SHA256`: huella SHA-256 de la **clave definitiva realmente custodiada**, obtenida localmente con `keytool -list -v -keystore /ruta/a/la/clave.jks`. No inventar ni reutilizar una huella de pruebas; si existen APK ya distribuidas, debe coincidir con su certificado. El workflow admite los 32 bytes hexadecimales con o sin `:` y rechazará una huella vacía, malformada o distinta de `apksigner verify --print-certs`.
+
+En GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**. Registrar solo el valor público de la huella; nunca la contraseña ni el keystore en Variables.
+
+Para lanzar la prueba desde GitHub CLI (alternativa a la interfaz web):
+
+```sh
+gh workflow run release-apk.yml -R JavierRB35/Android_EReader --ref main
+gh run list -R JavierRB35/Android_EReader --workflow release-apk.yml --event workflow_dispatch --limit 1
+```
+
+Comprueba en el run **Build, sign and verify APK = success**, **Publish GitHub Release = skipped**, la huella del certificado, el checksum `.sha256` y que no existe un tag/release nuevo. El archivo de prueba se denomina `BibliotecaIA-main.apk`, no `v1.0.0`.
+
+**No ejecutar un tag de producción** mientras falten firma auténtica, verificación AndroidIDE/teléfono, restauración Drive SAF y paridad de selección PDF. Para publicar v1.0, cambiar previamente `versionName` y aumentar `versionCode`; mantener el mismo certificado de publicación en todas las actualizaciones.
+
 ## Publicar una versión
 
 **Solo después de integrar y verificar el cambio, y de configurar los cuatro secretos**:
