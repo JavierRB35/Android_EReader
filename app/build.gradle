@@ -83,6 +83,8 @@ dependencies {
     implementation 'org.readium.kotlin-toolkit:readium-streamer:3.0.3'
     implementation 'org.readium.kotlin-toolkit:readium-navigator:3.0.3'
     implementation 'org.jsoup:jsoup:1.17.2'
+    // Bundled on-device Latin-script OCR: no network or Google account required.
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 
     // Native Google identity; pinned to retain the SDK34 baseline.
@@ -94,7 +96,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.recyclerview:recyclerview:1.3.2'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
-    // Periodic updates in background; Android schedules no more frequently than 15 minutes.
+    // Battery-aware periodic updates; minimum 15 minutes per Android scheduler.
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 
