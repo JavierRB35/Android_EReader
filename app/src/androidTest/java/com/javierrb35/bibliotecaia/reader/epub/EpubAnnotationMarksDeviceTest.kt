@@ -49,7 +49,7 @@ class EpubAnnotationMarksDeviceTest {
         val mark = note("h1", "HIGHLIGHT")
         val decorations = EpubAnnotationMarks.forReadium(listOf(mark))
         assertEquals(1, decorations.size)
-        assertEquals(Decoration.Style.Underline(mark.color), decorations.single().style)
+        assertEquals(Decoration.Style.Underline(tint = mark.color, isActive = true), decorations.single().style)
         assertEquals("Las palabras escogidas", decorations.single().locator.text.highlight)
         assertEquals("chapter1.xhtml", decorations.single().locator.href.toString())
     }
@@ -71,6 +71,44 @@ class EpubAnnotationMarksDeviceTest {
             "chapter1.xhtml", "Capítulo 1", 0, 30, 0.2, "Las palabras escogidas")
         assertTrue(EpubAnnotationMarks.forReadium(
             listOf(note("native", "NOTE", locator = native))).isEmpty())
+    }
+
+    @Test fun nativeNoteCanBeOpenedFromVerifiedReadiumSelection() {
+        val text = "El comienzo. Las palabras escogidas siguen aquí."
+        val quote = "Las palabras escogidas"
+        val at = text.indexOf(quote)
+        val native = NativeEpubAnchors.locator(
+            "chapter1.xhtml", "Capítulo 1", at, text.length, 0.4, quote)
+        val chapter = NativeEpubText.Chapter("chapter1.xhtml", "Capítulo 1", text)
+        val overlapping = EpubSelectionNotes.overlapping(
+            chapter, "palabras escogidas", listOf(note("n-native", "NOTE", quote, native)))
+        assertEquals(listOf("n-native"), overlapping.map { it.id })
+    }
+
+    @Test fun readiumNoteCanBeOpenedFromVerifiedPartialSelection() {
+        val chapter = NativeEpubText.Chapter(
+            "chapter1.xhtml", "Capítulo 1", "Ayer leí Las palabras escogidas con atención.")
+        val matches = EpubSelectionNotes.overlapping(chapter, "palabras escogidas", listOf(
+            note("other-chapter", "NOTE", locator = readiumLocator("other.xhtml", "Las palabras escogidas")),
+            note("readium", "NOTE"),
+            note("deleted", "NOTE", deleted = 100L)))
+        assertEquals(listOf("readium"), matches.map { it.id })
+    }
+
+    @Test fun ambiguousSelectionDoesNotOpenNoteFromWrongOccurrence() {
+        val chapter = NativeEpubText.Chapter(
+            "chapter1.xhtml", "Capítulo 1", "eco y eco y Las palabras escogidas")
+        val mark = note("n", "NOTE", "Las palabras escogidas")
+        assertTrue(EpubSelectionNotes.overlapping(chapter, "eco", listOf(mark)).isEmpty())
+        assertTrue(EpubSelectionNotes.overlapping(chapter, "palabras que no están", listOf(mark)).isEmpty())
+    }
+
+    @Test fun repeatedMarkedQuoteIsNotMovedToAnUnverifiedLocation() {
+        val quote = "Las palabras escogidas"
+        val chapter = NativeEpubText.Chapter(
+            "chapter1.xhtml", "Capítulo 1", "$quote; después $quote")
+        assertTrue(EpubSelectionNotes.overlapping(chapter, quote,
+            listOf(note("readium", "NOTE"))).isEmpty())
     }
 
     @Test fun repeatedQuotesOnSeparateLocatorsKeepSeparateDecorationIds() {

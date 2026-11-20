@@ -30,7 +30,7 @@ internal object EpubAnnotationMarks {
             val style = if (note.kind == "NOTE")
                 Decoration.Style.Highlight(tint = note.color, isActive = true)
             else
-                Decoration.Style.Underline(note.color)
+                Decoration.Style.Underline(tint = note.color, isActive = true)
             Decoration(note.id, locator, style)
         }.toList()
 }

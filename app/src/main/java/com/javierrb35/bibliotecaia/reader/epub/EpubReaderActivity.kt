@@ -65,6 +65,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     companion object {
         private const val BOOK = "book_id"
         private const val LOCATION = "locator"
+        private const val VIEW_SAVED_TEXT_ID = 0x5C124
         private val saves = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val saveMutex = Mutex()
         fun start(context: Context, bookId: String, locatorJson: String? = null) {
@@ -706,15 +707,25 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             override fun showError(message: String) = toast(message)
         }
 
+    /** Keep the annotation action alongside the native selection controls. */
+    private fun addSavedTextAction(menu: Menu?) {
+        if (menu == null || menu.findItem(VIEW_SAVED_TEXT_ID) != null) return
+        if (annotations.none { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }) return
+        menu.add(Menu.NONE, VIEW_SAVED_TEXT_ID, Menu.CATEGORY_SECONDARY, "Ver anotación")
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+    }
+
     /** Readium WebView selection: native Copy/Share/Select All plus study actions. */
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
             DefinitionUi.populateSelectionMenu(menu)
+            addSavedTextAction(menu)
             return true
         }
 
         override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
             DefinitionUi.populateSelectionMenu(menu)
+            addSavedTextAction(menu)
             return true
         }
 
@@ -770,6 +781,39 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         throw cancelled
                     } catch (_: Exception) {
                         toast("No se pudo seleccionar todo el texto.")
+                    }
+                }
+                return true
+            }
+            if (item.itemId == VIEW_SAVED_TEXT_ID) {
+                lifecycleScope.launch {
+                    try {
+                        // A Readium selection has a DOM locator; native notes have
+                        // offsets in normalized chapter text. Only link the two
+                        // when the selected text has ONE verifiable occurrence.
+                        val selected = navigator?.currentSelection()?.locator
+                        val excerpt = selected?.text?.highlight.orEmpty()
+                        val pub = publication
+                        val link = pub?.readingOrder?.firstOrNull {
+                            it.url().toString() == selected?.href?.toString()
+                        }
+                        if (excerpt.isBlank() || pub == null || link == null) {
+                            toast("Selecciona un fragmento marcado para consultar su nota.")
+                            return@launch
+                        }
+                        val chapter = NativeEpubText.load(pub, link)
+                        val matching = EpubSelectionNotes.overlapping(chapter, excerpt, annotations)
+                        if (matching.isEmpty()) {
+                            toast("No hay una anotación verificada en esta selección.")
+                        } else {
+                            SavedAnnotationSheet.show(this@EpubReaderActivity, repository, matching)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        toast("No se pudo consultar la anotación seleccionada.")
+                    } finally {
+                        mode?.finish()
                     }
                 }
                 return true
