@@ -98,7 +98,7 @@ class SettingsActivity : AppCompatActivity() {
             setPadding(dp(22), dp(22), dp(22), dp(26))
         }
         val root = ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             setBackgroundColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_background))
             addView(layout)
         }
