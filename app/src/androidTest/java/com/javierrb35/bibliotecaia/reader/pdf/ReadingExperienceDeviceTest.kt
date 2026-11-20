@@ -28,7 +28,9 @@ class ReadingExperienceDeviceTest {
         var savedMark = ""
         val locator = """{"format":"PDF","page":7}"""
         try {
-            open().use { db ->
+            val first = open()
+            try {
+                val db = first
                 db.bookDao().insert(BookEntity(
                     id = oneId, title = "Documento A", authors = null,
                     format = BookFormat.PDF, fileName = "a.pdf", localPath = "",
@@ -47,8 +49,10 @@ class ReadingExperienceDeviceTest {
                 val marked = requireNotNull(PdfOcrAnchors.anchoredLocator(
                     7, 0, "Hola", snapshot))
                 savedMark = repo.addAnnotation(oneId, marked, "Hola", "", "HIGHLIGHT")
-            }
-            open().use { db ->
+            } finally { first.close() }
+            val second = open()
+            try {
+                val db = second
                 val repo = ReadingRepository(db)
                 assertEquals(locator, repo.position(oneId)?.locator)
                 assertEquals(.5f, repo.position(oneId)!!.progress, 0f)
@@ -61,7 +65,7 @@ class ReadingExperienceDeviceTest {
                     mark.quote, hash).size)
                 repo.setDeleted(mark.id, true)
                 assertNotNull(db.readingDao().annotation(savedMark)?.deletedAt)
-            }
+            } finally { second.close() }
         } finally {
             context.deleteDatabase(name)
         }
