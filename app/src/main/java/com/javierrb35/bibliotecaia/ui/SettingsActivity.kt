@@ -1,6 +1,9 @@
 package com.javierrb35.bibliotecaia.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
@@ -32,6 +35,15 @@ import kotlinx.coroutines.withContext
 class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
+
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Toast.makeText(this,
+            if (granted) "Avisos automáticos activados."
+            else "Seguirás viendo actualizaciones al abrir la aplicación.",
+            Toast.LENGTH_LONG).show()
+    }
 
     private val exportBackup = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -74,6 +86,12 @@ class SettingsActivity : AppCompatActivity() {
 
         section(layout, getString(R.string.settings_updates))
         action(layout, getString(R.string.settings_updates_check)) { checkUpdates() }
+        action(layout, "Activar avisos automáticos de actualización") {
+            enableBackgroundNotifications()
+        }
+        hint(layout, "La app comprueba nuevas versiones al abrirse y cada dos minutos de uso. " +
+            "Android programa las comprobaciones en segundo plano aproximadamente cada 15 minutos o más, " +
+            "según ahorro de batería y conectividad. La instalación siempre necesita tu autorización.")
 
         section(layout, getString(R.string.settings_about))
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
@@ -151,6 +169,17 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun enableBackgroundNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            Toast.makeText(this, "Los avisos automáticos ya están disponibles.",
+                Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun checkUpdates() {
         lifecycleScope.launch {
             val release = withContext(Dispatchers.IO) {
@@ -163,7 +192,10 @@ class SettingsActivity : AppCompatActivity() {
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
                 .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
-                .setPositiveButton(R.string.updates_view) { _, _ ->
+                .setPositiveButton("Descargar APK") { _, _ ->
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl)))
+                }
+                .setNeutralButton("Ver novedades") { _, _ ->
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
                 }
                 .setNegativeButton(R.string.dialog_cancel, null)
