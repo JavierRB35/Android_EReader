@@ -104,3 +104,24 @@ Aborta por falta de original/hash; restauración sin sobreescrituras destructiva
 textos de Ajustes, documentación y pruebas de backup. Los agentes de EPUB/PDF y
 anotaciones continúan en ramas separadas; **NO sobrescribir estos archivos reservados**.
 **Entrega al integrador:** [PR #23](https://github.com/JavierRB35/Android_EReader/pull/23) disponible para revisión; código `5334ca51` pasó [CI #44803507753](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507753), [16 pruebas Android #44803508024](https://github.com/JavierRB35/Android_EReader/actions/runs/44803508024) y [arranque #44803507780](https://github.com/JavierRB35/Android_EReader/actions/runs/44803507780). **No se fusiona sin coordinación** ni se publica release por esta PR. QA Drive SAF en teléfono y restauración de libro real siguen pendientes.
+
+
+## Nueva entrega de actualización dentro de la app — 20/11/2026, PR #30
+
+Por petición del propietario, ya **no debe abrirse GitHub** al instalar una actualización.
+El botón es **«Instalar actualización»** en biblioteca y Ajustes y **«Instalar»**
+en lectores. Las notificaciones vuelven a la app y ofrecen la misma acción.
+
+Rama exclusiva `feature/in-app-verified-apk-installer-20261120`,
+[PR #30](https://github.com/JavierRB35/Android_EReader/pull/30):
+`updates/UpdateInstaller.kt`, `UpdatePayloadPolicy.kt`, `UpdateNotice.kt`,
+`UpdateRuntime.kt`, `ui/SettingsActivity.kt`, recepción de notificaciones
+`ui/MainActivity.kt#onNewIntent`, `AndroidManifest.xml`, FileProvider solo
+`cache/updates/`, pruebas y documentación. **Los agentes UX de PR #25/#26 deben
+conservar `onNewIntent` al integrar cambios de MainActivity** (avisados en sus PR).
+
+El instalador descarga APK y SHA-256 oficiales por HTTPS, valida hash,
+`applicationId`, versión superior y mismo certificado de firma, y abre el instalador
+**nativo** Android. No es instalación silenciosa, no requiere OAuth/Gmail/Drive.
+No tocar los archivos de libros/cuentas ni publicar release antes de pasar CI.
+El integrador principal fusiona tras revisión, igual que los demás agentes.
