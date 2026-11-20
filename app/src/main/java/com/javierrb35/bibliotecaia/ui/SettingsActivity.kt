@@ -5,10 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
+import com.google.android.material.button.MaterialButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -20,11 +22,14 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
+import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,12 +41,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
-    private val backupPrefs by lazy {
-        getSharedPreferences("biblioteca_backup_destination", MODE_PRIVATE)
-    }
-    private val backupManager by lazy {
-        CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
-    }
+    private lateinit var backupStatus: TextView
+    private lateinit var backupError: TextView
+    private lateinit var backupRecovery: MaterialButton
+    private lateinit var backupPrimary: MaterialButton
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -53,10 +56,16 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private val createBackup = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri: Uri? ->
-        if (uri != null && persistBackupPermission(uri)) {
-            exportTo(uri, replaceExisting = false, rememberDestination = true)
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.let { data ->
+                data.data?.let { uri ->
+                    if (persistBackupPermission(uri, data.flags)) {
+                        exportTo(uri, replaceExisting = false)
+                    }
+                }
+            }
         }
     }
 
@@ -64,9 +73,11 @@ class SettingsActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            result.data?.data?.let { uri ->
-                if (persistBackupPermission(uri)) {
-                    exportTo(uri, replaceExisting = true, rememberDestination = true)
+            result.data?.let { data ->
+                data.data?.let { uri ->
+                    if (persistBackupPermission(uri, data.flags)) {
+                        exportTo(uri, replaceExisting = true)
+                    }
                 }
             }
         }
@@ -249,8 +260,7 @@ class SettingsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
-                        .restoreFrom(uri)
+                    BackupRoutine.restore(applicationContext, db, BuildConfig.VERSION_NAME, uri)
                 }
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_restore_done_title)
