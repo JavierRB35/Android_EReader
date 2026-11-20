@@ -176,6 +176,21 @@ class CompleteBackupIntegrityInstrumentedTest {
             assertEquals(1, dbDestination.backupDao().booksAll().size)
             assertEquals(1, dbDestination.backupDao().annotationsAll().size)
 
+            // The canonical file still exists but its bytes were damaged.
+            // Repair without overwriting that file or losing linked notes.
+            val damagedCanonical = File(dbDestination.backupDao().booksAll().single().localPath)
+            val damage = ByteArray(bytes.size) { 'x'.code.toByte() }
+            damagedCanonical.writeBytes(damage)
+            val healed = CompleteBackupManager(ctx, dbDestination, "0.1.0")
+                .restoreFrom(Uri.fromFile(zip))
+            assertEquals(0, healed.report.booksRestored)
+            val recoveredBook = dbDestination.backupDao().booksAll().single()
+            assertNotEquals(damagedCanonical.absolutePath, recoveredBook.localPath)
+            assertEquals(File(recoveredBook.localPath).name, recoveredBook.fileName)
+            assertArrayEquals(bytes, File(recoveredBook.localPath).readBytes())
+            assertArrayEquals(damage, damagedCanonical.readBytes())
+            assertEquals(1, dbDestination.backupDao().annotationsAll().size)
+
             val corrupt = File(temp, "corrupt.zip").apply { writeText("not a ZIP") }
             val before = dbDestination.backupDao().booksAll()
             try {
