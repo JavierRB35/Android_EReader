@@ -91,14 +91,22 @@ class CompleteBackupManager(
                 require(dir.parentFile == booksBase && (dir.isDirectory || dir.mkdirs())) {
                     "Ruta de destino del libro inválida."
                 }
-                val destination = File(dir, local.fileName).canonicalFile
-                require(destination.parentFile == dir) { "Nombre de archivo inseguro." }
-                if (destination.exists()) {
-                    require(destination.isFile &&
-                        OriginalLinker(context.filesDir).sha256Hex(destination) == incoming.contentHash) {
-                        "Ya hay un archivo distinto en la ubicación del libro. No se sobrescribe."
-                    }
-                } else {
+                val originalDestination = File(dir, local.fileName).canonicalFile
+                require(originalDestination.parentFile == dir) { "Nombre de archivo inseguro." }
+                // A corrupt file may occupy the canonical path. Never overwrite or
+                // delete it: materialize the verified original under a unique safe
+                // name in the SAME private book directory, then relink Room.
+                val validExisting = originalDestination.isFile &&
+                    originalDestination.length() == incoming.sizeBytes &&
+                    OriginalLinker(context.filesDir).sha256Hex(originalDestination) == incoming.contentHash
+                val destination = if (originalDestination.exists() && !validExisting) {
+                    val extension = incoming.format.name.lowercase(java.util.Locale.ROOT)
+                    File(dir, "recuperado-${UUID.randomUUID()}.$extension").canonicalFile
+                } else originalDestination
+                require(destination.parentFile == dir && (!destination.exists() || validExisting)) {
+                    "No hay una ubicación segura para recuperar este libro."
+                }
+                if (!validExisting) {
                     val staged = content.staged[CompleteBackupArchive.entryName(incoming.id)]
                         ?: throw IllegalArgumentException("Falta un original verificado.")
                     val tmp = File.createTempFile(".restore-", ".tmp", dir)
