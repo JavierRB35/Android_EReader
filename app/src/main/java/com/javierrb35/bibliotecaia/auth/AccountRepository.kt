@@ -21,21 +21,58 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
 
     suspend fun signIn(googleIdToken: String, rawNonce: String): AccountSession = withContext(Dispatchers.IO) {
         sessionMutex.withLock {
-            requireConfigured()
+            requireGoogleConfigured()
             require(googleIdToken.length in 1..32000 && rawNonce.length in 32..128)
             val response = request("POST", "/token?grant_type=id_token", JSONObject()
                 .put("provider", "google").put("id_token", googleIdToken).put("nonce", rawNonce))
             val session = parseSession(response)
-            verifyUser(session)
+            verifyUser(session, requiredProvider = "google")
             store.save(session)
             session
+        }
+    }
+
+    /**
+     * Register a Gmail or other email address using Supabase Email Auth.
+     * No account/session is assumed from a signup response: the user must
+     * confirm their mailbox and subsequently sign in. Avoid leaking whether
+     * this address was already registered.
+     */
+    suspend fun registerWithEmail(email: String, password: String): Unit = withContext(Dispatchers.IO) {
+        sessionMutex.withLock {
+            requireBackendConfigured()
+            val normalized = email.trim()
+            validateEmailPassword(normalized, password)
+            request("POST", "/signup", JSONObject().put("email", normalized)
+                .put("password", password))
+            Unit
+        }
+    }
+
+    /** After mailbox confirmation, password grant produces a verified account session. */
+    suspend fun signInWithEmail(email: String, password: String): AccountSession = withContext(Dispatchers.IO) {
+        sessionMutex.withLock {
+            requireBackendConfigured()
+            val normalized = email.trim()
+            validateEmailPassword(normalized, password)
+            val session = parseSession(request("POST", "/token?grant_type=password",
+                JSONObject().put("email", normalized).put("password", password)))
+            verifyUser(session, requiredProvider = "email")
+            store.save(session)
+            session
+        }
+    }
+
+    private fun validateEmailPassword(email: String, password: String) {
+        if (!AuthPolicy.validEmail(email) || !AuthPolicy.validPassword(password)) {
+            throw AccountFailure(AccountFailure.Reason.INVALID_INPUT)
         }
     }
 
     /** Server validation is required before enabling an online operation. Cached identity is UI-only. */
     suspend fun requireOnlineSession(): AccountSession = withContext(Dispatchers.IO) {
         sessionMutex.withLock {
-            requireConfigured()
+            requireBackendConfigured()
             var session = store.load(configuration.projectUrl) ?: throw AccountFailure(AccountFailure.Reason.NO_SESSION)
             try {
                 if (AuthPolicy.needsRefresh(session.expiresAtSeconds, System.currentTimeMillis() / 1000)) {
@@ -57,7 +94,7 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
     /** Returns only after remote revocation succeeds; caller can explicitly choose local-only exit. */
     suspend fun signOut(): Unit = withContext(Dispatchers.IO) {
         sessionMutex.withLock {
-            requireConfigured()
+            requireBackendConfigured()
             val session = store.load(configuration.projectUrl)
             if (session != null) {
                 request("POST", "/logout?scope=local", JSONObject(), session.accessToken)
@@ -70,15 +107,25 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
         sessionMutex.withLock { store.clear() }
     }
 
-    private fun verifyUser(session: AccountSession) {
+    private fun verifyUser(session: AccountSession, requiredProvider: String? = null) {
         val user = request("GET", "/user", accessToken = session.accessToken)
         val identities = user.optJSONArray("identities")
-        val googleIdentity = identities != null && (0 until identities.length()).any {
-            identities.optJSONObject(it)?.optString("provider") == "google"
+        val providers = if (identities == null) emptySet() else
+            (0 until identities.length()).mapNotNull {
+                identities.optJSONObject(it)?.optString("provider")?.takeIf(String::isNotBlank)
+            }.toSet()
+        val hasVerifiedGoogle = "google" in providers
+        val hasVerifiedEmail = "email" in providers &&
+            user.optString("email_confirmed_at").isNotBlank()
+        val accepted = when (requiredProvider) {
+            "google" -> hasVerifiedGoogle
+            "email" -> hasVerifiedEmail
+            null -> hasVerifiedGoogle || hasVerifiedEmail
+            else -> false
         }
-        if (user.optString("id") != session.userId || !googleIdentity || user.optBoolean("is_anonymous", true)) {
-            throw AccountFailure(AccountFailure.Reason.REJECTED)
-        }
+        if (user.optString("id") != session.userId ||
+            !accepted || user.optBoolean("is_anonymous", true)
+        ) throw AccountFailure(AccountFailure.Reason.REJECTED)
     }
 
     private fun parseSession(json: JSONObject): AccountSession = try {
@@ -93,8 +140,12 @@ class AccountRepository(context: Context, val configuration: AuthConfiguration =
             System.currentTimeMillis() / 1000 + expiresIn, configuration.projectUrl)
     } catch (_: Exception) { throw AccountFailure(AccountFailure.Reason.INVALID_RESPONSE) }
 
-    private fun requireConfigured() {
-        if (!configuration.configured) throw AccountFailure(AccountFailure.Reason.NOT_CONFIGURED)
+    private fun requireBackendConfigured() {
+        if (!configuration.backendConfigured) throw AccountFailure(AccountFailure.Reason.NOT_CONFIGURED)
+    }
+
+    private fun requireGoogleConfigured() {
+        if (!configuration.googleConfigured) throw AccountFailure(AccountFailure.Reason.NOT_CONFIGURED)
     }
 
     private fun request(method: String, route: String, body: JSONObject? = null, accessToken: String? = null): JSONObject {
