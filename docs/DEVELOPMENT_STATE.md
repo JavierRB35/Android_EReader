@@ -138,3 +138,13 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
   pendientes. Prueba física necesaria de descargas, permiso instalar desde esta
   fuente, confirmar/rechazar instalación y preservar libros/notas. No declarar
   instalación silenciosa ni QA física realizada.
+
+## Ficha compacta de libro y organización desde la propia pantalla (PR #25 · 20/11/2026)
+
+- Rama: `feature/compact-book-detail-inline-organize-20261120`; PR [#25](https://github.com/JavierRB35/Android_EReader/pull/25). Basada en `2ef2041`; los cambios de backup ZIP SAF de PR #23, integrados durante el desarrollo, se conservan al fusionar.
+- Problema de UX constatado en las capturas Samsung del propietario: campos presentados en filas verticales y segunda tanda de botones repetidos, obligando a desplazarse para llegar a «Editar datos», categorías, etiquetas, colecciones y estado.
+- Nueva distribución OLED en `activity_book_detail.xml`: título y autor acotados; formato, tamaño y fecha en una franja; estado/favorito compactos; tres filas de organización seleccionables; «Abrir lector», «Consultar IA» y «Editar datos» visibles en la zona inferior. La pantalla normal **no requiere scroll**; el `ScrollView` solo es reserva para pantallas muy pequeñas o fuentes de accesibilidad aumentadas.
+- `BookOrganizationEditor.kt`: diálogo desde la propia ficha para marcar o desmarcar elementos existentes o crear+asignar un elemento nuevo. Categoría raíz, etiqueta y colección se insertan y enlazan al libro en **una transacción Room**; los nombres iguales sin distinguir mayúsculas se reutilizan, desasignar no elimina elementos del catálogo y no altera otros libros. Sin cambios de esquema ni backup.
+- Al tocar el estado se abre selector explícito de estado; favorito, IA, edición de metadatos, apertura de lector y revinculación de original por hash se conservan.
+- Evidencia: [Android UI instrumentado #44805098468](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098468) **SUCCESS, 2/2**, probado con viewport reducido a `900×1900 px` y sin desplazamiento vertical; [quality gate #44805098643](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098643) **SUCCESS**; [OCR/lector emulador #44805098464](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098464) **SUCCESS**. Smoke de arranque separado en curso al documentar.
+- Limitación: no se ha verificado el diseño aún en el Samsung físico ni a escalas de fuente extremas. No distribuir APK ni afirmar aceptación de dispositivo hasta confirmar.

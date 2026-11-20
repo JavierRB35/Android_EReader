@@ -4,11 +4,16 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.text.format.DateFormat
 import android.text.format.Formatter
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,9 +22,6 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
-import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
-import com.javierrb35.bibliotecaia.data.BookTagCrossRef
-import com.javierrb35.bibliotecaia.data.CollectionBookCrossRef
 import com.javierrb35.bibliotecaia.data.ReadingStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,8 +29,9 @@ import kotlinx.coroutines.withContext
 import java.util.Date
 
 /**
- * Ficha del libro (§7.2): metadatos, edición manual básica, favorito ortogonal y
- * asignaciones a categorías/etiquetas/colecciones.
+ * One-screen book details: reading actions and taxonomy assignments are
+ * available without visiting another screen. Large fonts may still scroll
+ * rather than losing controls outside the viewport.
  */
 class BookDetailActivity : AppCompatActivity() {
 
@@ -43,9 +46,8 @@ class BookDetailActivity : AppCompatActivity() {
     }
 
     private val db by lazy { AppDatabase.get(this) }
-    // Activity property initializers run BEFORE ContextWrapper.attachBaseContext().
-    // Accessing filesDir eagerly crashes when opening a book's details.
-    // OriginalLinker itself appends "books/<id>", so pass the app root once.
+    private val organizer by lazy { BookOrganizationEditor(db) }
+    // The Context must be attached before accessing filesDir (Issue #16).
     private val linker by lazy {
         com.javierrb35.bibliotecaia.backup.OriginalLinker(filesDir)
     }
@@ -65,18 +67,27 @@ class BookDetailActivity : AppCompatActivity() {
             finish()
             return
         }
-        load(bookId)
 
         findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
-
-        findViewById<View>(R.id.btnCycleStatus).setOnClickListener { cycleStatus() }
+        findViewById<View>(R.id.btnCycleStatus).setOnClickListener { promptReadingStatus() }
         findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
-        findViewById<View>(R.id.btnEditCategories).setOnClickListener { promptAssignCategories() }
-        findViewById<View>(R.id.btnEditTags).setOnClickListener { promptAssignTags() }
-        findViewById<View>(R.id.btnEditCollections).setOnClickListener { promptAssignCollections() }
+        findViewById<View>(R.id.btnEditCategories).setOnClickListener {
+            promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
+        }
+        findViewById<View>(R.id.btnEditTags).setOnClickListener {
+            promptAssignment(BookOrganizationEditor.Kind.TAG)
+        }
+        findViewById<View>(R.id.btnEditCollections).setOnClickListener {
+            promptAssignment(BookOrganizationEditor.Kind.COLLECTION)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
     }
 
     private fun openAi() {
@@ -87,18 +98,17 @@ class BookDetailActivity : AppCompatActivity() {
         else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
     }
 
-    /** Revinculación por hash (ADR-008): nunca por nombre; sin duplicar fichas. */
+    /** Revinculación by hash, never by filename. Preserve the user's metadata. */
     private fun linkOriginal(uri: android.net.Uri) {
         val current = book ?: return
         lifecycleScope.launch {
+            val temp = java.io.File.createTempFile("link_", ".tmp", cacheDir)
             try {
-                val temp = java.io.File(cacheDir, "link_${'$'}{System.currentTimeMillis()}.tmp")
                 contentResolver.openInputStream(uri)?.use { input ->
                     temp.outputStream().use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Sin lectura")
-                val linked: com.javierrb35.bibliotecaia.data.BookEntity? =
+                val linked: BookEntity? =
                     withContext(Dispatchers.IO) { linker.link(temp, listOf(current)) }
-                temp.delete()
                 if (linked == null) {
                     Toast.makeText(this@BookDetailActivity,
                         R.string.detail_link_nomatch, Toast.LENGTH_LONG).show()
@@ -111,6 +121,8 @@ class BookDetailActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Toast.makeText(this@BookDetailActivity,
                     getString(R.string.detail_link_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+            } finally {
+                temp.delete()
             }
         }
     }
@@ -129,53 +141,85 @@ class BookDetailActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
-    }
-
     private fun show(b: BookEntity) {
         findViewById<TextView>(R.id.txtDetailTitle).text = b.title
         findViewById<TextView>(R.id.txtDetailAuthors).text =
             b.authors ?: getString(R.string.detail_no_authors)
         findViewById<TextView>(R.id.txtDetailFormat).text = b.format.name
-        findViewById<TextView>(R.id.txtDetailSize).text =
-            Formatter.formatShortFileSize(this, b.sizeBytes)
-        findViewById<TextView>(R.id.txtDetailAdded).text =
-            DateFormat.getDateFormat(this).format(Date(b.addedAt))
-        findViewById<TextView>(R.id.txtDetailStatus).text = statusLabel(b.readingStatus)
+
+        val size = Formatter.formatShortFileSize(this, b.sizeBytes)
+        findViewById<TextView>(R.id.txtDetailSize).apply {
+            text = size
+            contentDescription = getString(R.string.detail_size_content, size)
+        }
+        val added = DateFormat.getDateFormat(this).format(Date(b.addedAt))
+        findViewById<TextView>(R.id.txtDetailAdded).apply {
+            text = added
+            contentDescription = getString(R.string.detail_added_content, added)
+        }
+        val status = statusLabel(b.readingStatus)
+        findViewById<TextView>(R.id.txtDetailStatus).text = status
+        findViewById<View>(R.id.btnCycleStatus).contentDescription =
+            getString(R.string.detail_status_content, status)
+
         val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).exists()
-        findViewById<TextView>(R.id.txtDetailFile).text =
-            if (fileAvailable) b.fileName else getString(R.string.detail_file_missing)
+        findViewById<TextView>(R.id.txtDetailFile).apply {
+            text = if (fileAvailable)
+                getString(R.string.detail_file_compact, b.fileName)
+            else getString(R.string.detail_file_missing)
+            contentDescription = if (fileAvailable)
+                getString(R.string.detail_file_compact, b.fileName)
+            else getString(R.string.detail_file_missing)
+        }
         findViewById<View>(R.id.btnLink).visibility =
             if (fileAvailable) View.GONE else View.VISIBLE
-        findViewById<TextView>(R.id.btnFavorite).setText(
-            if (b.favorite) R.string.btn_unfavorite else R.string.btn_favorite
-        )
+        findViewById<TextView>(R.id.btnFavorite).apply {
+            setText(if (b.favorite) R.string.detail_favorite_selected else R.string.detail_favorite_short)
+            contentDescription = getString(if (b.favorite) R.string.btn_unfavorite else R.string.btn_favorite)
+        }
     }
 
     private suspend fun showAssignments(bookId: String) {
         val refs = db.refsDao()
-        findViewById<TextView>(R.id.txtDetailCategories).text =
-            refs.categoryNamesForBook(bookId).joinToString(", ").ifEmpty { getString(R.string.detail_none) }
-        findViewById<TextView>(R.id.txtDetailTags).text =
-            refs.tagNamesForBook(bookId).joinToString(", ").ifEmpty { getString(R.string.detail_none) }
-        findViewById<TextView>(R.id.txtDetailCollections).text =
-            refs.collectionNamesForBook(bookId).joinToString(", ").ifEmpty { getString(R.string.detail_none) }
+        renderAssignment(R.id.txtDetailCategories, R.id.btnEditCategories,
+            getString(R.string.detail_categories), refs.categoryNamesForBook(bookId))
+        renderAssignment(R.id.txtDetailTags, R.id.btnEditTags,
+            getString(R.string.detail_tags), refs.tagNamesForBook(bookId))
+        renderAssignment(R.id.txtDetailCollections, R.id.btnEditCollections,
+            getString(R.string.detail_collections), refs.collectionNamesForBook(bookId))
     }
 
-    private fun cycleStatus() {
+    private fun renderAssignment(
+        textId: Int, rowId: Int, title: String, values: List<String>
+    ) {
+        val selected = values.joinToString(", ")
+        findViewById<TextView>(textId).text =
+            selected.ifEmpty { getString(R.string.detail_assignment_empty) }
+        findViewById<View>(rowId).contentDescription =
+            getString(R.string.detail_assignment_content, title,
+                selected.ifEmpty { getString(R.string.detail_none) })
+    }
+
+    private fun promptReadingStatus() {
         val current = book ?: return
-        val next = when (current.readingStatus) {
-            ReadingStatus.PENDING -> ReadingStatus.READING
-            ReadingStatus.READING -> ReadingStatus.FINISHED
-            ReadingStatus.FINISHED -> ReadingStatus.ABANDONED
-            ReadingStatus.ABANDONED -> ReadingStatus.PENDING
-        }
-        lifecycleScope.launch {
-            db.bookDao().update(current.copy(readingStatus = next))
-            load(current.id)
-        }
+        val options = ReadingStatus.values()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.btn_cycle_status)
+            .setSingleChoiceItems(options.map(::statusLabel).toTypedArray(),
+                options.indexOf(current.readingStatus)) { dialog, which ->
+                lifecycleScope.launch {
+                    try {
+                        db.bookDao().update(current.copy(readingStatus = options[which]))
+                        load(current.id)
+                    } catch (_: Exception) {
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_status_update_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
     }
 
     private fun toggleFavorite() {
@@ -186,18 +230,20 @@ class BookDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Edición manual básica de metadatos (§7.2). El resto de campos, en rebanadas posteriores. */
     private fun promptEditMetadata() {
         val current = book ?: return
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 24, 48, 0)
+            setPadding(20.dp, 12.dp, 20.dp, 0)
         }
-        val titleInput = EditText(this).apply { setText(current.title); hint = getString(R.string.detail_title_hint) }
-        val authorsInput = EditText(this).apply { setText(current.authors ?: ""); hint = getString(R.string.detail_authors_hint) }
+        val titleInput = EditText(this).apply {
+            setText(current.title); hint = getString(R.string.detail_title_hint)
+        }
+        val authorsInput = EditText(this).apply {
+            setText(current.authors ?: ""); hint = getString(R.string.detail_authors_hint)
+        }
         container.addView(titleInput)
         container.addView(authorsInput)
-
         AlertDialog.Builder(this)
             .setTitle(R.string.detail_edit_title)
             .setView(container)
@@ -214,108 +260,107 @@ class BookDetailActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun promptAssignCategories() {
+    /**
+     * Each organization row opens a compact in-place editor. It can select
+     * existing items, remove links, and create-and-assign a new item in one save.
+     * No detour to OrganizeActivity and no destructive delete of library items.
+     */
+    private fun promptAssignment(kind: BookOrganizationEditor.Kind) {
         val current = book ?: return
         lifecycleScope.launch {
-            val all = db.categoryDao().allOnce()
-            val selected = db.refsDao().categoryIdsForBook(current.id).toSet()
-            multiSelect(
-                title = getString(R.string.detail_assign_categories),
-                ids = all.map { it.id },
-                labels = all.map { it.name },
-                selected = selected
-            ) { newSelection ->
-                lifecycleScope.launch {
-                    applySelection(
-                        current.id, selected, newSelection,
-                        add = { db.refsDao().addBookCategory(BookCategoryCrossRef(current.id, it)) },
-                        remove = { db.refsDao().removeBookCategory(current.id, it) }
-                    )
-                    load(current.id)
-                }
+            try {
+                showAssignmentDialog(current.id, kind, organizer.snapshot(current.id, kind))
+            } catch (_: Exception) {
+                Toast.makeText(this@BookDetailActivity,
+                    R.string.detail_assignment_load_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun promptAssignTags() {
-        val current = book ?: return
-        lifecycleScope.launch {
-            val all = db.tagDao().allOnce()
-            val selected = db.refsDao().tagIdsForBook(current.id).toSet()
-            multiSelect(
-                title = getString(R.string.detail_assign_tags),
-                ids = all.map { it.id },
-                labels = all.map { it.name },
-                selected = selected
-            ) { newSelection ->
-                lifecycleScope.launch {
-                    applySelection(
-                        current.id, selected, newSelection,
-                        add = { db.refsDao().addBookTag(BookTagCrossRef(current.id, it)) },
-                        remove = { db.refsDao().removeBookTag(current.id, it) }
-                    )
-                    load(current.id)
-                }
-            }
-        }
-    }
-
-    private fun promptAssignCollections() {
-        val current = book ?: return
-        lifecycleScope.launch {
-            val all = db.collectionDao().allOnce()
-            val selected = db.refsDao().collectionIdsForBook(current.id).toSet()
-            multiSelect(
-                title = getString(R.string.detail_assign_collections),
-                ids = all.map { it.id },
-                labels = all.map { it.name },
-                selected = selected
-            ) { newSelection ->
-                lifecycleScope.launch {
-                    applySelection(
-                        current.id, selected, newSelection,
-                        add = { db.refsDao().addCollectionBook(CollectionBookCrossRef(it, current.id)) },
-                        remove = { db.refsDao().removeCollectionBook(current.id, it) }
-                    )
-                    load(current.id)
-                }
-            }
-        }
-    }
-
-    private fun multiSelect(
-        title: String,
-        ids: List<String>,
-        labels: List<String>,
-        selected: Set<String>,
-        onResult: (Set<String>) -> Unit
+    private fun showAssignmentDialog(
+        bookId: String, kind: BookOrganizationEditor.Kind,
+        snapshot: BookOrganizationEditor.Snapshot
     ) {
-        if (ids.isEmpty()) {
-            Toast.makeText(this, R.string.detail_no_items_to_assign, Toast.LENGTH_SHORT).show()
-            return
+        val title = when (kind) {
+            BookOrganizationEditor.Kind.CATEGORY -> R.string.detail_assign_categories
+            BookOrganizationEditor.Kind.TAG -> R.string.detail_assign_tags
+            BookOrganizationEditor.Kind.COLLECTION -> R.string.detail_assign_collections
         }
-        val checked = BooleanArray(ids.size) { ids[it] in selected }
-        AlertDialog.Builder(this)
+        val newItemHint = when (kind) {
+            BookOrganizationEditor.Kind.CATEGORY -> R.string.detail_assignment_new_category
+            BookOrganizationEditor.Kind.TAG -> R.string.detail_assignment_new_tag
+            BookOrganizationEditor.Kind.COLLECTION -> R.string.detail_assignment_new_collection
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dp, 4.dp, 20.dp, 0)
+        }
+        val options = snapshot.options
+        val checklist = ListView(this).apply {
+            choiceMode = ListView.CHOICE_MODE_MULTIPLE
+            adapter = ArrayAdapter(this@BookDetailActivity,
+                android.R.layout.simple_list_item_multiple_choice, options.map { it.name })
+        }
+        if (options.isNotEmpty()) {
+            container.addView(TextView(this).apply {
+                text = getString(R.string.detail_assignment_existing)
+                setTextColor(0xffb7aa9b.toInt())
+                textSize = 13f
+                setPadding(0, 8.dp, 0, 3.dp)
+            })
+            container.addView(checklist, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (48 * options.size.coerceAtMost(5)).dp))
+            options.forEachIndexed { i, option ->
+                checklist.setItemChecked(i, option.id in snapshot.selected)
+            }
+        } else {
+            container.addView(TextView(this).apply {
+                text = getString(R.string.detail_assignment_none_available)
+                setTextColor(0xffb7aa9b.toInt())
+                textSize = 13f
+                setPadding(0, 8.dp, 0, 12.dp)
+            })
+        }
+
+        val input = EditText(this).apply {
+            hint = getString(newItemHint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(InputFilter.LengthFilter(64))
+            maxLines = 1
+            setSingleLine(true)
+        }
+        container.addView(input, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val dialog = AlertDialog.Builder(this)
             .setTitle(title)
-            .setMultiChoiceItems(labels.toTypedArray(), checked) { _, which, isChecked ->
-                checked[which] = isChecked
-            }
-            .setPositiveButton(R.string.dialog_ok) { _, _ ->
-                onResult(ids.filterIndexed { i, _ -> checked[i] }.toSet())
-            }
+            .setView(container)
             .setNegativeButton(R.string.dialog_cancel, null)
-            .show()
-    }
-
-    private suspend fun applySelection(
-        bookId: String,
-        oldSelection: Set<String>,
-        newSelection: Set<String>,
-        add: suspend (String) -> Unit,
-        remove: suspend (String) -> Unit
-    ) {
-        (newSelection - oldSelection).forEach { add(it) }
-        (oldSelection - newSelection).forEach { remove(it) }
+            .setPositiveButton(R.string.detail_assignment_save, null)
+            .create()
+        dialog.setOnShowListener {
+            val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            save.setOnClickListener {
+                val chosen = options.filterIndexed { i, _ ->
+                    checklist.isItemChecked(i)
+                }.map { it.id }.toSet()
+                save.isEnabled = false
+                lifecycleScope.launch {
+                    try {
+                        organizer.save(bookId, kind, chosen, input.text.toString())
+                        dialog.dismiss()
+                        load(bookId)
+                    } catch (e: Exception) {
+                        save.isEnabled = true
+                        Toast.makeText(this@BookDetailActivity,
+                            getString(R.string.detail_assignment_failed,
+                                e.message ?: getString(R.string.ai_generic_error)),
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun statusLabel(status: ReadingStatus): String = getString(
@@ -326,4 +371,6 @@ class BookDetailActivity : AppCompatActivity() {
             ReadingStatus.ABANDONED -> R.string.status_abandoned
         }
     )
+
+    private val Int.dp: Int get() = (this * resources.displayMetrics.density).toInt()
 }
