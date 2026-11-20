@@ -218,6 +218,7 @@ class AccountActivity : AppCompatActivity() {
         AccountFailure.Reason.RATE_LIMIT -> R.string.account_rate_limit
         AccountFailure.Reason.SECURE_STORAGE -> R.string.account_storage_error
         AccountFailure.Reason.INVALID_INPUT -> R.string.account_invalid_email_password
+        AccountFailure.Reason.EMAIL_DELIVERY_UNAVAILABLE -> R.string.account_email_delivery_unavailable
         else -> R.string.account_service_error
     }
 
