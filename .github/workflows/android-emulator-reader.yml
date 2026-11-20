@@ -63,11 +63,8 @@ jobs:
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
-          script: |
-            sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=2 \
-              '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
-              -Pkotlin.compiler.execution.strategy=in-process \
-              -Dorg.gradle.vfs.watch=false
+          # The runner executes each script line separately; do not use shell continuations.
+          script: sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
 
       - name: Archive emulator test results
         if: always()
