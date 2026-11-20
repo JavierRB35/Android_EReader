@@ -132,7 +132,19 @@ object BackupCodec {
         if (format !in 1..FORMAT_VERSION) {
             throw IllegalArgumentException("La copia usa un formato no compatible (versión $format).")
         }
-        return LibrarySnapshot(
+        // Old v1 backups may lack annotationVersions, introduced later.
+        // All other arrays have always been exported. Missing them is a truncated
+        // or malformed backup, NOT an empty library.
+        val required = listOf("books", "categories", "tags", "collections",
+            "bookCategories", "bookTags", "collectionBooks", "annotations", "readingPositions")
+        for (name in required) {
+            if (root.optJSONArray(name) == null)
+                throw IllegalArgumentException("Copia incompleta o dañada: falta $name.")
+        }
+        if (root.has("annotationVersions") && root.optJSONArray("annotationVersions") == null)
+            throw IllegalArgumentException("Copia dañada: historial de anotaciones no válido.")
+        return try {
+            LibrarySnapshot(
             books = root.optJSONArray("books").mapList { bookFrom(it) },
             categories = root.optJSONArray("categories").mapList { categoryFrom(it) },
             tags = root.optJSONArray("tags").mapList { tagFrom(it) },
@@ -146,12 +158,16 @@ object BackupCodec {
             annotations = root.optJSONArray("annotations").mapList { annotationFrom(it) },
             versions = root.optJSONArray("annotationVersions").mapList { versionFrom(it) },
             positions = root.optJSONArray("readingPositions").mapList { positionFrom(it) },
-        )
+            )
+        } catch (e: Exception) {
+            if (e is IllegalArgumentException) throw e
+            throw IllegalArgumentException("Copia incompleta o dañada: datos no válidos.", e)
+        }
     }
 
     private fun <T> JSONArray?.mapList(transform: (JSONObject) -> T): List<T> {
-        this ?: return emptyList()
-        return List(length()) { i -> transform(optJSONObject(i) ?: JSONObject()) }
+        this ?: return emptyList() // Only for historical annotationVersions.
+        return List(length()) { i -> transform(getJSONObject(i)) }
     }
 
     private fun bookFrom(o: JSONObject): BookEntity = BookEntity(
