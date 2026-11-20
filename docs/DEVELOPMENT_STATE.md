@@ -43,11 +43,11 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 
 ## Plan de diseño asumido por el coordinador (el agente de diseño abandonó)
 
-1. **Extractor de portada PDF** (`PdfCoverSource`, primera página vía `android.graphics.pdf.PdfRenderer`, sin dependencias nuevas, límites análogos a `EpubCoverSource` + test) — en curso por el coordinador.
+1. ✅ **Extractor de portada PDF** (`PdfCoverSource`): primera página vía `android.graphics.pdf.PdfRenderer`, sin dependencias, muestreo máx. 360×540 y límite 20.000 px. **Fix con evidencia de logcat**: PdfRenderer exige ARGB_8888 («Unsupported pixel format» con RGB_565). **Verificado en emulador con 2 PDFs reales** (Edge print-to-pdf y PDF artesanal con xref propio): portadas renderizadas; fallback tipográfico intacto para EPUB sin portada.
 2. Portada MOBI: bloqueada hasta que el agente de formats defina el extractor de texto («SIN PORTADA» aceptable de momento).
-3. Restyle de `BookDetailActivity`/`OrganizeActivity` a los tokens de `design.xml` — **BLOQUEADO temporalmente**: el agente de integración está modificando `BookDetailActivity.kt` en su worktree; evitar conflictos evitables. Retomar tras su push.
+3. Restyle a tokens de `design.xml`: ✅ `OrganizeActivity` + `activity_organize.xml` (título serif, cabeceras de sección en acento, filas con `bia_text`/`bia_text_secondary` vía recursos). `BookDetailActivity` sigue **BLOQUEADO** (el agente de integración lo modifica en su worktree).
 4. Accesibilidad (TalkBack, fuente ampliada) y tablet: tras integrar los lectores.
-5. El «leer» del catálogo apuntará al motor cuando `feature/reader-epub`/`feature/reader-pdf-mobi` se integren (el diseño ya lo anticipó: «el coordinador integra el acceso a motores de lectura»).
+5. El «leer» del catálogo apuntará al motor cuando el agente de integración cablee las actividades aisladas (`reader/` llegó a `main` sin registro en Manifest — trabajo suyo en curso).
 
 ## Problemas abiertos / bloqueos
 
@@ -57,6 +57,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 
 ## Siguiente acción concreta
 
-1. Coordinador: implementar `PdfCoverSource` + test y publicar.
-2. Vigilar pushes de `feature/reader-epub`, `feature/reader-pdf-mobi`, `feature/google-auth`, `feature/reader-integration`; integrar en orden: lectores → integración → auth; puntos calientes compartidos: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`.
-3. Actualizar este documento en cada integración. AndroidIDE-Rv2 en teléfono sigue pendiente de disponibilidad.
+1. ✅ `PdfCoverSource` publicado (`81a1746`); ✅ `feature/reader-pdf-mobi` integrado en `main` (`4c577f0`) — su capa de datos era idéntica a la de `main` (diff vacío verificado); 44/44 tests JVM (incluye 21 de `MobiDocumentTest`).
+2. Vigilar pushes de `feature/reader-epub`, `feature/reader-integration`, `feature/google-auth`; integrar en orden: lectores → integración → auth; puntos calientes compartidos: `Daos.kt`, `AppDatabase.kt`, `AndroidManifest.xml`, `BookDetailActivity.kt`.
+3. Los lectores integrados (`reader/`) están **aislados** (sin registro en Manifest): el cableado en ficha/catálogo lo completa el agente de integración; el coordinador lo verificará al llegar a `main`.
+4. Actualizar este documento en cada integración. AndroidIDE-Rv2 en teléfono sigue pendiente de disponibilidad.

@@ -315,8 +315,8 @@ class OrganizeActivity : AppCompatActivity() {
         TextView(this).apply {
             text = label
             textSize = 16f
-            // Color explícito: el tema día heredaría texto negro invisible sobre el fondo OLED
-            setTextColor(android.graphics.Color.parseColor("#E0D6CC"))
+            // Token del sistema de diseño (docs/design-system.md); nunca heredar del tema día
+            setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.bia_text))
             setPadding(0, 28, 0, 28)
             gravity = Gravity.CENTER_VERTICAL
             setOnClickListener { onClick() }
@@ -326,7 +326,7 @@ class OrganizeActivity : AppCompatActivity() {
         TextView(this).apply {
             text = getString(R.string.organize_empty)
             textSize = 13f
-            setTextColor(android.graphics.Color.parseColor("#A89C90"))
+            setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.bia_text_secondary))
             setPadding(0, 16, 0, 16)
         }
 }

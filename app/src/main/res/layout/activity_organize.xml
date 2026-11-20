@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
+    android:background="@color/bia_background"
     android:fillViewport="true">
 
     <LinearLayout
@@ -15,33 +15,27 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/organize_title"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:textColor="#E0D6CC" />
+            android:textSize="30sp"
+            android:fontFamily="serif"
+            android:textColor="@color/bia_text"
+            android:accessibilityHeading="true" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/organize_section_categories"
-            android:textSize="18sp"
+            android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#D7CCC8" />
+            android:textColor="@color/bia_accent" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btnAddCategory"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <Button
-                android:id="@+id/btnAddCategory"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/organize_add"
-                android:textColor="#D7CCC8" />
-        </LinearLayout>
+            android:text="@string/organize_add"
+            android:textColor="@color/bia_accent" />
 
         <LinearLayout
             android:id="@+id/listCategories"
@@ -54,24 +48,17 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/organize_section_tags"
-            android:textSize="18sp"
+            android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#D7CCC8" />
+            android:textColor="@color/bia_accent" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btnAddTag"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <Button
-                android:id="@+id/btnAddTag"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/organize_add"
-                android:textColor="#D7CCC8" />
-        </LinearLayout>
+            android:text="@string/organize_add"
+            android:textColor="@color/bia_accent" />
 
         <LinearLayout
             android:id="@+id/listTags"
@@ -84,24 +71,17 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="@string/organize_section_collections"
-            android:textSize="18sp"
+            android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#D7CCC8" />
+            android:textColor="@color/bia_accent" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btnAddCollection"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <Button
-                android:id="@+id/btnAddCollection"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/organize_add"
-                android:textColor="#D7CCC8" />
-        </LinearLayout>
+            android:text="@string/organize_add"
+            android:textColor="@color/bia_accent" />
 
         <LinearLayout
             android:id="@+id/listCollections"
