@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (adopción y finalización del Incremento 2 por el canal ZCode)
-**Fase actual:** Incremento 2 — Lectura: **NÚCLEO COMPLETADO** (catálogo → ficha → lector EPUB/PDF/MOBI funcionando; cuaderno Conocimiento operativo; Google Auth compilado y registrado)
+**Última actualización:** 2026-11-20 (sesión de finalización hacia 1.0)
+**Fase actual:** Incrementos 1-2 COMPLETOS · 4 (cuaderno) COMPLETO · 9 (núcleo offline) COMPLETO · 10 (workflow releases + comprobador) PARCIAL · 5-8 (auth real, sync, IA) BLOQUEADOS por credenciales/servicios del propietario
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -52,6 +52,32 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 ## Distribución (Incremento 10 adelantado)
 
 ✅ **Workflow de releases firmados integrado** (`d41d5eb`, revisado): `.github/workflows/release-apk.yml` — solo se activa con tags `vX.Y.Z` que sean ancestros de `main` y coincidan con `versionName`; build en 2 jobs con privilegios mínimos; firma vía secretos (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); zipalign + apksigner verify + checksum SHA256; idempotente. **Prerrequisitos pendientes (acción exclusiva del propietario):** crear el keystore de release (nunca en repo) y configurar los 4 secretos en GitHub — **verificado con `gh secret list` (2026-11-20): aún sin configurar**; sin ellos, un push de tag `v*` falla de forma segura en la firma sin publicar nada. **No etiquetar versiones hasta que los incrementos estén revisados.**
+
+## Estado funcional hacia la 1.0 (sesión de finalización)
+
+**Integrado y verificado en `main` (68/68 tests JVM + instrumentado + emulador):**
+
+| Incremento | Contenido | Estado |
+|---|---|---|
+| 1 — Biblioteca local | Catálogo Material 3 (búsqueda, estantes, grid/lista, portadas EPUB/PDF), organizador (categorías/etiquetas/colecciones), ficha editable, favoritos | ✅ COMPLETO |
+| 2 — Lectura | EPUB vía Readium 3.0.3 (offline, sanitizado), PDF con render en proceso aislado, MOBI acotado con rechazo de DRM/PalmDOC; posiciones y progreso persistentes; marcadores y anotaciones desde el lector (versionadas) | ✅ NÚCLEO COMPLETO |
+| 4 — Conocimiento | Cuaderno global (KnowledgeActivity): lista, búsqueda, nueva nota, editar con historial de versiones, papelera/restaurar, abrir origen, exportar a Markdown | ✅ COMPLETO |
+| 9 — Protección (núcleo) | BackupCodec JSON con 6 tests, restauración **aditiva** por hash con recuento honesto, posiciones solo si más recientes; exportar/restaurar vía SAF desde Ajustes | ✅ NÚCLEO (sin copia de archivos originales ni copias periódicas) |
+| 10 — Distribución | Workflow releases firmados + docs de firma + comprobador de actualizaciones (GitHub Releases público, instalación manual) | ✅ PARCIAL (falta: keystore/secretos verificados en un tag real, firma de producción) |
+| §18.4 Ajustes | Pantalla Ajustes con diagnóstico real de servicios, acceso a cuenta, acerca de | ✅ COMPLETO |
+
+**Bloqueados por credenciales/servicios del propietario (adaptadores no verificables sin ellos):**
+
+| Incremento | Bloqueo | Acción del propietario |
+|---|---|---|
+| 5-6 — Sync + multiusuario | Proyecto Supabase inexistente | Crear proyecto Supabase; configurar URL y clave pública anón en `local.properties` (`BIBLIOTECA_SUPABASE_URL`, `BIBLIOTECA_SUPABASE_KEY`) — la app ya valida que sea anón |
+| 5 — Google Auth real | Google Cloud sin configurar | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-256) |
+| 7-8 — IA (Gemini/Groq) | Sin claves API | Obtener claves en AI Studio / GroqCloud Console; el incremento requiere además diseño del asistente en el lector y RAG |
+| 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
+
+**Pendientes técnicas propias del código (sin bloqueo externo):** portada MOBI (espera extractor), restyle fino de ficha/cuaderno a tokens de diseño, accesibilidad (TalkBack, fuente ampliada), tablet, OCR, copia de archivos originales en backup (hoy solo metadatos), copias periódicas.
+
+**Verificación obligatoria pendiente en el teléfono (propietario):** `sh ./build-on-phone.sh` en AndroidIDE-Rv2. Nota operativa: Readium aumenta la memoria de la fusión dex (en escritorio se resolvió con `-Dorg.gradle.jvmargs=-Xmx3g` por línea de comandos); si el teléfono se queda sin memoria, evaluar JAVA_OPTS en `build-on-phone.sh` con precaución (la prohibición de `-Xmx2048m` en `gradle.properties` sigue vigente).
 
 ## Problemas abiertos / bloqueos
 
