@@ -58,7 +58,7 @@ class SingleFileBackupInstrumentedTest {
             }
 
             original2.writeText("PDF de prueba propio")
-            db.bookDao().insert(BookEntity(id2, "Dos", null, BookFormat.PDF,
+            db.bookDao().update(BookEntity(id2, "Dos", null, BookFormat.PDF,
                 original2.name, original2.absolutePath, hash(original2),
                 original2.length(), System.currentTimeMillis()))
             assertEquals(2, manager.exportTo(uri, replaceExisting = true).books)
