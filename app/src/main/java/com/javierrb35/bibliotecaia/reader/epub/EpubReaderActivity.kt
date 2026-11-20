@@ -329,8 +329,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         val chapter = nativeChapter
                         val at = nativeText.getOffsetForPosition(event.x, event.y)
                         val mark = if (chapter == null) null else annotations.firstOrNull {
-                            val range = NativeEpubAnchors.validatedRange(
-                                it.locator, it.quote, chapter.href, chapter.text)
+                            val range = nativeMarkRange(it, chapter)
                             range != null && at in range
                         }
                         if (mark == null) false else {
@@ -488,12 +487,19 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
 
+    private fun nativeMarkRange(
+        note: AnnotationEntity, chapter: NativeEpubText.Chapter
+    ): IntRange? = NativeEpubAnchors.validatedRange(
+        note.locator, note.quote, chapter.href, chapter.text
+    ) ?: NativeEpubAnchors.uniqueLegacyReadiumRange(
+        note.locator, note.quote, chapter.href, chapter.text
+    )
+
     private fun paintNativeMarks() {
         val chapter = nativeChapter ?: return
         val text = SpannableString(chapter.text)
         for (note in annotations) {
-            val range = NativeEpubAnchors.validatedRange(
-                note.locator, note.quote, chapter.href, chapter.text) ?: continue
+            val range = nativeMarkRange(note, chapter) ?: continue
             if (note.kind == "HIGHLIGHT") {
                 text.setSpan(UnderlineSpan(), range.first, range.last + 1,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
