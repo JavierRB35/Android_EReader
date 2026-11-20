@@ -271,41 +271,22 @@ Responsabilidades:
 
 Debe garantizar que las anotaciones mantengan su relación con el documento de origen.
 
-## AGENTE 4 — IDENTIDAD GOOGLE Y GOOGLE DRIVE
+## AGENTE 4 — COPIAS ÍNTEGRAS SAF Y RESTAURACIÓN
 
 Responsabilidades:
+- Guardar ZIP con originales físicos EPUB/PDF/MOBI y todos los datos.
+- Usar Storage Access Framework para que el usuario elija libremente el destino.
+- Verificar SHA-256, límites, ZIP corrupto, rutas maliciosas y ausencias.
+- Restaurar archivos locales y Room sin sobreescrituras destructivas, con reintentos.
+- Probar Drive como DocumentsProvider y un destino local, **sin OAuth**.
 
-- Inicio de sesión con Google.
-- Integración con Supabase Auth.
-- Autorización OAuth para Drive.
-- Gestión de permisos.
-- Creación de carpetas.
-- Subida y descarga.
-- Reanudación de transferencias.
-- Identificación de duplicados.
-- Caducidad y renovación de autorizaciones.
-- Revocación de permisos.
-- Integridad de archivos.
-
-Debe mantener separadas la autenticación de identidad y la autorización de acceso a Drive.
-
-## AGENTE 5 — SUPABASE Y SINCRONIZACIÓN
+## AGENTE 5 — PERSISTENCIA LOCAL E INTEGRIDAD
 
 Responsabilidades:
-
-- Diseño PostgreSQL.
-- Esquemas y migraciones.
-- Row Level Security.
-- Persistencia por usuario.
-- Base local Room/SQLite.
-- Sincronización incremental.
-- Resolución de conflictos.
-- Funcionamiento offline.
-- Asociación de datos locales con cuentas.
-- Gestión de borrados y versiones.
-- Recuperación tras interrupciones.
-
-Debe diseñar la base de datos para múltiples usuarios desde el principio.
+- Room/SQLite, migraciones no destructivas, catálogo y versiones de notas.
+- Identificadores estables y deduplicación por SHA-256 al restaurar.
+- Recuperación tras interrupciones y operaciones transaccionales.
+- **No** implementar Supabase Auth, cuentas, sincronización ni registro de usuario.
 
 ## AGENTE 6 — INTELIGENCIA ARTIFICIAL Y RAG
 
@@ -1726,7 +1707,7 @@ Permitir crear un archivo de copia que incluya:
 - Preferencias.
 - Manifest y versión.
 - Comprobaciones de integridad.
-- Libros originales si el usuario solicita copia completa.
+- **Obligatoriamente todos los libros originales** EPUB/PDF/MOBI, no como opción.
 
 No incluir credenciales API en las exportaciones.
 
@@ -1842,43 +1823,23 @@ Si el usuario continúa sin cuenta:
 - Informar de la utilidad de las copias.
 - No bloquear con formularios innecesarios.
 
-## 18.3. Inicio autenticado
+## 18.3. Inicio sin autenticación
 
-Mostrar asistente de configuración:
+La app abre la biblioteca local sin pedir correo, login ni OAuth. En Ajustes ofrece:
+- Exportar copia ZIP completa mediante selector SAF.
+- Restaurar copia ZIP completa mediante selector SAF.
+- Importar JSON heredado con aviso de originales no incluidos.
+- Configurar IA Gemini/Groq BYOK opcional, independiente del backup.
 
-1. Cuenta Google.
-2. Permiso Drive.
-3. Carpeta de biblioteca.
-4. Configuración Gemini.
-5. Configuración Groq.
-6. Pruebas de conexión.
-7. Preferencias de sincronización.
-8. Finalización.
+## 18.4. Estado real de los servicios
 
-Permitir completar posteriormente pasos opcionales.
-
-No obligar a configurar ambos LLM si uno funciona.
-
-## 18.4. Estado de servicios
-
-Crear pantalla de diagnóstico:
-
-```text
-Cuenta Google       Conectada
-Google Drive        Conectado
-Supabase            Sincronizado
-Gemini              Disponible
-Groq                Disponible
-Última sincronización
-Copias de seguridad
-Versión instalada
-```
-
-Los estados deben proceder de comprobaciones reales.
-
-No mostrar conectividad ficticia.
+Mostrar solo información comprobable: número de libros locales, preferencias,
+configuración opcional de IA, copia/restauración y versión instalada.
+**No mostrar estados de Google, Gmail, Supabase Auth o sincronización inexistente**.
 
 ---
+
+
 
 # 19. SEGURIDAD Y PRIVACIDAD
 
@@ -2093,27 +2054,26 @@ No ejecutar toda la suite después de cada cambio menor.
 5. Comprobar datos.
 6. Abrir libros y anotaciones.
 
-### Escenario K — Aislamiento multiusuario
+### Escenario K — Aislamiento entre copias/dispositivos
 
-1. Crear usuario A.
-2. Crear datos A.
-3. Crear usuario B.
-4. Intentar acceder a datos A desde B.
-5. Verificar denegación.
-6. Verificar ausencia de filtración por índices y búsquedas.
+1. Crear libros y notas en instalación A sin cuentas.
+2. Importar otros libros en instalación B.
+3. Restaurar ZIP de A en B.
+4. Verificar que no se borraron libros/notas previos de B.
+5. Verificar que ningún archivo fue sustituido por otro de hash diferente.
+6. Repetir la restauración sin duplicados.
 
 ### Escenario L — Resistencia
 
 Comprobar:
 
 - Cortes de Internet.
-- Tokens caducados.
-- Drive sin permiso.
-- Cuota agotada.
-- Archivos corruptos.
+- Destino SAF/Drive temporalmente inaccesible o sin permiso de documento.
+- Espacio insuficiente en origen/destino.
+- Archivos corruptos o ZIP incompleto.
 - APK interrumpida.
-- Aplicación cerrada durante sincronización.
-- Conflictos.
+- Aplicación cerrada durante exportación/restauración.
+- Restauraciones repetidas y conflictos de hash.
 - Escasez de memoria.
 - Procesamiento cancelado.
 
@@ -2189,29 +2149,21 @@ Realizar antes las pruebas técnicas que puedan revelar bloqueos de compatibilid
 
 **Salida:** sistema avanzado de anotaciones.
 
-## Incremento 5 — Identidad y Drive
+## Incremento 5 — Copia íntegra mediante SAF
 
-- Google Auth.
-- Supabase Auth.
-- Permisos Drive.
-- Carpetas.
-- Transferencias.
-- Recuperación.
-- Sincronización de archivos.
+- ZIP completo con originales físicos y metadatos/versión del catálogo.
+- Elegir Drive, USB, memoria local u otro destino mediante DocumentsProvider.
+- Integridad SHA-256 y protección frente a ZIP alterados o archivos ausentes.
 
-**Salida:** libros recuperables en otro dispositivo.
+**Salida:** copia portatil válida y sin OAuth.
 
-## Incremento 6 — Sincronización
+## Incremento 6 — Restauración íntegra en otro dispositivo
 
-- Cambios incrementales.
-- Operaciones offline.
-- Conflictos.
-- Posiciones.
-- Anotaciones.
-- Fusión local/cuenta.
-- Aislamiento por usuario.
+- Comprobar ZIP y cada original antes de modificar Room.
+- Reponer originales offline y notas/subrayados/locators/versiones/posiciones.
+- Idempotencia, reintentos, recuperación ante cortes y sin destruir datos.
 
-**Salida:** continuidad multidispositivo real.
+**Salida:** continuidad manual entre dispositivos sin cuentas ni sincronización automática.
 
 ## Incremento 7 — IA
 
