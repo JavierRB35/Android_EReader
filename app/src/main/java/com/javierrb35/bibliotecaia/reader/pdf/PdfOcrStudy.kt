@@ -226,8 +226,12 @@ class PdfOcrStudy(
                         spans.setSpan(UnderlineSpan(), range.first, range.last + 1,
                             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else if (mark.kind == "NOTE") {
-                        spans.setSpan(BackgroundColorSpan(0xffb59b62.toInt()),
+                        // A translucent amber background stays legible with
+                        // the light OCR text; opaque gold had poor contrast.
+                        spans.setSpan(BackgroundColorSpan(0x66b59b62),
                             range.first, range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        spans.setSpan(UnderlineSpan(), range.first, range.last + 1,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                 }
                 selection.setText(spans, TextView.BufferType.SPANNABLE)
