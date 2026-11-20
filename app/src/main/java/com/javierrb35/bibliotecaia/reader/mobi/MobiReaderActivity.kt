@@ -56,6 +56,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var endOffset = 0
     private var loaded = false
     private var annotations = emptyList<AnnotationEntity>()
+    private var selectedAbsoluteOffset = 0
     private var touchX = 0f
     private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
@@ -91,7 +92,7 @@ class MobiReaderActivity : AppCompatActivity() {
                 }
             }
             override fun explainWithGemini(word: String) {
-                AiChatActivity.start(this@MobiReaderActivity, bookId, word, locator(visibleOffset()))
+                AiChatActivity.start(this@MobiReaderActivity, bookId, word, locator(selectedAbsoluteOffset))
             }
             override fun showError(message: String) {
                 Toast.makeText(this@MobiReaderActivity, message, Toast.LENGTH_LONG).show()
@@ -114,6 +115,11 @@ class MobiReaderActivity : AppCompatActivity() {
                 Toast.makeText(this, "Selecciona un máximo de 1.200 caracteres.",
                     Toast.LENGTH_LONG).show()
             } else AiChatActivity.start(this, bookId, quote, locator(offset + start))
+        }, object : DefinitionUi.SelectionLifecycle {
+            override fun onSelectionChanged(start: Int, end: Int) {
+                if (start >= 0 && end > start) selectedAbsoluteOffset = offset + start
+            }
+            override fun onSelectionFinished() = Unit
         })
         val tapSlop = ViewConfiguration.get(this).scaledTouchSlop
         content.setOnTouchListener { _, event ->
