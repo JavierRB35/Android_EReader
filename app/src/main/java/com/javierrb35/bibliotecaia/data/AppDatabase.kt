@@ -24,8 +24,9 @@ import java.util.UUID
         ReadingPositionEntity::class,
         AnnotationEntity::class,
         AnnotationVersionEntity::class,
+        SyncQueueEntry::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +38,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun collectionDao(): CollectionDao
     abstract fun refsDao(): RefsDao
+    abstract fun backupDao(): BackupDao
+    abstract fun syncQueueDao(): SyncQueueDao
 
     companion object {
 
@@ -49,6 +52,19 @@ abstract class AppDatabase : RoomDatabase() {
             "Economía", "Finanzas", "Empresa", "Psicología", "Biografías",
             "Formación", "Referencia", "Otros"
         )
+
+        /** v3→v4: cola local de cambios pendientes de sincronizar (Incremento 5-6). */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS sync_queue (" +
+                        "entityType TEXT NOT NULL, entityId TEXT NOT NULL, " +
+                        "operation TEXT NOT NULL, queuedAt INTEGER NOT NULL, " +
+                        "attempts INTEGER NOT NULL DEFAULT 0, lastError TEXT, " +
+                        "PRIMARY KEY(entityType, entityId))"
+                )
+            }
+        }
 
         /** v1→v2: columna ortogonal `favorite` para el estante Favoritos (§7.1). */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -77,7 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

@@ -98,12 +98,12 @@ internal object EpubValidator {
     fun hasEpubMimetype(openStream: () -> InputStream): Boolean =
         try {
             openStream().use { stream ->
-                java.util.zip.ZipInputStream(stream.buffered()).use { zip ->
+                BoundedZipInputStream(stream.buffered()).use { zip ->
                     var entry = zip.nextEntry
                     var checked = 0
                     while (entry != null && checked < 5) {
                         if (entry.name == "mimetype") {
-                            val content = zip.readBytes()
+                            val content = zip.readEntry(64)
                             return String(content, Charsets.US_ASCII).trim() == EPUB_MIMETYPE
                         }
                         checked++

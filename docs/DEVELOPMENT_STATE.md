@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (coordinación reconciliada con el agente de integración; lectores PDF/MOBI integrados)
-**Fase actual:** Incremento 1 COMPLETO · Incremento 2 en curso (diseño+portadas+organizador integrados; lectores PDF/MOBI integrados; EPUB/auth/wiring pendientes de sus agentes)
+**Última actualización:** 2026-11-20 (IA BYOK completa + backup con versiones + revinculación por hash)
+**Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -14,12 +14,12 @@ Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
 
 | Worktree | Rama | Área | Estado 2026-11-20 |
 |---|---|---|---|
-| `biblioteca-ux/` | `feature/design-system` | **Diseño — AGENTE ABANDONÓ el proyecto** | Terminó y publicó `cd19d25`. **INTEGRADO en `main` y verificado visualmente por el coordinador.** Sus tareas pendientes las retoma el coordinador (ver «Plan de diseño») |
-| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB (Readium) | Activo; a punto de commitear (`EpubOpeningTest`, EPUB de prueba en `androidTest/assets`). Sin push aún |
-| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | Activo; commit local `c1b3b29` «isolated PDF viewer and bounded MOBI text reader» + ajustes en curso. Sin push aún |
-| `biblioteca-integration/` | `feature/reader-integration` | Integración entre áreas (chat Codex; reserva Room/migraciones/manifest/navegación/cuaderno) | Checkpoint publicado e **integrado en main** (`70484ee`): su COORDINATION.md ratificado + identificación del canal ZCode respondida in situ. Cableado de navegación aún en curso (21 ficheros sin commit en su worktree) |
-| `biblioteca-auth/` | `feature/google-auth` | Google Auth + Drive | Activo (dependencias y schema v3 en curso). Sin push aún |
-| `Androdi_EReader/` | `main` | Coordinador: integra ramas verificadas y fusiona | El commit directo `ce402d8` (locators + anotaciones versionadas) se integró aquí |
+| `biblioteca-ux/` | `feature/design-system` | **Diseño — agente abandonó; trabajo INTEGRADO** (`cd19d25` + restyle organizador + PdfCoverSource por el canal ZCode) | Cerrado |
+| `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB | **ADOPTADO** → `integration/epub-adopted` → main (`789c163`): Readium 3.0.3, EpubOpener/Safety/Reader, 6 tests seguridad + test instrumentado VERDE en emulador |
+| `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | **INTEGRADO** (`4c577f0`) + refinamiento PalmDOC **ADOPTADO** (`2ea9980`) |
+| `biblioteca-integration/` | `feature/reader-integration` | Wiring (chat Codex) | **ADOPTADO** → `integration/wiring-adopted` → main (`3ab0159`): ficha→«Abrir lector»→ReaderRouter, navegación 3 espacios, KnowledgeActivity, BoundedZipInputStream; **verificado en emulador leyendo el Quijote real con Readium** |
+| `biblioteca-auth/` | `feature/google-auth` | Google Auth | **ADOPTADO** → `integration/auth-adopted` → main (`35120b3`): auth/ (Credential Manager, SecureSessionStore), AccountActivity registrada, guardia de clave pública anón en build.gradle, docs/setup/google-cloud.md; 58/58 tests |
+| `Androdi_EReader/` | `main` | Coordinador canal ZCode | Integra, verifica y publica; adopciones anunciadas en COORDINATION.md |
 
 **Reglas:** 1 worktree = 1 agente = 1 rama; no tocar el worktree ajeno ni cambiar su rama; no duplicar investigaciones; push frecuentes en la propia rama; fusiones a `main` solo de trabajos verificados y coordinados. El push a `main` puede chocar con otros coordinadores: `git fetch` + merge antes de push.
 
@@ -34,8 +34,8 @@ Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
   - ✅ **Locators de lectura y anotaciones versionadas INTEGRADOS en `main`** (`ce402d8`): tablas `reading_positions`, `annotations`, `annotation_versions` con **migración 2→3 no destructiva verificada sobre datos reales** en emulador (solo `CREATE TABLE IF NOT EXISTS`; el libro y sus datos sobrevivieron). El esquema v3 (`app/schemas/.../3.json`) queda ahora commiteado por el coordinador (omisión del autor original).
   - ⏳ Motores de lectura EPUB/PDF/MOBI: en desarrollo por los agentes de sus ramas (ver tabla).
   - ⏳ Google Auth + Drive: en desarrollo (rama `feature/google-auth`).
-- **Verificación integrada de `main` (dbc7b19 + merge de `1ee628e`):** BUILD SUCCESSFUL; **23/23 tests JVM** (9 formatos + 6 metadatos + 8 portadas); revisión visual en emulador correcta (biblioteca Material 3: encabezado editorial, chips con acento cálido, ficha tipográfica «SIN PORTADA», contador «1 libros», ★ favorito), datos preservados tras la migración.
-- Etiqueta honesta: todo lo anterior es **Verificado localmente (escritorio + emulador x86_64)**. AndroidIDE ARM64 en teléfono sigue **Pendiente**.
+- **Verificación integrada final (main @ adopción auth):** BUILD SUCCESSFUL; **58/58 tests JVM** (9 formatos + 6 metadatos + 8 portadas + 3 límites import + 21 MobiDocument + 6 EpubSafety + 5 AuthPolicy) + **1/1 test instrumentado** (EpubOpeningTest: Readium abre EPUB real con búsqueda de localizadores estables). Emulador: catálogo→ficha→**«Abrir lector»→Readium leyendo el Quijote real** (Capítulo 1 renderizado, OLED, progreso 0%, marcador), navegación 3 espacios con Conocimiento operativo, sin crashes.
+- Etiqueta honesta: **Verificado localmente (escritorio + emulador x86_64)**. Sin verificación con servicio: Google Auth real (requiere config del propietario). AndroidIDE ARM64 en teléfono: **Pendiente**.
 
 ## Revisión visual del diseño (tarea del agente de diseño, completada por el coordinador)
 
@@ -52,6 +52,34 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 ## Distribución (Incremento 10 adelantado)
 
 ✅ **Workflow de releases firmados integrado** (`d41d5eb`, revisado): `.github/workflows/release-apk.yml` — solo se activa con tags `vX.Y.Z` que sean ancestros de `main` y coincidan con `versionName`; build en 2 jobs con privilegios mínimos; firma vía secretos (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); zipalign + apksigner verify + checksum SHA256; idempotente. **Prerrequisitos pendientes (acción exclusiva del propietario):** crear el keystore de release (nunca en repo) y configurar los 4 secretos en GitHub — **verificado con `gh secret list` (2026-11-20): aún sin configurar**; sin ellos, un push de tag `v*` falla de forma segura en la firma sin publicar nada. **No etiquetar versiones hasta que los incrementos estén revisados.**
+
+## Estado funcional hacia la 1.0 (sesión de finalización)
+
+**Integrado y verificado en `main` (68/68 tests JVM + instrumentado + emulador):**
+
+| Incremento | Contenido | Estado |
+|---|---|---|
+| 1 — Biblioteca local | Catálogo Material 3 (búsqueda, estantes, grid/lista, portadas EPUB/PDF), organizador (categorías/etiquetas/colecciones), ficha editable, favoritos | ✅ COMPLETO |
+| 2 — Lectura | EPUB vía Readium 3.0.3 (offline, sanitizado), PDF con render en proceso aislado, MOBI acotado con rechazo de DRM/PalmDOC; posiciones y progreso persistentes; marcadores y anotaciones desde el lector (versionadas) | ✅ NÚCLEO COMPLETO |
+| 4 — Conocimiento | Cuaderno global (KnowledgeActivity): lista, búsqueda, nueva nota, editar con historial de versiones, papelera/restaurar, abrir origen, exportar a Markdown | ✅ COMPLETO |
+| 9 — Protección (núcleo) | BackupCodec JSON con 6 tests, restauración **aditiva** por hash con recuento honesto, posiciones solo si más recientes; exportar/restaurar vía SAF desde Ajustes | ✅ NÚCLEO (sin copia de archivos originales ni copias periódicas) |
+| 10 — Distribución | Workflow releases firmados + docs de firma + comprobador de actualizaciones (GitHub Releases público, instalación manual) | ✅ PARCIAL (falta: keystore/secretos verificados en un tag real, firma de producción) |
+| §18.4 Ajustes | Pantalla Ajustes con diagnóstico real de servicios, acceso a cuenta, acerca de | ✅ COMPLETO |
+
+**Bloqueados por credenciales/servicios del propietario (adaptadores no verificables sin ellos):**
+
+| Incremento | Bloqueo | Acción del propietario |
+|---|---|---|
+| 5-6 — Sync + multiusuario | **REVISIÓN DEL PROPIETARIO INTEGRADA**: sus 3 hallazgos corregidos vía PR #5 (fusionado `929b08b`, repo alineado con el esquema endurecido `initial_schema_hardened` YA DESPLEGADO: append-only real en versiones, `user_id default auth.uid()`, FKs compuestas de tenant en 10 relaciones, API solo autenticada). **Bug de pérdida corregido** (`c2884ac`): el motor JAMÁS descarta la cola por errores HTTP — fallo registrado en la entrada (intentos+error), aislamiento fila a fila cuando un lote falla, 4xx permanente se conserva para revisión. 77/77 tests. Pendiente: propietario aplica claves en `local.properties` + OAuth Google (punto B) para pruebas con sesión real |
+| 5 — Google Auth real | Google Cloud sin configurar (OAuth) | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-1 de firma, Web Client ID) y proveedor Google en Supabase |
+| 7-8 — IA (Gemini/Groq) | ~~Sin claves~~ **IMPLEMENTADO (BYOK)**: AiKeyStore cifrado (Keystore AES-GCM), Gemini + Groq con errores diferenciados, asistente guiado con PRUEBA REAL, chat con RAG por capítulos, referencias [n], anti-spoilers por progreso, historial JSON. **Pendiente:** verificación con claves reales del propietario (asistente→Guardar y probar) y análisis de imágenes |
+| 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
+
+**Recuperación de originales (ADR-008):** OriginalLinker vincula por SHA-256 (nunca por nombre) con copia local para offline; la ficha detecta archivo ausente y ofrece «Vincular archivo original…» vía SAF (Drive o cualquier origen); sin duplicar fichas. 4 tests de revinculación. Backup incluye ahora **versiones de anotaciones** (export+restore).
+
+**Pendientes técnicas propias del código:** OCR de PDFs escaneados (ML Kit — evaluación de tamaño en AndroidIDE pendiente), accesibilidad (TalkBack, fuente ampliada), tablet, portada MOBI, copia de archivos originales dentro del backup (hoy: metadatos + guía de revinculación), copias periódicas.
+
+**Verificación obligatoria pendiente en el teléfono (propietario):** `sh ./build-on-phone.sh` en AndroidIDE-Rv2. Nota operativa: Readium aumenta la memoria de la fusión dex (en escritorio se resolvió con `-Dorg.gradle.jvmargs=-Xmx3g` por línea de comandos); si el teléfono se queda sin memoria, evaluar JAVA_OPTS en `build-on-phone.sh` con precaución (la prohibición de `-Xmx2048m` en `gradle.properties` sigue vigente).
 
 ## Problemas abiertos / bloqueos
 

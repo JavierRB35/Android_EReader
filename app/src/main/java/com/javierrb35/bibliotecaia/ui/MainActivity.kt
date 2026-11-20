@@ -91,11 +91,26 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnOrganize).setOnClickListener {
             startActivity(Intent(this, OrganizeActivity::class.java))
         }
+        findViewById<View>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         findViewById<View>(R.id.btnImport).setOnClickListener {
             importLauncher.launch(IMPORT_MIME_TYPES)
         }
 
         observeCatalog()
+        findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.mainNavigation)
+            .setOnItemSelectedListener { item ->
+                when (item.itemId) {
+                    R.id.navKnowledge -> KnowledgeActivity.start(this)
+                    R.id.navRead -> lifecycleScope.launch {
+                        val recent = db.bookDao().lastRead()
+                        if (recent == null) Toast.makeText(this@MainActivity, R.string.no_recent_book, Toast.LENGTH_LONG).show()
+                        else ReaderRouter.open(this@MainActivity, recent.id)
+                    }
+                }
+                item.itemId == R.id.navLibrary
+            }
     }
 
     private fun observeCatalog() {

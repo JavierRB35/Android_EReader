@@ -4,6 +4,22 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
+// Only public client configuration belongs in an APK. Never accept server secrets.
+def authProperties = new Properties()
+def localAuthFile = rootProject.file('local.properties')
+if (localAuthFile.exists()) localAuthFile.withInputStream { authProperties.load(it) }
+def publicAuthValue = { name -> (authProperties.getProperty(name) ?: System.getenv(name) ?: '').trim() }
+def publicSupabaseKey = publicAuthValue('BIBLIOTECA_SUPABASE_KEY')
+if (publicSupabaseKey && !publicSupabaseKey.startsWith('sb_publishable_')) {
+    try {
+        def payload = new groovy.json.JsonSlurper().parseText(new String(Base64.urlDecoder.decode(publicSupabaseKey.split('\\.')[1]), 'UTF-8'))
+        if (payload.role != 'anon') throw new IllegalArgumentException()
+    } catch (Exception ignored) {
+        throw new GradleException('BIBLIOTECA_SUPABASE_KEY must be a publishable key or legacy anon key; server secrets are forbidden.')
+    }
+}
+def javaString = { value -> groovy.json.JsonOutput.toJson(value) }
+
 android {
     namespace 'com.javierrb35.bibliotecaia'
     compileSdk 34
@@ -15,7 +31,12 @@ android {
         versionCode 1
         versionName "0.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField 'String', 'SUPABASE_URL', javaString(publicAuthValue('BIBLIOTECA_SUPABASE_URL'))
+        buildConfigField 'String', 'SUPABASE_PUBLIC_KEY', javaString(publicSupabaseKey)
+        buildConfigField 'String', 'GOOGLE_WEB_CLIENT_ID', javaString(publicAuthValue('BIBLIOTECA_GOOGLE_WEB_CLIENT_ID'))
     }
+
+    buildFeatures { buildConfig true }
 
     buildTypes {
         release {
@@ -25,6 +46,7 @@ android {
     }
 
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -39,6 +61,17 @@ ksp {
 }
 
 dependencies {
+    // Lector EPUB (Readium 3.0.x: última línea que apunta a SDK 34) + sanitizado HTML
+    implementation 'org.readium.kotlin-toolkit:readium-shared:3.0.3'
+    implementation 'org.readium.kotlin-toolkit:readium-streamer:3.0.3'
+    implementation 'org.readium.kotlin-toolkit:readium-navigator:3.0.3'
+    implementation 'org.jsoup:jsoup:1.17.2'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+
+    // Native Google identity; pinned to retain the SDK34 baseline.
+    implementation 'androidx.credentials:credentials:1.3.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
@@ -52,6 +85,8 @@ dependencies {
     ksp 'androidx.room:room-compiler:2.6.1'
 
     testImplementation 'junit:junit:4.13.2'
+    // Des-duplicar el stub de org.json del SDK para tests JVM con JSON real
+    testImplementation 'org.json:json:20240303'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
 }
