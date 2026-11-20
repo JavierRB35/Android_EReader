@@ -9,3 +9,8 @@ build/
 .cxx
 .kotlin/
 *.apk.idsig
+
+# Private Android release-signing keys (never commit)
+*.jks
+*.keystore
+*.p12
