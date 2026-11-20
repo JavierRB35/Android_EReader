@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
@@ -25,91 +26,117 @@ import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.study.DefinitionUi
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.withContext
 
 /**
- * Optional, bundled, on-device OCR of the current rendered PDF page.
- * Does not transmit the PDF and never pretends that the raster PDF has a
- * selectable native text layer. Selection and visible underlines are provided
- * in a separate, accessible transcription panel.
+ * The selected OCR transcript is local and is a companion to the PDF bitmap.
+ * Word rectangles are saved with the annotation; the PDF itself is unchanged.
  */
 class PdfOcrStudy(
     private val activity: AppCompatActivity,
     private val bookId: String,
     private val repository: ReadingRepository
 ) {
-    companion object {
-        private const val MAX_OCR_CHARS = 16_000
-        private const val MAX_CACHED_BYTES = 64_000L
+    fun open(
+        page: Int, bitmap: Bitmap, contentHash: String,
+        status: (String) -> Unit, done: () -> Unit,
+        onSnapshot: (PdfOcrSnapshot) -> Unit
+    ) {
+        activity.lifecycleScope.launch {
+            val cached = withContext(Dispatchers.IO) {
+                PdfOcrStore.load(activity, bookId, page, contentHash)
+            }
+            if (cached != null) {
+                if (!activity.isDestroyed) {
+                    onSnapshot(cached)
+                    showText(page, cached)
+                }
+                done()
+                return@launch
+            }
+
+            status("Reconociendo texto localmente · página " + (page + 1) + "…")
+            try {
+                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                    .addOnSuccessListener { recognized ->
+                        activity.lifecycleScope.launch {
+                            try {
+                                val snapshot = fromRecognition(recognized, bitmap, contentHash)
+                                if (snapshot == null) {
+                                    status("No se encontró texto seleccionable en esta página.")
+                                    return@launch
+                                }
+                                val saved = withContext(Dispatchers.IO) {
+                                    PdfOcrStore.save(activity, bookId, page, snapshot)
+                                }
+                                if (saved && !activity.isDestroyed && !activity.isFinishing) {
+                                    status("Texto reconocido localmente · página " + (page + 1))
+                                    onSnapshot(snapshot)
+                                    showText(page, snapshot)
+                                } else {
+                                    status("No se pudo guardar el OCR. No se crearán anclajes inestables.")
+                                }
+                            } catch (cancel: CancellationException) { throw cancel }
+                            catch (_: Exception) { status("Error al preparar la transcripción OCR.") }
+                            finally { done() }
+                        }
+                    }
+                    .addOnFailureListener {
+                        if (!activity.isDestroyed) {
+                            status("El reconocimiento de texto local ha fallado.")
+                            done()
+                        }
+                    }
+                    .addOnCompleteListener { recognizer.close() }
+            } catch (_: Exception) {
+                status("El reconocimiento de texto no está disponible.")
+                done()
+            }
+        }
     }
 
-    fun open(page: Int, bitmap: Bitmap, status: (String) -> Unit, done: () -> Unit) {
-        val file = File(activity.filesDir, "ocr/$bookId/page-" + (page + 1) + ".txt")
-        val cached = runCatching {
-            if (file.isFile && file.length() > 0L && file.length() <= MAX_CACHED_BYTES) file.readText() else null
-        }.getOrNull()
-        if (!cached.isNullOrBlank()) {
-            showText(page, cached)
-            done()
-            return
+    /** ML Kit returns coordinates in input bitmap pixels; keep normalized boxes. */
+    internal fun fromRecognition(
+        result: Text, bitmap: Bitmap, hash: String
+    ): PdfOcrSnapshot? {
+        if (bitmap.width < 1 || bitmap.height < 1) return null
+        val lines = result.textBlocks.flatMap { it.lines }.map { line ->
+            line.elements.mapNotNull { element ->
+                val r = element.boundingBox ?: return@mapNotNull null
+                val box = PdfOcrRect(
+                    (r.left.toFloat() / bitmap.width).coerceIn(0f, 1f),
+                    (r.top.toFloat() / bitmap.height).coerceIn(0f, 1f),
+                    (r.right.toFloat() / bitmap.width).coerceIn(0f, 1f),
+                    (r.bottom.toFloat() / bitmap.height).coerceIn(0f, 1f)
+                )
+                if (box.valid()) element.text to box else null
+            }
         }
-
-        status("Reconociendo texto localmente · página " + (page + 1) + "…")
-        try {
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            recognizer.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener { recognized ->
-                    if (activity.isDestroyed || activity.isFinishing) return@addOnSuccessListener
-                    val plain = recognized.text.trim().take(MAX_OCR_CHARS)
-                    if (plain.isBlank()) {
-                        status("No se ha detectado texto en esta página.")
-                        return@addOnSuccessListener
-                    }
-                    // Keep the exact OCR transcript to avoid binding a repeated
-                    // quote to a different position on subsequent openings.
-                    val saved = runCatching {
-                        file.parentFile?.mkdirs()
-                        file.writeText(plain, Charsets.UTF_8)
-                    }.isSuccess
-                    if (saved) {
-                        status("Texto local disponible · página " + (page + 1))
-                        showText(page, plain)
-                    } else {
-                        status("Sin espacio para guardar el texto OCR. No se crearán anclajes inestables.")
-                    }
-                }
-                .addOnFailureListener {
-                    if (!activity.isDestroyed) status("No se pudo reconocer texto de esta página.")
-                }
-                .addOnCompleteListener {
-                    recognizer.close()
-                    if (!activity.isDestroyed) done()
-                }
-        } catch (_: Exception) {
-            status("El reconocimiento de texto no está disponible.")
-            done()
-        }
+        return PdfOcrGeometry.fromLines(lines, hash)
     }
 
-    private fun showText(page: Int, text: String) {
+    private fun showText(page: Int, snapshot: PdfOcrSnapshot) {
         if (activity.isDestroyed || activity.isFinishing) return
-        val d = activity.resources.displayMetrics.density
-        fun dp(value: Int) = (d * value).toInt()
+        val content = snapshot.text
+        val dpScale = activity.resources.displayMetrics.density
+        fun dp(value: Int) = (dpScale * value).toInt()
         val panel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(12))
             setBackgroundColor(Color.BLACK)
         }
         panel.addView(TextView(activity).apply {
-            this.text = "Texto reconocido en el dispositivo. Puede contener errores de OCR. " +
-                "Selecciona para definir, anotar, subrayar o interpretar con IA."
+            text = "Transcripción OCR local: puede contener errores. " +
+                "Los subrayados se mostrarán también sobre la página PDF."
             setTextColor(0xffe8dfce.toInt())
             textSize = 13f
         })
         val selection = TextView(activity).apply {
-            setText(text)
+            text = content
             setTextColor(0xffe8dfce.toInt())
             textSize = 18f
             setLineSpacing(dp(4).toFloat(), 1.12f)
@@ -119,44 +146,57 @@ class PdfOcrStudy(
         panel.addView(selection)
         val scroll = ScrollView(activity).apply {
             addView(panel)
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                (activity.resources.displayMetrics.heightPixels * 0.70f).toInt()
-            )
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                (activity.resources.displayMetrics.heightPixels * 0.70f).toInt())
         }
+
         var selectedOffset = 0
+        fun anchor(start: Int, quote: String): String? =
+            PdfOcrAnchors.anchoredLocator(page, start, quote, snapshot)
+        fun invalidSelection() =
+            toast("No se han podido localizar las coordenadas exactas de este fragmento.")
+
         val delegate = object : DefinitionUi.Delegate {
             override fun openExternal(url: String) {
                 try {
                     activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         .addCategory(Intent.CATEGORY_BROWSABLE))
-                } catch (_: Exception) {
-                    toast("No se pudo abrir la fuente externa.")
-                }
+                } catch (_: Exception) { toast("No se pudo abrir la fuente externa.") }
             }
             override fun explainWithGemini(word: String) {
-                AiChatActivity.start(activity, bookId, word, PdfOcrAnchors.locator(page, selectedOffset))
+                val locator = anchor(selectedOffset, word)
+                if (locator == null) invalidSelection()
+                else AiChatActivity.start(activity, bookId, word, locator)
             }
             override fun showError(message: String) = toast(message)
         }
-        val configured = AiKeyStore.providers().any { AiKeyStore.getKey(activity, it) != null }
+        val configured = AiKeyStore.providers().any {
+            AiKeyStore.getKey(activity, it) != null
+        }
         DefinitionUi.attach(activity, selection, configured, delegate,
             DefinitionUi.SelectionHandler { quote, start, _ ->
-                AnnotationEditor.show(activity, bookId, PdfOcrAnchors.locator(page, start), quote, "NOTE")
+                val locator = anchor(start, quote)
+                if (locator == null) invalidSelection()
+                else AnnotationEditor.show(activity, bookId, locator, quote, "NOTE")
             },
             DefinitionUi.UnderlineHandler { quote, start, _ ->
-                activity.lifecycleScope.launch {
+                val locator = anchor(start, quote)
+                if (locator == null) invalidSelection()
+                else activity.lifecycleScope.launch {
                     try {
-                        repository.addAnnotation(bookId, PdfOcrAnchors.locator(page, start),
-                            quote, "", "HIGHLIGHT")
-                        toast("Texto OCR subrayado.")
+                        repository.addAnnotation(bookId, locator, quote, "", "HIGHLIGHT")
+                        toast("Subrayado guardado sobre PDF.")
                     } catch (cancel: CancellationException) { throw cancel }
                     catch (_: Exception) { toast("No se pudo guardar el subrayado.") }
                 }
             },
             DefinitionUi.FragmentHandler { quote, start, _ ->
                 if (quote.length > 1200) toast("Selecciona un máximo de 1.200 caracteres.")
-                else AiChatActivity.start(activity, bookId, quote, PdfOcrAnchors.locator(page, start))
+                else {
+                    val locator = anchor(start, quote)
+                    if (locator == null) invalidSelection()
+                    else AiChatActivity.start(activity, bookId, quote, locator)
+                }
             },
             object : DefinitionUi.SelectionLifecycle {
                 override fun onSelectionChanged(start: Int, end: Int) {
@@ -175,9 +215,12 @@ class PdfOcrStudy(
         val observe = activity.lifecycleScope.launch {
             repository.observeAnnotations(bookId).collect { marks ->
                 if (!dialog.isShowing) return@collect
-                val spans = SpannableString(text)
+                val spans = SpannableString(content)
                 for (mark in marks) {
-                    val range = PdfOcrAnchors.range(mark.locator, page, text, mark.quote) ?: continue
+                    if (PdfOcrAnchors.overlayBoxes(mark.locator, page, mark.quote,
+                            snapshot.contentHash, snapshot).isEmpty()) continue
+                    val range = PdfOcrAnchors.range(mark.locator, page, content, mark.quote)
+                        ?: continue
                     if (mark.kind == "HIGHLIGHT") {
                         spans.setSpan(UnderlineSpan(), range.first, range.last + 1,
                             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
