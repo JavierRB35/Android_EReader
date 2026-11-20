@@ -706,7 +706,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             override fun showError(message: String) = toast(message)
         }
 
-    /** The native copy/share/select-all actions are intentionally preserved. */
+    /** Readium WebView selection: native Copy/Share/Select All plus study actions. */
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
             DefinitionUi.populateSelectionMenu(menu)
@@ -719,7 +719,62 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
 
         override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
-            if (item == null || !DefinitionUi.isStudyAction(item.itemId)) return false
+            if (item == null) return false
+
+            // Readium replaces Android's WebView ActionMode callback. Returning
+            // false would NOT copy/share/select here: handle the native IDs.
+            if (item.itemId == android.R.id.copy || item.itemId == android.R.id.shareText) {
+                lifecycleScope.launch {
+                    try {
+                        val quote = navigator?.currentSelection()?.locator?.text?.highlight.orEmpty()
+                        if (quote.isBlank()) {
+                            toast("No hay texto seleccionado.")
+                        } else if (item.itemId == android.R.id.copy) {
+                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(
+                                android.content.ClipData.newPlainText("Texto seleccionado", quote)
+                            )
+                        } else {
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, quote)
+                            }
+                            startActivity(Intent.createChooser(share, "Compartir fragmento"))
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        toast("No se pudo copiar o compartir el fragmento.")
+                    } finally {
+                        mode?.finish()
+                    }
+                }
+                return true
+            }
+            if (item.itemId == android.R.id.selectAll) {
+                lifecycleScope.launch {
+                    try {
+                        // Scope is the currently visible EPUB resource, not the
+                        // whole library. Keep the ActionMode open for Copy/Share.
+                        val selected = navigator?.evaluateJavascript(
+                            "(function(){var s=window.getSelection();" +
+                                "if(!s||!document.body)return false;" +
+                                "var r=document.createRange();" +
+                                "r.selectNodeContents(document.body);" +
+                                "s.removeAllRanges();s.addRange(r);return true;})()"
+                        )
+                        if (selected != "true") toast("No se pudo seleccionar todo el texto.")
+                        else mode?.invalidate()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        toast("No se pudo seleccionar todo el texto.")
+                    }
+                }
+                return true
+            }
+            if (!DefinitionUi.isStudyAction(item.itemId)) return false
             lifecycleScope.launch {
                 try {
                     // Capture the Readium selection BEFORE closing its ActionMode.
@@ -732,8 +787,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     }
                     when {
                         DefinitionUi.isDefinition(item.itemId) -> {
-                            if (!WordMeaning.oneWord(quote)) {
-                                toast("Selecciona una sola palabra para consultar su significado.")
+                            if (WordMeaning.searchPhrase(quote) == null) {
+                                toast("Selecciona una palabra o expresión breve para consultar su significado.")
                             } else DefinitionUi.show(this@EpubReaderActivity, quote,
                                 aiConfigured(), definitionDelegate(locator))
                         }
