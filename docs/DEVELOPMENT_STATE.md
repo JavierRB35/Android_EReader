@@ -2,8 +2,8 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (sesión de finalización hacia 1.0)
-**Fase actual:** Incrementos 1-2 COMPLETOS · 4 (cuaderno) COMPLETO · 9 (núcleo offline) COMPLETO · 10 (workflow releases + comprobador) PARCIAL · 5-8 (auth real, sync, IA) BLOQUEADOS por credenciales/servicios del propietario
+**Última actualización:** 2026-11-20 (Incremento 5-6: esquema Supabase con RLS + motor de sincronización)
+**Fase actual:** 1-2-4-9 COMPLETOS · 5-6 núcleo publicado (pendiente verificación con servicio tras config del propietario) · 10 parcial · 7-8 pendientes de claves
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 ---
@@ -70,8 +70,8 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 
 | Incremento | Bloqueo | Acción del propietario |
 |---|---|---|
-| 5-6 — Sync + multiusuario | Proyecto Supabase inexistente | Crear proyecto Supabase; configurar URL y clave pública anón en `local.properties` (`BIBLIOTECA_SUPABASE_URL`, `BIBLIOTECA_SUPABASE_KEY`) — la app ya valida que sea anón |
-| 5 — Google Auth real | Google Cloud sin configurar | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-256) |
+| 5-6 — Sync + multiusuario | ~~Proyecto Supabase inexistente~~ **RESUELTO**: proyecto `BibliotecaIA` (krxdcfyvksjhpohxxvcf, eu-west-3, ACTIVE_HEALTHY). **Esquema+RLS entregados** (`supabase/migrations/0001_initial_schema.sql`, 11 tablas, RLS por tabla) y motor app-side compilado (cola v4, SupabaseRestClient, SyncEngine con políticas, 5 tests). **Pendiente:** propietario aplica la migración en SQL Editor + claves públicas en `local.properties`; luego pruebas reales con sesión (issue #3 comentario del entregable) |
+| 5 — Google Auth real | Google Cloud sin configurar (OAuth) | Seguir `docs/setup/google-cloud.md` (proyecto, OAuth, SHA-1 de firma, Web Client ID) y proveedor Google en Supabase |
 | 7-8 — IA (Gemini/Groq) | Sin claves API | Obtener claves en AI Studio / GroqCloud Console; el incremento requiere además diseño del asistente en el lector y RAG |
 | 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
 
