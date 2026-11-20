@@ -8,6 +8,8 @@ import com.javierrb35.bibliotecaia.data.BookEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -23,44 +25,158 @@ class CompleteBackupManager(
     data class ExportResult(val books: Int, val originalBytes: Long)
     data class ImportResult(val report: RestoreReport, val originals: Int, val originalBytes: Long)
 
-    suspend fun exportTo(uri: Uri): ExportResult = withContext(Dispatchers.IO) {
-        val manager = BackupManager(database, appVersion)
-        val json = manager.exportJson()
-        val books = BackupCodec.fromJson(json).books
-        val archive = File.createTempFile("biblioteca-completa-", ".zip", context.cacheDir)
-        try {
-            // Fail closed on damaged/missing originals before writing to Drive/provider.
-            for (book in books) {
-                val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
-                val source = File(book.localPath).canonicalFile
-                require(source.parentFile == requiredDir && source.name == book.fileName) {
-                    "No se puede leer el original interno: " + book.title.take(80)
-                }
+    /**
+     * Replace the same SAF document after fully constructing the ZIP locally.
+     * For a pre-existing document, a private rollback copy is retained until
+     * the provider's read-back matches the generated archive SHA-256.
+     *
+     * SAF providers do NOT guarantee an atomic replace: on process/device loss
+     * during a remote write the user may need to recover the prior snapshot.
+     */
+    suspend fun exportTo(uri: Uri, replaceExisting: Boolean = false): ExportResult =
+        withContext(Dispatchers.IO) {
+            require(uri.scheme == "content") { "Elige un archivo mediante el selector Android." }
+            require(!hasPendingRecovery()) {
+                "Hay una copia anterior pendiente de recuperación. Recupérala antes de guardar otra."
             }
-            val bytes = archive.outputStream().use { output ->
-                CompleteBackupArchive.write(output, json, books)
-            }
+            val manager = BackupManager(database, appVersion)
+            val json = manager.exportJson()
+            val books = BackupCodec.fromJson(json).books
+            val archive = File.createTempFile("biblioteca-completa-", ".zip", context.cacheDir)
             try {
-                context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-                    archive.inputStream().use { source -> source.copyTo(output, 64 * 1024) }
-                    output.flush()
-                } ?: throw IllegalArgumentException("La ubicación elegida no permite escribir.")
+                // Never touch the selected SAF document until every original is verified.
+                for (book in books) {
+                    val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
+                    val source = File(book.localPath).canonicalFile
+                    require(source.parentFile == requiredDir && source.name == book.fileName) {
+                        "No se puede leer el original interno: " + book.title.take(80)
+                    }
+                }
+                val bytes = archive.outputStream().use { output ->
+                    CompleteBackupArchive.write(output, json, books)
+                }
+                if (replaceExisting) safeguardPreviousCopy(uri)
+                try {
+                    overwriteAndVerify(uri, archive)
+                    if (replaceExisting) clearRecovery()
+                } catch (e: Exception) {
+                    if (replaceExisting) {
+                        val recovered = runCatching { recoverPreviousCopyInternal(uri) }.isSuccess
+                        if (recovered) {
+                            throw IOException(
+                                "No se pudo actualizar la copia. Se ha restaurado el archivo anterior.",
+                                e
+                            )
+                        }
+                        throw IOException(
+                            "La actualización falló. La copia anterior sigue guardada dentro de " +
+                                "la aplicación; usa «Recuperar copia anterior» en Ajustes.",
+                            e
+                        )
+                    }
+                    throw e
+                }
+                ExportResult(books.size, bytes)
             } catch (e: Exception) {
-                // A failed SAF stream can leave an incomplete document at the destination.
-                // Best effort deletion; provider might not support delete.
-                runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+                // A newly CREATED SAF document is safe to delete if its first write
+                // fails. Never delete a pre-existing backup selected for replacement.
+                if (!replaceExisting) {
+                    runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+                }
                 throw e
+            } finally {
+                archive.delete()
             }
-            ExportResult(books.size, bytes)
+        }
+
+    private val recoveryFile: File
+        get() = File(context.filesDir, "previous-complete-backup.zip")
+
+    private val recoveryPreferences
+        get() = context.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
+
+    /** The prior valid document is preserved if a provider cannot roll back a failed write. */
+    fun hasPendingRecovery(): Boolean =
+        recoveryFile.isFile && !recoveryPreferences.getString("uri", null).isNullOrBlank()
+
+    private fun safeguardPreviousCopy(uri: Uri) {
+        require(!recoveryFile.exists()) {
+            "Existe una copia de emergencia anterior; recupérala antes de continuar."
+        }
+        val staged = File.createTempFile("backup-previous-", ".tmp", context.filesDir)
+        try {
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IOException("El archivo elegido no se puede leer.")
+            input.use { source ->
+                staged.outputStream().use { sink -> source.copyTo(sink, 64 * 1024) }
+            }
+            require(staged.length() > 0L) { "La copia existente está vacía o inaccesible." }
+            require(staged.renameTo(recoveryFile)) {
+                "No se puede preservar la copia anterior. No se sobrescribirá."
+            }
+            check(recoveryPreferences.edit().putString("uri", uri.toString()).commit()) {
+                "No se pudo registrar la copia de emergencia."
+            }
         } catch (e: Exception) {
-            // ACTION_CREATE_DOCUMENT has already allocated the destination URI.
-            // If a source book is missing/corrupt or staging fails, do not leave
-            // an apparently valid empty/partial copy in the chosen provider.
-            runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+            staged.delete()
+            // No write to the selected backup has happened yet.
+            if (recoveryPreferences.getString("uri", null) != uri.toString()) {
+                recoveryFile.delete()
+            }
             throw e
         } finally {
-            archive.delete()
+            staged.delete()
         }
+    }
+
+    private fun overwriteAndVerify(uri: Uri, file: File) {
+        val expected = sha256(file.inputStream())
+        // "w" may APPEND on certain providers; explicitly request truncation.
+        val output = context.contentResolver.openOutputStream(uri, "wt")
+            ?: throw IOException("El proveedor no permite sobrescribir el archivo.")
+        output.use { sink ->
+            file.inputStream().use { source -> source.copyTo(sink, 64 * 1024) }
+            sink.flush()
+        }
+        val actual = context.contentResolver.openInputStream(uri)?.use(::sha256)
+            ?: throw IOException("No se puede verificar la copia escrita.")
+        check(actual == expected) {
+            "El archivo guardado no coincide con la copia generada."
+        }
+    }
+
+    private fun sha256(source: java.io.InputStream): String = source.use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            if (n > 0) digest.update(buffer, 0, n)
+        }
+        digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+
+    private fun clearRecovery() {
+        if (recoveryFile.exists()) {
+            check(recoveryFile.delete()) { "No se pudo limpiar la copia local temporal." }
+        }
+        recoveryPreferences.edit().remove("uri").apply()
+    }
+
+    private fun recoverPreviousCopyInternal(uri: Uri) {
+        require(hasPendingRecovery() &&
+            recoveryPreferences.getString("uri", null) == uri.toString()) {
+            "No existe copia anterior para este archivo."
+        }
+        overwriteAndVerify(uri, recoveryFile)
+        clearRecovery()
+    }
+
+    /** Retry a preserved rollback copy after a failed/interrupted provider write. */
+    suspend fun recoverPreviousCopy() = withContext(Dispatchers.IO) {
+        val text = recoveryPreferences.getString("uri", null)
+            ?: throw IllegalArgumentException("No hay ninguna copia anterior por recuperar.")
+        recoverPreviousCopyInternal(Uri.parse(text))
     }
 
     suspend fun restoreFrom(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
