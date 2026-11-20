@@ -23,6 +23,7 @@ import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
+import com.javierrb35.bibliotecaia.updates.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,6 +36,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
+    private val backupPrefs by lazy {
+        getSharedPreferences("biblioteca_backup_destination", MODE_PRIVATE)
+    }
+    private val backupManager by lazy {
+        CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
+    }
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -45,9 +52,25 @@ class SettingsActivity : AppCompatActivity() {
             Toast.LENGTH_LONG).show()
     }
 
-    private val exportBackup = registerForActivityResult(
+    private val createBackup = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri: Uri? -> if (uri != null) exportTo(uri) }
+    ) { uri: Uri? ->
+        if (uri != null && persistBackupPermission(uri)) {
+            exportTo(uri, replaceExisting = false, rememberDestination = true)
+        }
+    }
+
+    private val selectExistingBackup = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.data?.let { uri ->
+                if (persistBackupPermission(uri)) {
+                    exportTo(uri, replaceExisting = true, rememberDestination = true)
+                }
+            }
+        }
+    }
 
     private val importBackup = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -71,7 +94,19 @@ class SettingsActivity : AppCompatActivity() {
 
         section(layout, getString(R.string.settings_backup))
         action(layout, getString(R.string.settings_backup_export)) {
-            if (!backupBusy) exportBackup.launch(backupFileName())
+            if (!backupBusy) {
+                val stored = writableBackupDestination()
+                if (stored != null) exportTo(stored, replaceExisting = true)
+                else chooseBackupDestination()
+            }
+        }
+        action(layout, getString(R.string.settings_backup_change_file)) {
+            if (!backupBusy) chooseBackupDestination()
+        }
+        if (backupManager.hasPendingRecovery()) {
+            action(layout, getString(R.string.settings_backup_recover_previous)) {
+                if (!backupBusy) recoverPreviousBackup()
+            }
         }
         action(layout, getString(R.string.settings_backup_restore)) {
             if (!backupBusy) importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
@@ -94,28 +129,106 @@ class SettingsActivity : AppCompatActivity() {
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
     }
 
-    private fun backupFileName(): String {
-        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.ROOT)
-            .format(java.util.Date())
-        return "BibliotecaIA-completa-$stamp.zip"
+    private fun writableBackupDestination(): Uri? {
+        val text = backupPrefs.getString("uri", null) ?: return null
+        val uri = Uri.parse(text)
+        val permission = contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+        return if (permission?.isReadPermission == true &&
+            permission.isWritePermission) uri else null
     }
 
-    private fun exportTo(uri: Uri) {
+    private fun chooseBackupDestination() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.settings_backup_change_file)
+            .setMessage(R.string.settings_backup_choose_file)
+            .setPositiveButton(R.string.settings_backup_choose_existing) { _, _ ->
+                selectExistingBackup.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_MIME_TYPES,
+                        arrayOf("application/zip", "application/x-zip-compressed"))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                })
+            }
+            .setNeutralButton(R.string.settings_backup_choose_new) { _, _ ->
+                // Only the first backup creates a document. Every later save
+                // reuses its persisted URI, avoiding name(1).zip copies.
+                createBackup.launch("BibliotecaIA-completa.zip")
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun persistBackupPermission(uri: Uri): Boolean {
+        return try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            true
+        } catch (e: SecurityException) {
+            Toast.makeText(this, getString(R.string.settings_backup_permission_error),
+                Toast.LENGTH_LONG).show()
+            false
+        }
+    }
+
+    private fun exportTo(
+        uri: Uri,
+        replaceExisting: Boolean,
+        rememberDestination: Boolean = false
+    ) {
         if (backupBusy) return
         backupBusy = true
         lifecycleScope.launch {
             try {
                 val report = withContext(Dispatchers.IO) {
-                    CompleteBackupManager(applicationContext, db, BuildConfig.VERSION_NAME)
-                        .exportTo(uri)
+                    backupManager.exportTo(uri, replaceExisting)
+                }
+                if (rememberDestination) {
+                    backupPrefs.edit().putString("uri", uri.toString()).apply()
                 }
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_export_done_title)
                     .setMessage(getString(R.string.backup_export_done_full, report.books))
                     .setPositiveButton(R.string.dialog_ok, null).show()
             } catch (e: Exception) {
+                if (backupManager.hasPendingRecovery()) {
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle(R.string.settings_backup_recover_previous)
+                        .setMessage(getString(R.string.backup_error,
+                            e.message ?: getString(R.string.backup_error_generic)))
+                        .setPositiveButton(R.string.settings_backup_recover_previous) { _, _ ->
+                            recoverPreviousBackup()
+                        }
+                        .setNegativeButton(R.string.dialog_cancel, null).show()
+                } else {
+                    Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
+                        e.message ?: getString(R.string.backup_error_generic)),
+                        Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                backupBusy = false
+            }
+        }
+    }
+
+    private fun recoverPreviousBackup() {
+        if (backupBusy) return
+        backupBusy = true
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { backupManager.recoverPreviousCopy() }
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.settings_backup_recover_previous)
+                    .setMessage(R.string.settings_backup_recovered)
+                    .setPositiveButton(R.string.dialog_ok, null).show()
+            } catch (e: Exception) {
                 Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
-                    e.message ?: getString(R.string.backup_error_generic)), Toast.LENGTH_LONG).show()
+                    e.message ?: getString(R.string.backup_error_generic)),
+                    Toast.LENGTH_LONG).show()
             } finally {
                 backupBusy = false
             }
@@ -209,11 +322,8 @@ class SettingsActivity : AppCompatActivity() {
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
                 .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
-                .setPositiveButton("Descargar APK") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl)))
-                }
-                .setNeutralButton("Ver novedades") { _, _ ->
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl)))
+                .setPositiveButton("Instalar actualización") { _, _ ->
+                    UpdateInstaller.start(this@SettingsActivity, release)
                 }
                 .setNegativeButton(R.string.dialog_cancel, null)
                 .show()

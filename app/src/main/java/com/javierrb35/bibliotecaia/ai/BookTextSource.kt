@@ -15,7 +15,13 @@ import java.util.zip.ZipFile
  */
 object BookTextSource {
 
-    data class Fragment(val index: Int, val title: String, val text: String)
+    data class Fragment(
+        val index: Int, val title: String, val text: String,
+        // Optional fractions of the full normalized source. MOBI is split
+        // into windows so a partial reading cannot expose later windows.
+        val startFraction: Double? = null,
+        val endFraction: Double? = null,
+    )
 
     const val MAX_FRAGMENT_CHARS = 6_000
     const val MAX_TOTAL_CHARS = 40_000
@@ -25,9 +31,15 @@ object BookTextSource {
         "MOBI" -> try {
             // Use the same readable text the reader presents, not HTML markup.
             // A fragment is capped before it enters the RAG retrieval pipeline.
-            val text = stripTags(MobiDocument.readHtml(file)).take(MAX_FRAGMENT_CHARS)
+            val text = stripTags(MobiDocument.readHtml(file))
             if (text.isBlank()) emptyList()
-            else listOf(Fragment(1, file.nameWithoutExtension, text))
+            else text.take(MAX_TOTAL_CHARS).chunked(MAX_FRAGMENT_CHARS)
+                .mapIndexed { index, window ->
+                    val start = index * MAX_FRAGMENT_CHARS
+                    val end = start + window.length
+                    Fragment(index + 1, file.nameWithoutExtension + " · parte " + (index + 1),
+                        window, start.toDouble() / text.length, end.toDouble() / text.length)
+                }
         } catch (_: Exception) {
             emptyList()
         }
@@ -164,11 +176,33 @@ object BookTextSource {
                  progress: Float, maxFragments: Int = 3): List<Fragment> {
         var candidates = chapters
         if (spoilerSafe) {
-            val readable = when {
-                progress <= 0f -> 1
-                else -> (progress * chapters.size).toInt().coerceAtLeast(1)
+            val p = if (progress.isFinite()) progress.coerceIn(0f, 1f).toDouble() else 0.0
+            if (chapters.any { it.startFraction != null }) {
+                // Unlike an arbitrary chapter boundary, a MOBI window has
+                // an explicit position within the normalized source. The
+                // final window is trimmed so its unseen tail cannot leak.
+                candidates = chapters.mapNotNull { fragment ->
+                    val start = fragment.startFraction ?: return@mapNotNull null
+                    val end = fragment.endFraction ?: return@mapNotNull null
+                    val readable = when {
+                        p <= start -> 0
+                        p >= end -> fragment.text.length
+                        else -> ((p - start) / (end - start) * fragment.text.length)
+                            .toInt().coerceIn(0, fragment.text.length)
+                    }
+                    fragment.copy(text = fragment.text.take(readable))
+                        .takeIf { it.text.isNotBlank() }
+                }
+            } else {
+                // EPUB/PDF chapter and OCR-page indices are only an
+                // approximation of reading progress. Never include a later
+                // known chapter than the conservative progress boundary.
+                val readable = when {
+                    p <= 0.0 -> 0
+                    else -> (p * chapters.size).toInt().coerceAtLeast(1)
+                }
+                candidates = chapters.take(readable)
             }
-            candidates = chapters.take(readable)
         }
         val stop = setOf("que", "del", "los", "las", "una", "por", "para", "con", "como",
             "más", "cual", "cuál", "quién", "quien", "qué", "donde", "dónde", "este", "esta",
