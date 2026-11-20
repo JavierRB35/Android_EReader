@@ -84,7 +84,13 @@ public class DefinitionSelectionDeviceTest {
             DefinitionUi.populateSelectionMenu(menu);
             assertSame(nativeCopy, menu.findItem(android.R.id.copy));
             assertSame(nativeSelect, menu.findItem(android.R.id.selectAll));
+            assertNotNull(menu.findItem(android.R.id.shareText));
             assertTrue(DefinitionUi.isStudyAction(menu.findItem(0x5C120).getItemId()));
+            Menu empty = new PopupMenu(ctx, anchor).getMenu();
+            DefinitionUi.populateSelectionMenu(empty);
+            assertNotNull(empty.findItem(android.R.id.copy));
+            assertNotNull(empty.findItem(android.R.id.selectAll));
+            assertNotNull(empty.findItem(android.R.id.shareText));
         });
     }
 }
