@@ -62,6 +62,8 @@
     <string name="detail_assignment_new_collection">Crear y asignar colección…</string>
     <string name="detail_assignment_save">Guardar</string>
     <string name="detail_assignment_failed">No se pudo guardar: %1$s</string>
+    <string name="detail_assignment_load_failed">No se pudo cargar la organización de este libro.</string>
+    <string name="detail_status_update_failed">No se pudo cambiar el estado de lectura.</string>
     <string name="detail_assignment_content">Editar %1$s. Seleccionadas: %2$s</string>
     <string name="detail_status_content">Estado: %1$s. Toca para cambiar.</string>
     <string name="detail_added_content">Añadido: %1$s</string>
