@@ -6,6 +6,14 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## CORRECCIÓN DEL ARGUMENTO — posición, generación IA y borrado — 21/11/2026
+
+- Rama `fix/ai-synopsis-cta-place-fallback-20261121`, intervención delimitada en ficha y consulta IA; no se toca el motor de anotaciones.
+- El botón se ubica **debajo de Colecciones y encima de Abrir lector**, sin segunda copia arriba del título. Sin argumento dice **Añadir argumento** e inicia inmediatamente la generación de argumento del libro con la IA; no abre un editor manual vacío.
+- Reutiliza el mismo muestreo de libro, validación, almacenamiento Room, etiquetas y fallback `AiFallbackRouter` de Consultar IA. Gemini es principal; Groq solo se usa tras un error recuperable y con clave y autorización activada (paridad con `Scriptura/AiRouter.java`). Sin fragmentos fiables no se inventa contenido.
+- Tras guardar la generación automática vuelve a la ficha, que muestra **Leer argumento**. El modal permite lectura, edición y borrado con confirmación. Borrar afecta solo a `book_synopses` del libro, conservando notas, etiquetas y original; la copia ZIP ya soporta la entidad.
+- QA focalizado: `BookSynopsisActionDeviceTest`, `BookSynopsisDeviceTest`, `BookDetailOrganizationDeviceTest`, `AiFallbackRouterTest`. Estado: **rama de trabajo, pendiente CI y publicación**.
+
 ## WIP — Añadir / visualizar / editar argumento desde ficha — 21/11/2026
 
 - Rama aislada `wip/book-synopsis-add-view-edit-20261121` y PR en borrador para coordinación con el resto de agentes; no tocar lectores, motor de anotaciones ni flujos de publicación.

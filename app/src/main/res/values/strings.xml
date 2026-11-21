@@ -159,9 +159,14 @@
     <string name="ai_overview_saved">Argumento guardado en la ficha del libro.</string>
     <string name="ai_overview_saved_tags">Argumento guardado. Etiquetas añadidas: %1$s</string>
     <string name="ai_overview_no_evidence">No hay contenido del libro suficiente para elaborar un argumento verificable. En PDF puede ser necesario reconocer páginas con OCR.</string>
-    <string name="detail_synopsis_view">Ver argumento del libro</string>
-    <string name="detail_synopsis_add">Añadir argumento del libro</string>
+    <string name="detail_synopsis_view">Leer argumento</string>
+    <string name="detail_synopsis_add">Añadir argumento</string>
     <string name="detail_synopsis_edit">Editar argumento</string>
+    <string name="detail_synopsis_delete">Borrar argumento</string>
+    <string name="detail_synopsis_delete_title">¿Borrar el argumento guardado?</string>
+    <string name="detail_synopsis_delete_message">Se eliminará solo el argumento de este libro. El libro, las notas y sus etiquetas se conservarán.</string>
+    <string name="detail_synopsis_deleted">Argumento borrado.</string>
+    <string name="detail_synopsis_delete_failed">No se pudo borrar el argumento.</string>
     <string name="detail_synopsis_save">Guardar argumento</string>
     <string name="detail_synopsis_hint">Escribe o pega aquí el argumento del libro…</string>
     <string name="detail_synopsis_required">Introduce un argumento antes de guardarlo.</string>

@@ -23,3 +23,12 @@
 6. QA de integración: generar sinopsis del libro real con una clave válida, salir y volver a entrar, exportar TXT a SAF, comprobar contenido y reabrir tras restaurar ZIP.
 
 **La ampliación añadir/ver/editar está aislada en la rama WIP `wip/book-synopsis-add-view-edit-20261121`. No se declara disponible en APK ni probado físicamente hasta que el CI y el flujo de publicación se completen**. No se modifica la IA por selección ni se incorpora búsqueda externa falsa.
+
+
+## Rectificación de producto por captura Samsung del 21/11/2026
+
+- Ficha: botón **después de Colecciones**, antes de los botones fijos inferiores. Se mantiene una única acción contextual sin duplicación superior.
+- Sin argumento: **Añadir argumento** inicia una consulta IA automáticamente, sin una pregunta ni pulsación adicionales. Para un argumento del libro completo se usan los fragmentos de distintas partes (desactivando filtro de spoilers expresamente en ese lanzamiento); se exponen los límites cuando el texto no está disponible.
+- Con argumento: **Leer argumento** abre el modal de lectura, desde el que se puede **Editar** y **Borrar** (con confirmación). Se conservan copiar/exportar. Borrar afecta solo al argumento; no borra el libro, notas, etiquetas ni colecciones.
+- Respaldo Gemini → Groq: ya implementado mediante `AiFallbackRouter`; cuota, errores temporales o timeout disparan un único respaldo cuando Groq está configurado y autorizado, igual que `Scriptura/AiRouter.java`. No se envía automáticamente a un tercero sin consentimiento ni se reintenta un rechazo de permisos.
+- Criterios nuevos: prueba instrumentada para comprobar posición del botón, lanzamiento del modo IA, edición, cancelación del borrado y borrado confirmado; regresión de ficha sin scroll, guardado de argumentos y respaldo.

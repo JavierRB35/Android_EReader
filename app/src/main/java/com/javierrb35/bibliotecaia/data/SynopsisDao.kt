@@ -10,6 +10,9 @@ interface SynopsisDao {
     @Query("SELECT * FROM book_synopses WHERE bookId = :bookId LIMIT 1")
     suspend fun byBook(bookId: String): BookSynopsisEntity?
 
+    @Query("DELETE FROM book_synopses WHERE bookId = :bookId")
+    suspend fun deleteByBook(bookId: String): Int
+
     @Query("SELECT * FROM book_synopses")
     suspend fun all(): List<BookSynopsisEntity>
 
