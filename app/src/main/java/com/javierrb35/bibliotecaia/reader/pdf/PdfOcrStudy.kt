@@ -177,6 +177,9 @@ class PdfOcrStudy(
         val configured = AiKeyStore.providers().any {
             AiKeyStore.getKey(activity, it) != null
         }
+        // Persisted, OCR-verified ranges are authoritative for tapping AND
+        // for a long-press selection. They do not depend on transient spans.
+        var visibleRanges = emptyList<Pair<AnnotationEntity, IntRange>>()
         DefinitionUi.attach(activity, selection, configured, delegate,
             DefinitionUi.SelectionHandler { quote, start, _ ->
                 val locator = anchor(start, quote)
@@ -207,12 +210,24 @@ class PdfOcrStudy(
                     if (start >= 0 && end > start) selectedOffset = start
                 }
                 override fun onSelectionFinished() = Unit
+            },
+            object : DefinitionUi.SavedMarkHandler {
+                override fun hasSavedMark(start: Int, end: Int) =
+                    start >= 0 && end > start && visibleRanges.any { (_, range) ->
+                        range.first < end && start <= range.last
+                    }
+
+                override fun onShowSavedMark(start: Int, end: Int) {
+                    val selected = visibleRanges.filter { (_, range) ->
+                        range.first < end && start <= range.last
+                    }.map { it.first }
+                    SavedAnnotationSheet.show(activity, repository, selected)
+                }
             }
         )
 
         // Scriptura parity in the OCR transcript: tapping a painted quote
         // opens all notes anchored there; long press remains selectable text.
-        var visibleRanges = emptyList<Pair<AnnotationEntity, IntRange>>()
         MarkedTextTap.attach(selection, marksAt = { at ->
             visibleRanges.filter { (_, range) -> at in range }.map { it.first }
         }, onMarks = { selected ->
