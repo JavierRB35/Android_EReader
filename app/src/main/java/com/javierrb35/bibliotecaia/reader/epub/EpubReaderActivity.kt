@@ -34,7 +34,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
-import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedMarkScrollView
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
@@ -97,7 +97,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var positionLabel: TextView
     private lateinit var loading: TextView
     private lateinit var webFrame: FrameLayout
-    private lateinit var nativeScroll: ScrollView
+    private lateinit var nativeScroll: SavedMarkScrollView
     private lateinit var nativeText: TextView
     private lateinit var nativeToggle: MaterialButton
     private lateinit var speechButton: MaterialButton
@@ -355,7 +355,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setLineSpacing(6.dp.toFloat(), 1.1f)
             textSize = 22f
         }
-        nativeScroll = ScrollView(this).apply {
+        nativeScroll = SavedMarkScrollView(this).apply {
             isFillViewport = false
             isVerticalScrollBarEnabled = true
             visibility = View.GONE
@@ -457,7 +457,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
         // Scriptura parity: short tap opens all annotations at the character,
         // long-press/drag remains owned by TextView's native selection mode.
-        MarkedTextTap.attach(nativeText, marksAt = { at ->
+        nativeScroll.attach(nativeText, marksAt = { at ->
             val chapter = nativeChapter
             if (chapter == null) emptyList()
             else {
