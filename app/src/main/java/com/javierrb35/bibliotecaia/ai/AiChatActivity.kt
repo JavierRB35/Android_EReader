@@ -305,9 +305,9 @@ class AiChatActivity : AppCompatActivity() {
         } else null
         val spoilerSafe = if (interpretationMode) true else spoilerSwitch.isChecked
         lifecycleScope.launch {
-            val provider = firstConfiguredProvider()
-            val key = provider?.let { AiKeyStore.getKey(this@AiChatActivity, it) }
-            if (provider == null || key == null) {
+            val geminiConfigured = AiKeyStore.getKey(this@AiChatActivity, AiClients.GEMINI) != null
+            val groqConfigured = AiKeyStore.getKey(this@AiChatActivity, AiClients.GROQ) != null
+            if (!geminiConfigured && !groqConfigured) {
                 if (interpretationMode)
                     interpretationError(getString(R.string.ai_needs_key), configure = true)
                 else {
@@ -341,10 +341,24 @@ class AiChatActivity : AppCompatActivity() {
                 }
                 val context = listOfNotNull(explicit) +
                     fragments.map { "[${it.index}] ${it.title}\n${it.text}" }
+                val requestHistory = if (overview) emptyList() else history.toList()
+                val requestContext = context.toList()
                 val answer = withContext(Dispatchers.IO) {
-                    AiClients.ask(provider, key, question, context,
-                        if (overview) emptyList() else history.toList())
+                    AiFallbackRouter.ask(
+                        geminiConfigured = geminiConfigured,
+                        groqConfigured = groqConfigured,
+                        fallbackAllowed = { AiFallbackConsent.enabled(applicationContext) },
+                    ) { requestedProvider ->
+                        val currentKey = AiKeyStore.getKey(applicationContext, requestedProvider)
+                            ?: throw AiClients.AiException(AiClients.AiErrorKind.INVALID_KEY,
+                                "La clave del proveedor ya no está disponible.")
+                        // Both providers receive exactly the SAME already bounded context.
+                        // The failed Gemini call does not enter the conversation history.
+                        AiClients.ask(requestedProvider, currentKey, question,
+                            requestContext, requestHistory)
+                    }
                 }
+                val provider = answer.provider
                 val label = if (overview) getString(R.string.ai_book_overview) else typed
                 history.add("user" to label)
                 history.add("assistant" to answer.text)
@@ -375,6 +389,10 @@ class AiChatActivity : AppCompatActivity() {
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
+            } catch (e: AiFallbackRouter.BothUnavailableException) {
+                if (interpretationMode)
+                    interpretationError(e.message ?: getString(R.string.ai_generic_error))
+                else thinking?.bubbleMessage(e.message ?: getString(R.string.ai_generic_error))
             } catch (e: AiClients.AiException) {
                 if (interpretationMode)
                     interpretationError(e.message ?: getString(R.string.ai_generic_error))
@@ -416,9 +434,6 @@ class AiChatActivity : AppCompatActivity() {
             }
         })
     }
-
-    private fun firstConfiguredProvider(): String? =
-        AiKeyStore.providers().firstOrNull { AiKeyStore.getKey(this, it) != null }
 
     private fun saveHistory(question: String, answer: String, provider: String) {
         runCatching {
