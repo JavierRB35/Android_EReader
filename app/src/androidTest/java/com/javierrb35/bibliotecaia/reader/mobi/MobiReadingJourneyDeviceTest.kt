@@ -9,6 +9,7 @@ import android.text.Spanned
 import android.text.Spannable
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.PlatformNoteTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
@@ -268,6 +269,18 @@ class MobiReadingJourneyDeviceTest {
             waitUntil("Reopened MOBI Activity never regained input focus") {
                 origin.hasWindowFocus()
             }
+            // Physical Android input after closing/reopening, not merely
+            // dispatchTouchEvent() on a test view. Check the persisted note
+            // before allowing any edit flow to mask a broken tap.
+            val reopenedText = requireNotNull(findScroll(origin)).getChildAt(0) as TextView
+            val visibleQuoteAt = reopenedText.text.indexOf(quote)
+            assertTrue("Reopened note's quote must be visible in this chunk",
+                visibleQuoteAt >= 0)
+            PlatformNoteTap.tapOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
+            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Primera reflexión")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
+
             instrumentation.runOnMainSync { AnnotationEditor.edit(origin, saved) }
             instrumentation.waitForIdleSync()
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
