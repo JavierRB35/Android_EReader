@@ -1,6 +1,18 @@
 package com.javierrb35.bibliotecaia.reader.epub
 
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.view.Gravity
+import android.view.ViewGroup
+import androidx.test.core.app.ActivityScenario
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.javierrb35.bibliotecaia.ui.MainActivity
+import org.json.JSONTokener
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import org.junit.Assert.*
 import org.junit.Test
@@ -35,6 +47,82 @@ class ReadiumNativeNoteBridgeDeviceTest {
         assertFalse(paint.contains("note-other"))
         assertFalse(paint.contains("note-deleted"))
         assertFalse(paint.contains("\"cfi\""))
+    }
+
+    /** Runs the actual generated script inside Android WebView, not just
+     * string-content assertions. A unique native note must resolve to its ID;
+     * a repeated quote must NOT resolve to either occurrence. */
+    @Test fun realWebViewHitTestFindsUniqueSavedNoteAndRejectsRepeatedQuote() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val loaded = CountDownLatch(1)
+        lateinit var web: WebView
+        try {
+            scenario.onActivity { activity ->
+                web = WebView(activity).apply {
+                    settings.javaScriptEnabled = true
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            if (url?.contains("chapter.xhtml") == true) loaded.countDown()
+                        }
+                    }
+                }
+                activity.findViewById<FrameLayout>(android.R.id.content).addView(
+                    web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        600, Gravity.TOP))
+                web.loadDataWithBaseURL("https://book.example/chapter.xhtml",
+                    "<html><head><meta name='viewport' content='width=device-width'></head>" +
+                        "<body><p id='passage'>Un texto con una frase guardada para consultar.</p>" +
+                        "</body></html>", "text/html", "UTF-8", null)
+            }
+            assertTrue("Fixture WebView did not load", loaded.await(15, TimeUnit.SECONDS))
+
+            fun evaluate(script: String): String {
+                val result = ArrayBlockingQueue<String>(1)
+                instrumentation.runOnMainSync {
+                    web.evaluateJavascript(script) { value -> result.offer(value) }
+                }
+                return result.poll(15, TimeUnit.SECONDS)
+                    ?: error("WebView did not evaluate JavaScript")
+            }
+
+            val notes = listOf(note("saved-note", "chapter.xhtml"))
+            // The rendering path must complete without throwing; on older
+            // WebViews CSS.highlights is optional, but the hit test still works.
+            val painted = evaluate(ReadiumNativeNoteBridge.decorateScript(notes))
+            assertTrue("Unexpected CSS highlights result: $painted",
+                painted == "0" || painted == "1")
+            val pointJson = evaluate("""
+                (function(){
+                  var t=document.getElementById('passage').firstChild;
+                  var p=t.textContent.indexOf('frase guardada');
+                  var r=document.createRange();
+                  r.setStart(t,p);r.setEnd(t,p+14);
+                  var b=r.getBoundingClientRect();
+                  return JSON.stringify({x:(b.left+b.right)/2*devicePixelRatio,
+                    y:(b.top+b.bottom)/2*devicePixelRatio});
+                })()
+            """.trimIndent())
+            val location = org.json.JSONObject(JSONTokener(pointJson).nextValue() as String)
+            val x = location.getDouble("x").toFloat()
+            val y = location.getDouble("y").toFloat()
+            assertEquals("saved-note",
+                JSONTokener(evaluate(ReadiumNativeNoteBridge.hitTestScript(
+                    x, y, notes))).nextValue())
+
+            evaluate("(function(){var p=document.createElement('p');" +
+                "p.textContent='frase guardada';document.body.appendChild(p);" +
+                "return true;})()")
+            assertEquals(org.json.JSONObject.NULL,
+                JSONTokener(evaluate(ReadiumNativeNoteBridge.hitTestScript(
+                    x, y, notes))).nextValue())
+        } finally {
+            scenario.onActivity { activity ->
+                (web.parent as? ViewGroup)?.removeView(web)
+                web.destroy()
+            }
+            scenario.close()
+        }
     }
 
     @Test fun tapScriptUsesSameVerifiedDomRangeAndNeverProducesUnvalidatedId() {
