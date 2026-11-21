@@ -257,8 +257,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     horizontalEdgeThresholdPercent = 0.10))
                 launch {
                     fragment.currentLocator.collect { locator ->
+                        // Keep the WebView resource locator even while its
+                        // native TextView surface is visible. Otherwise an
+                        // immediate Maquetación toggle on the SAME chapter
+                        // has no href for the saved-note bridge until the user
+                        // manually navigates to another chapter.
+                        latest = locator
                         if (!nativeMode) {
-                            latest = locator
                             refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             pendingSave?.cancel()
