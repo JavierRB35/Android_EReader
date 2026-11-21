@@ -14,6 +14,7 @@ import android.text.style.UnderlineSpan
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.ScrollView
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -167,12 +168,19 @@ class EpubReadingJourneyDeviceTest {
                 val x = view.totalPaddingLeft + layout.getPrimaryHorizontal(at)
                 val y = view.totalPaddingTop +
                     (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                // Inject through the actual scrolling parent, not directly
+                // into TextView: that bypassed interception on older tests.
+                val parent = view.parent as ScrollView
+                val touchX = x + view.left - parent.scrollX
+                val touchY = y + view.top - parent.scrollY
                 val downAt = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(downAt, downAt, MotionEvent.ACTION_DOWN, x, y, 0)
-                val up = MotionEvent.obtain(downAt, downAt + 75, MotionEvent.ACTION_UP, x, y, 0)
+                val down = MotionEvent.obtain(downAt, downAt,
+                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
+                val up = MotionEvent.obtain(downAt, downAt + 75,
+                    MotionEvent.ACTION_UP, touchX, touchY, 0)
                 try {
-                    view.dispatchTouchEvent(down)
-                    view.dispatchTouchEvent(up)
+                    parent.dispatchTouchEvent(down)
+                    parent.dispatchTouchEvent(up)
                 } finally {
                     down.recycle()
                     up.recycle()
