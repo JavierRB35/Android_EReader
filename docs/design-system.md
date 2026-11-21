@@ -45,7 +45,7 @@ El lector debe reutilizar negro puro y texto cálido, mostrar controles a demand
 
 ## Verificación y límites
 
-Pruebas focalizadas: EPUB2/EPUB3, nombres codificados, ausencia de portada declarada, URL externa, escape de raíz, exceso de tamaño y entidades XML. Contraste calculado conforme a luminancia sRGB: texto/fondo 15.88:1; secundario/fondo 8.73:1; acento/fondo 10.66:1 (recalcular con los valores del archivo si se cambian).
+Pruebas focalizadas: EPUB2/EPUB3, nombres codificados, ausencia de portada declarada, URL externa, escape de raíz, exceso de tamaño y entidades XML. Contraste calculado conforme a luminancia sRGB: texto/fondo 16.57:1; secundario/fondo 9.35:1; acento/fondo 11.93:1 (recalcular con los valores del archivo si se cambian).
 
 Verificado localmente en Windows/JDK17: `:app:assembleDebug :app:testDebugUnitTest --tests '*EpubCoverSourceTest' --no-daemon --max-workers=1`, BUILD SUCCESSFUL; 8 tests, 0 fallos/errores; APK debug generado (5.971.710 bytes). La integración se registra en DEVELOPMENT_STATE por el coordinador. Revisión visual real, TalkBack, fuente ampliada, tablet y AndroidIDE ARM64 pendientes hasta disponer de dispositivo/emulador. No se afirma ahorro energético medido.
 
