@@ -160,6 +160,14 @@ class MobiReaderActivity : AppCompatActivity() {
                 if (start >= 0 && end > start) selectedAbsoluteOffset = offset + start
             }
             override fun onSelectionFinished() = Unit
+        }, object : DefinitionUi.SavedMarkHandler {
+            override fun hasSavedMark(start: Int, end: Int) =
+                savedMarksWithin(start, end).isNotEmpty()
+
+            override fun onShowSavedMark(start: Int, end: Int) {
+                SavedAnnotationSheet.show(this@MobiReaderActivity, repository,
+                    savedMarksWithin(start, end))
+            }
         })
         MarkedTextTap.attach(content, marksAt = { textOffset ->
             // Only spans actually painted in this MOBI chunk can open a note.
@@ -218,6 +226,14 @@ class MobiReaderActivity : AppCompatActivity() {
             catch (error: Exception) {
                 status.text = error.message ?: "No se pudo abrir el MOBI."
             }
+        }
+    }
+
+    /** The contextual Ver anotación action uses the same painted ranges as tapping. */
+    private fun savedMarksWithin(start: Int, end: Int): List<AnnotationEntity> {
+        val ids = MarkedTextTap.idsWithin(content.text, start, end).toSet()
+        return annotations.filter {
+            it.id in ids && it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
         }
     }
 
