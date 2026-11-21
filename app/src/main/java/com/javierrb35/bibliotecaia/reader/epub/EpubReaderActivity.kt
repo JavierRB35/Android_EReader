@@ -182,8 +182,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
                         if (nativeMode) return false
-                        if (ReadiumMarkedTap.pageEdge(event.point.x,
-                                fragment.publicationView.width, scroll, 28.dp.toFloat())) return false
+                        // A marked passage must win over page-edge navigation,
+                        // including when Readium misses its own decoration callback.
+                        val edgeTap = ReadiumMarkedTap.pageEdge(event.point.x,
+                            fragment.publicationView.width, scroll, 28.dp.toFloat())
                         val x = event.point.x
                         val y = event.point.y
                         lifecycleScope.launch {
@@ -198,9 +200,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             }.getOrNull()
                             val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
                             if (mark != null && !nativeMode) showSavedTextMark(mark)
-                            else toggleReadingControls()
+                            else if (!edgeTap && !nativeMode) toggleReadingControls()
                         }
-                        return true
+                        // Let the directional adapter navigate the unmarked edge,
+                        // but keep the annotation hit-test active in that band.
+                        return !edgeTap
                     }
                 })
                 fragment.addInputListener(DirectionalNavigationAdapter(fragment,
