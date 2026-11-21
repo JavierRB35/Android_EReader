@@ -25,6 +25,20 @@ object MarkedTextTap {
             .distinct()
     }
 
+    /**
+     * Resolve a selected range against the very same hit spans that paint
+     * the visible marks. An unmarked selection (or merely similar quote
+     * elsewhere in the book) must never resolve to a saved annotation.
+     */
+    fun idsWithin(text: CharSequence, start: Int, end: Int): List<String> {
+        if (text !is Spanned || start < 0 || end > text.length || end <= start)
+            return emptyList()
+        return text.getSpans(start, end, AnnotationHitSpan::class.java)
+            .filter { text.getSpanStart(it) < end && text.getSpanEnd(it) > start }
+            .map { it.annotationId }
+            .distinct()
+    }
+
     fun attach(
         text: TextView,
         marksAt: (Int) -> List<AnnotationEntity>,
