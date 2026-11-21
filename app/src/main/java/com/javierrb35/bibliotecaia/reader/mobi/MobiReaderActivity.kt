@@ -27,6 +27,7 @@ import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
+import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -71,6 +72,25 @@ class MobiReaderActivity : AppCompatActivity() {
     private var offset = 0
     private var endOffset = 0
     private var loaded = false
+    private val speech = ReaderSpeech()
+    private lateinit var speechButton: com.google.android.material.button.MaterialButton
+    private var automaticSpeechAdvance = false
+    private val speechListener = object : ReaderSpeech.Listener {
+        override fun onSpeaking(active: Boolean) {
+            if (::speechButton.isInitialized) speechButton.text = if (active) "Detener" else "Escuchar"
+        }
+        override fun onError(message: String) {
+            Toast.makeText(this@MobiReaderActivity, message, Toast.LENGTH_LONG).show()
+        }
+        override fun onFinished() {
+            if (loaded && endOffset < text.length) {
+                automaticSpeechAdvance = true
+                showChunk(endOffset)
+                automaticSpeechAdvance = false
+                speech.continueWith(content.text.toString())
+            } else speech.stop()
+        }
+    }
     private var annotations = emptyList<AnnotationEntity>()
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
@@ -88,6 +108,8 @@ class MobiReaderActivity : AppCompatActivity() {
         toolbar.addView(button("Volver") { finish() })
         toolbar.addView(button("Buscar") { search() })
         toolbar.addView(button("Aa") { settings() })
+        speechButton = button("Escuchar") { toggleSpeech() }
+        toolbar.addView(speechButton)
         root.addView(toolbar)
         status = TextView(this).apply { text = "Abriendo MOBI…"; setPadding(dp(20), dp(8), dp(20), dp(8)) }
         root.addView(status)
@@ -199,8 +221,18 @@ class MobiReaderActivity : AppCompatActivity() {
         }
     }
 
+    private fun toggleSpeech() {
+        if (speech.active()) { speech.stop(); return }
+        if (!loaded) {
+            Toast.makeText(this, "El texto MOBI todavía se está preparando.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        speech.toggle(this, content.text.toString(), speechListener)
+    }
+
     private fun showChunk(at: Int) {
         if (!loaded) return
+        if (speech.active() && !automaticSpeechAdvance) speech.stop()
         offset = at.coerceIn(0, text.lastIndex)
         // Never split a UTF-16 surrogate pair between views or saved locators.
         if (offset > 0 && Character.isLowSurrogate(text[offset])) offset--
@@ -291,11 +323,13 @@ class MobiReaderActivity : AppCompatActivity() {
         }
     }
     override fun onPause() {
+        speech.stop()
         pendingPosition?.cancel()
         if (loaded) savePosition(visibleOffset())
         super.onPause()
     }
     override fun onDestroy() {
+        speech.shutdown()
         pendingPosition?.cancel()
         super.onDestroy()
     }
