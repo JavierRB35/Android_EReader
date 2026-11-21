@@ -48,6 +48,7 @@ class AiChatActivity : AppCompatActivity() {
     private val db by lazy { AppDatabase.get(this) }
     private var bookId: String = ""
     private var bookTitle: String = ""
+    private var bookAuthors: String? = null
     private var selectedQuote: String? = null
     private var selectedLocator: String? = null
     private val interpretationMode get() = selectedQuote != null
@@ -78,6 +79,7 @@ class AiChatActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val book = db.bookDao().findById(bookId) ?: run { finish(); return@launch }
             bookTitle = book.title
+            bookAuthors = book.authors
             progress = book.progress
             if (interpretationMode) {
                 val restored = savedInstanceState?.getString(STATE_INTERPRETATION)
@@ -287,11 +289,18 @@ class AiChatActivity : AppCompatActivity() {
 
     private fun ask(automaticPrompt: String? = null) {
         if (requestInProgress) return
-        val question = automaticPrompt ?: questionInput.text?.toString()?.trim().orEmpty()
-        if (question.isEmpty()) return
+        val typed = automaticPrompt ?: if (interpretationMode) "" else
+            questionInput.text?.toString()?.trim().orEmpty()
+        val overview = !interpretationMode && automaticPrompt == null && typed.isBlank()
+        if (!overview && typed.isBlank()) return
+        if (overview && chapters.isEmpty()) {
+            addBubble(getString(R.string.ai_overview_no_evidence))
+            return
+        }
         requestInProgress = true
         val thinking = if (!interpretationMode) {
-            addBubble(question, isUser = true)
+            // Never display the internal instruction as if the reader typed it.
+            addBubble(if (overview) getString(R.string.ai_book_overview) else typed, isUser = true)
             addBubble(getString(R.string.ai_thinking))
         } else null
         val spoilerSafe = if (interpretationMode) true else spoilerSwitch.isChecked
@@ -312,8 +321,17 @@ class AiChatActivity : AppCompatActivity() {
             }
             try {
                 if (!interpretationMode) questionInput.setText("")
+                val proposeTags = overview && db.refsDao().tagIdsForBook(bookId).isEmpty()
+                val question = if (overview)
+                    BookOverview.prompt(bookTitle, bookAuthors, spoilerSafe, proposeTags)
+                else typed
                 val fragments = withContext(Dispatchers.IO) {
-                    BookTextSource.retrieve(chapters, question, spoilerSafe, progress)
+                    if (overview) BookTextSource.overview(chapters, spoilerSafe, progress)
+                    else BookTextSource.retrieve(chapters, question, spoilerSafe, progress)
+                }
+                if (overview && fragments.isEmpty()) {
+                    thinking?.bubbleMessage(getString(R.string.ai_overview_no_evidence))
+                    return@launch
                 }
                 usedSources.clear()
                 usedSources.addAll(fragments)
@@ -324,15 +342,31 @@ class AiChatActivity : AppCompatActivity() {
                 val context = listOfNotNull(explicit) +
                     fragments.map { "[${it.index}] ${it.title}\n${it.text}" }
                 val answer = withContext(Dispatchers.IO) {
-                    AiClients.ask(provider, key, question, context, history.toList())
+                    AiClients.ask(provider, key, question, context,
+                        if (overview) emptyList() else history.toList())
                 }
-                history.add("user" to question)
+                val label = if (overview) getString(R.string.ai_book_overview) else typed
+                history.add("user" to label)
                 history.add("assistant" to answer.text)
-                saveHistory(question, answer.text, provider)
+                saveHistory(label, answer.text, provider)
                 if (interpretationMode) {
                     interpretationAnswer = answer.text
                     interpretationProvider = provider
                     showInterpretation(answer.text, provider)
+                } else if (overview) {
+                    val parsed = BookOverview.parse(answer.text, proposeTags)
+                    thinking?.visibility = View.GONE
+                    if (parsed.synopsis.isBlank() ||
+                        parsed.synopsis.startsWith("No aparece en el libro.", ignoreCase = true)
+                    ) {
+                        addBubble(getString(R.string.ai_overview_no_evidence))
+                    } else {
+                        val assigned = BookSynopsisRepository(db).save(bookId, parsed.synopsis,
+                            provider, spoilerSafe, parsed.tags)
+                        addAnswer(parsed.synopsis)
+                        addBubble(if (assigned.isEmpty()) getString(R.string.ai_overview_saved)
+                            else getString(R.string.ai_overview_saved_tags, assigned.joinToString(", ")))
+                    }
                 } else {
                     thinking?.visibility = View.GONE
                     addAnswer(answer.text)
