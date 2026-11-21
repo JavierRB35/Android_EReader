@@ -200,12 +200,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
                         if (nativeMode) return false
-                        // Readium's registered decoration listener handles
-                        // annotated edge text before the page-turn adapter.
-                        if (ReadiumMarkedTap.pageEdge(event.point.x,
-                                fragment.publicationView.width, scroll, 28.dp.toFloat())) return false
+                        // Check a saved note BEFORE interpreting a page-edge
+                        // tap as navigation. Previously we returned early at
+                        // the edges, making marked text there impossible to open.
                         val x = event.point.x
                         val y = event.point.y
+                        val edge = ReadiumMarkedTap.pageEdge(x,
+                            fragment.publicationView.width, scroll, 28.dp.toFloat())
                         lifecycleScope.launch {
                             val liveIds = annotations.filter {
                                 it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
@@ -217,8 +218,18 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                 )
                             }.getOrNull()
                             val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
-                            if (mark != null && !nativeMode) showSavedTextMark(mark)
-                            else toggleReadingControls()
+                            if (mark != null && !nativeMode) {
+                                showSavedTextMark(mark)
+                            } else if (edge && !scroll && !nativeMode) {
+                                // This tap was consumed for async hit testing.
+                                // Keep the previous narrow page-turn behavior
+                                // when no saved mark was verified at the edge.
+                                if (x <= fragment.publicationView.width / 2f)
+                                    fragment.goBackward()
+                                else fragment.goForward()
+                            } else if (!nativeMode) {
+                                toggleReadingControls()
+                            }
                         }
                         return true
                     }
