@@ -12,7 +12,7 @@ con AndroidIDE, SDK 34 y Java 17.
 
 ## Contrato visual implementado
 
-- **Biblioteca protagonista:** cabecera editorial más baja, título de 27 sp y
+- **Biblioteca protagonista:** cabecera editorial única de 24 sp (sin título duplicado) y
   espacio vertical reducido alrededor de filtros y recuento.
 - **«Continuar leyendo»:** acceso en la parte superior, solo cuando hay un
   último libro, con miniatura real de **32 × 44 dp**, título en una línea,
