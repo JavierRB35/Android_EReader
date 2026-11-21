@@ -52,11 +52,10 @@ class AiFallbackRouterTest {
     }
 
     @Test fun noConsentOrNoGroqNeverTransmitsSecondRequest() {
-        for (enabled in listOf(false, true)) {
+        for ((hasGroq, allowed) in listOf(true to false, false to true)) {
             var backupCalls = 0
-            val allowed = enabled
             try {
-                AiFallbackRouter.ask(true, enabled, { allowed }) { provider ->
+                AiFallbackRouter.ask(true, hasGroq, { allowed }) { provider ->
                     if (provider == AiClients.GROQ) backupCalls++
                     throw error(AiClients.AiErrorKind.QUOTA)
                 }

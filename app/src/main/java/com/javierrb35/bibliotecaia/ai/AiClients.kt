@@ -27,7 +27,7 @@ object AiClients {
 
     private const val TIMEOUT_MS = 30_000
 
-    enum class AiErrorKind { NETWORK, INVALID_KEY, QUOTA, PERMISSION, MODEL, SERVER, PARSE }
+    enum class AiErrorKind { NETWORK, TIMEOUT, INVALID_KEY, QUOTA, PERMISSION, MODEL, SERVER, PARSE }
 
     class AiException(val kind: AiErrorKind, message: String) : IOException(message)
 
@@ -135,6 +135,8 @@ object AiClients {
             return Answer(route.third(payload), provider, if (provider == GEMINI) GEMINI_MODEL else GROQ_MODEL)
         } catch (e: AiException) {
             throw e
+        } catch (_: java.net.SocketTimeoutException) {
+            throw AiException(AiErrorKind.TIMEOUT, "El proveedor ha agotado el tiempo de espera.")
         } catch (_: java.io.IOException) {
             throw AiException(AiErrorKind.NETWORK, "Sin conexión con el proveedor.")
         } finally {

@@ -206,4 +206,11 @@
     <string name="detail_added_content">Añadido: %1$s</string>
     <string name="detail_size_content">Tamaño: %1$s</string>
     <string name="detail_new_item_hint">También puedes escribir un nuevo nombre para crearlo y asignarlo.</string>
+    <string name="ai_fallback_section">Respaldo automático con Groq</string>
+    <string name="ai_fallback_description">Gemini es el proveedor principal. Si se agota su cuota, hay un fallo temporal o vence el tiempo de espera, puedes autorizar que Groq responda en su lugar. Una clave Groq guardada no activa por sí sola este envío.</string>
+    <string name="ai_fallback_toggle">Autorizar respaldo Gemini → Groq</string>
+    <string name="ai_fallback_key_missing">Introduce y guarda primero una clave Groq.</string>
+    <string name="ai_fallback_consent_title">Autorizar el respaldo automático con Groq</string>
+    <string name="ai_fallback_consent_text">Solo ante cuota agotada, error temporal del servidor o tiempo de espera de Gemini, BibliotecaAI enviará automáticamente a Groq los mismos fragmentos del libro, la cita seleccionada, tu pregunta y el contexto conversacional incluido en esa consulta.\n\nSe trata de un proveedor distinto de Google. No se envían libros completos, claves API ni todas tus anotaciones, salvo el contenido que hayas introducido en una consulta. Puedes revocar esta autorización en cualquier momento. Una clave Groq nueva la desactiva.\n\n¿Autorizas activar el respaldo?</string>
+    <string name="ai_fallback_allow">Autorizar y activar</string>
 </resources>

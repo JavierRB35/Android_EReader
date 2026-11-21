@@ -8,6 +8,8 @@ import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -35,6 +37,7 @@ class AiSetupActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var keyInput: TextInputEditText
     private lateinit var keyLayout: TextInputLayout
+    private lateinit var groqFallbackToggle: SwitchMaterial
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +106,18 @@ class AiSetupActivity : AppCompatActivity() {
         layout.addView(status)
         hint(layout, getString(R.string.ai_privacy_note))
 
+        // Scriptura parity: separate affirmative consent, not inferred from the API key.
+        section(layout, getString(R.string.ai_fallback_section))
+        hint(layout, getString(R.string.ai_fallback_description))
+        groqFallbackToggle = SwitchMaterial(this).apply {
+            text = getString(R.string.ai_fallback_toggle)
+            textSize = 14f
+            minHeight = dp(52)
+            setTextColor(getColor(R.color.bia_text))
+        }
+        layout.addView(groqFallbackToggle)
+        refreshFallbackControl()
+
         selectProvider(AiClients.GEMINI)
     }
 
@@ -124,6 +139,40 @@ class AiSetupActivity : AppCompatActivity() {
             providerName(provider),
             if (stored) getString(R.string.ai_stored) else getString(R.string.ai_not_stored),
         )
+        if (::groqFallbackToggle.isInitialized) refreshFallbackControl()
+    }
+
+    private fun refreshFallbackControl() {
+        groqFallbackToggle.setOnCheckedChangeListener(null)
+        groqFallbackToggle.isChecked = AiFallbackConsent.enabled(this)
+        groqFallbackToggle.setOnCheckedChangeListener { _, checked ->
+            if (!checked) {
+                AiFallbackConsent.revoke(this)
+                refreshFallbackControl()
+                return@setOnCheckedChangeListener
+            }
+            if (AiKeyStore.getKey(this, AiClients.GROQ).isNullOrBlank()) {
+                Toast.makeText(this, R.string.ai_fallback_key_missing, Toast.LENGTH_LONG).show()
+                refreshFallbackControl()
+                return@setOnCheckedChangeListener
+            }
+            // Never transmit another provider's book fragments based on key setup alone.
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.ai_fallback_consent_title)
+                .setMessage(R.string.ai_fallback_consent_text)
+                .setNegativeButton(android.R.string.cancel) { _, _ -> refreshFallbackControl() }
+                .setOnCancelListener { refreshFallbackControl() }
+                .setPositiveButton(R.string.ai_fallback_allow) { _, _ ->
+                    AiFallbackConsent.setEnabled(this, true)
+                    refreshFallbackControl()
+                }.show()
+            // The visual switch remains OFF until authorization is confirmed.
+            groqFallbackToggle.setOnCheckedChangeListener(null)
+            groqFallbackToggle.isChecked = false
+            groqFallbackToggle.setOnCheckedChangeListener { _, next ->
+                if (next) refreshFallbackControl()
+            }
+        }
     }
 
     private fun saveAndTest() {
