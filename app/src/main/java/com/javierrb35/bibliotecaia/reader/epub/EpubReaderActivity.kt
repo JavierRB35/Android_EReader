@@ -434,6 +434,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 if (start >= 0 && end > start) lastNativeSelectionStart = start
             }
             override fun onSelectionFinished() = Unit
+        }, object : DefinitionUi.SavedMarkHandler {
+            override fun hasSavedMark(start: Int, end: Int) =
+                nativeSavedMarksWithin(start, end).isNotEmpty()
+
+            override fun onShowSavedMark(start: Int, end: Int) {
+                SavedAnnotationSheet.show(this@EpubReaderActivity, repository,
+                    nativeSavedMarksWithin(start, end))
+            }
         })
 
         // Scriptura parity: short tap opens all annotations at the character,
@@ -456,6 +464,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 updateNativeProgress()
                 scheduleNativeSave()
             }
+        }
+    }
+
+    /** Native Android selection acts on verified painted spans, not quote guesses. */
+    private fun nativeSavedMarksWithin(start: Int, end: Int): List<AnnotationEntity> {
+        val ids = MarkedTextTap.idsWithin(nativeText.text, start, end).toSet()
+        return annotations.filter {
+            it.id in ids && it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
         }
     }
 

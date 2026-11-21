@@ -2,6 +2,12 @@ package com.javierrb35.bibliotecaia.study;
 
 import android.app.Activity;
 import android.content.Context;
+import android.text.Selection;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan;
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap;
 import android.view.ActionMode;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -71,6 +77,41 @@ public class DefinitionSelectionDeviceTest {
             assertNotNull(menu.findItem(android.R.id.selectAll));
             assertNotNull(menu.findItem(android.R.id.shareText));
             assertNull(menu.findItem(android.R.id.paste));
+        });
+    }
+
+    @Test public void nativeSelectionRestoresVerAnotacionOnlyOnPaintedUnderline() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+            SpannableString rendered = new SpannableString("Texto con anotación guardada aquí");
+            int markStart = rendered.toString().indexOf("anotación");
+            int markEnd = markStart + "anotación".length();
+            rendered.setSpan(new AnnotationHitSpan("nota-uno"), markStart, markEnd,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            TextView reader = new TextView(ctx);
+            reader.setText(rendered, TextView.BufferType.SPANNABLE);
+            reader.setTextIsSelectable(true);
+            DefinitionUi.attach(new Activity(), reader, false, noExternalRequests(),
+                null, null, null, null, new DefinitionUi.SavedMarkHandler() {
+                    @Override public boolean hasSavedMark(int start, int end) {
+                        return !MarkedTextTap.INSTANCE.idsWithin(reader.getText(), start, end).isEmpty();
+                    }
+                    @Override public void onShowSavedMark(int start, int end) { }
+                });
+            Selection.setSelection((Spannable) reader.getText(), markStart + 1, markEnd);
+            Menu menu = new PopupMenu(ctx, reader).getMenu();
+            ActionMode.Callback callback = reader.getCustomSelectionActionModeCallback();
+            assertTrue(callback.onCreateActionMode(null, menu));
+            MenuItem note = menu.findItem(0x5C124);
+            assertNotNull("Ver anotación must be present for the marked selection", note);
+            assertEquals("Ver anotación", note.getTitle());
+            assertTrue(note.isVisible());
+            assertNotNull(menu.findItem(android.R.id.copy));
+            assertNotNull(menu.findItem(android.R.id.shareText));
+            Selection.setSelection((Spannable) reader.getText(), 0, 5);
+            assertTrue(callback.onPrepareActionMode(null, menu));
+            assertFalse("No note action outside the painted span", note.isVisible());
+            assertNotNull(menu.findItem(android.R.id.selectAll));
         });
     }
 

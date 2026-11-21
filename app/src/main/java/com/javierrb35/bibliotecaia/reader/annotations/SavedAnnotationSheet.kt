@@ -31,7 +31,7 @@ object SavedAnnotationSheet {
         // A written note on top of an underline is the reader's primary target.
         // Open it directly; only ask the reader to choose if multiple written
         // notes overlap the same visible passage.
-        val notes = available.filter { it.kind == "NOTE" }
+        val notes = available.filter { it.kind == "NOTE" || it.body.isNotBlank() }
         if (notes.size == 1) {
             detail(activity, repository, notes.single())
             return
@@ -41,7 +41,11 @@ object SavedAnnotationSheet {
             return
         }
         val labels = available.mapIndexed { index, mark ->
-            val type = if (mark.kind == "HIGHLIGHT") "Subrayado" else "Nota"
+            val type = when {
+                mark.kind == "NOTE" -> "Nota"
+                mark.body.isNotBlank() -> "Subrayado con nota"
+                else -> "Subrayado"
+            }
             val preview = mark.body.ifBlank { mark.quote }.replace('\n', ' ')
             (index + 1).toString() + ". " + type + " · " + preview.take(70)
         }
@@ -78,11 +82,12 @@ object SavedAnnotationSheet {
             line("Fragmento seleccionado", 13f, 0xffd4b483.toInt(), true)
             line("«" + mark.quote + "»", 16f, 0xffe8dfce.toInt())
         }
-        if (mark.kind == "NOTE") {
+        val hasNote = mark.kind == "NOTE" || mark.body.isNotBlank()
+        if (hasNote) {
             line("Tu anotación", 13f, 0xffd4b483.toInt(), true)
             line(mark.body.ifBlank { "Sin reflexión escrita." }, 16f, 0xffe8dfce.toInt())
         } else {
-            line("Fragmento subrayado. El texto original no se modifica.",
+            line("Fragmento subrayado. Puedes añadir una nota sin modificar el libro.",
                 14f, 0xffb8b0a4.toInt())
         }
         val maxHeight = (activity.resources.displayMetrics.heightPixels * .67f).toInt()
@@ -104,15 +109,15 @@ object SavedAnnotationSheet {
         )
         val isUnderline = mark.kind == "HIGHLIGHT"
         MaterialAlertDialogBuilder(activity)
-            .setTitle(if (isUnderline) "Subrayado" else "Nota")
+            .setTitle(if (isUnderline && hasNote) "Subrayado con nota"
+                else if (isUnderline) "Subrayado" else "Nota")
             .setView(scroll)
             .setNegativeButton("Cerrar", null)
-            .apply {
-                if (!isUnderline) {
-                    setNeutralButton("Editar anotación") { _, _ ->
-                        AnnotationEditor.edit(activity, mark)
-                    }
-                }
+            .setNeutralButton(if (isUnderline && !hasNote) "Añadir nota"
+                else "Editar anotación") { _, _ ->
+                // Preserve the original mark ID/range; editing its body must not
+                // turn the painted underline into a second orphaned annotation.
+                AnnotationEditor.edit(activity, mark)
             }
             .setPositiveButton(if (isUnderline) "Quitar subrayado" else "Eliminar anotación") { _, _ ->
                 MaterialAlertDialogBuilder(activity)
