@@ -1,8 +1,18 @@
 package com.javierrb35.bibliotecaia.ai
 
+import android.content.Intent
+import android.view.View
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry
+import com.javierrb35.bibliotecaia.R
+import com.javierrb35.bibliotecaia.ui.BookDetailActivity
 import com.javierrb35.bibliotecaia.backup.BackupCodec
 import com.javierrb35.bibliotecaia.backup.LibrarySnapshot
 import com.javierrb35.bibliotecaia.data.AppDatabase
@@ -75,4 +85,48 @@ class BookSynopsisDeviceTest {
         }
         assertTrue(BackupCodec.fromJson(older.toString()).synopses.isEmpty())
     }
+    @Test fun storedSynopsisAppearsImmediatelyBelowBookTitleAndOpensWithoutAiRequest() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val db = AppDatabase.get(context)
+        val id = UUID.randomUUID().toString()
+        val summary = "Argumento para consulta en la ficha de este libro."
+        runBlocking {
+            db.bookDao().insert(book(id))
+            db.synopsisDao().save(
+                com.javierrb35.bibliotecaia.data.BookSynopsisEntity(
+                    id, summary, "gemini", System.currentTimeMillis(), true))
+        }
+        val activity = instrumentation.startActivitySync(
+            Intent(context, BookDetailActivity::class.java)
+                .putExtra("book_id", id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        ) as BookDetailActivity
+        try {
+            var shown = false
+            repeat(80) {
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    shown = activity.findViewById<View>(R.id.btnSynopsis).visibility == View.VISIBLE
+                }
+                if (shown) return@repeat
+                Thread.sleep(70)
+            }
+            assertTrue("The book synopsis access must appear at the top of details", shown)
+            onView(withId(R.id.btnSynopsis)).perform(click())
+            onView(withText(summary)).check(matches(isDisplayed()))
+            onView(withText(R.string.detail_synopsis_export)).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            instrumentation.waitForIdleSync()
+            runBlocking {
+                db.openHelper.writableDatabase.execSQL(
+                    "DELETE FROM book_synopses WHERE bookId=?", arrayOf(id))
+                db.openHelper.writableDatabase.execSQL(
+                    "DELETE FROM books WHERE id=?", arrayOf(id))
+            }
+        }
+    }
+
 }
