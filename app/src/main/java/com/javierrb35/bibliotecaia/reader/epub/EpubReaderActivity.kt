@@ -36,6 +36,7 @@ import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
+import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -99,6 +100,23 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var nativeScroll: ScrollView
     private lateinit var nativeText: TextView
     private lateinit var nativeToggle: MaterialButton
+    private lateinit var speechButton: MaterialButton
+    private val speech = ReaderSpeech()
+    private var pendingSpeechStart = false
+    private var advanceSpeech = false
+    private val speechListener = object : ReaderSpeech.Listener {
+        override fun onSpeaking(active: Boolean) {
+            if (::speechButton.isInitialized) speechButton.text = if (active) "Detener" else "Escuchar"
+        }
+        override fun onError(message: String) { toast(message) }
+        override fun onFinished() {
+            val next = nativeIndex + 1
+            if (nativeMode && next < (publication?.readingOrder?.size ?: 0)) {
+                advanceSpeech = true
+                showNativeChapter(next)
+            } else speech.stop()
+        }
+    }
     private var nativeMode = true
     private var nativeChapter: NativeEpubText.Chapter? = null
     private var nativeIndex = 0
@@ -296,6 +314,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         addAction(getString(R.string.epub_search)) { search() }
         addAction(getString(R.string.epub_settings)) { settings() }
         addAction("Notas") { showAnnotations() }
+        speechButton = button("Escuchar") { toggleSpeech() }
+        actions.addView(speechButton, LinearLayout.LayoutParams(-2, 42.dp).apply {
+            marginEnd = 6.dp
+        })
         nativeToggle = button(if (nativeMode) "Maquetación" else "Selección precisa") {
             setNativeMode(!nativeMode)
         }
@@ -443,6 +465,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private fun setNativeMode(enabled: Boolean) {
         if (nativeMode == enabled || publication == null) return
         if (!enabled) {
+            speech.stop()
+            pendingSpeechStart = false
+            advanceSpeech = false
+
             nativeSave?.cancel()
             saveNativePosition(visibleNativeOffset())
         }
@@ -469,6 +495,28 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
 
+    private fun toggleSpeech() {
+        if (speech.active()) { speech.stop(); return }
+        if (publication == null) { toast("El libro todavía se está preparando."); return }
+        if (!nativeMode) {
+            // The native text is read aloud; avoid pretending the Readium DOM
+            // can provide an exact spoken passage without extraction.
+            pendingSpeechStart = true
+            setNativeMode(true)
+            return
+        }
+        val chapter = nativeChapter
+        if (chapter == null) {
+            pendingSpeechStart = true
+            showNativeChapter(nativeIndex)
+            return
+        }
+        speech.toggle(this, spokenChapter(chapter), speechListener)
+    }
+
+    private fun spokenChapter(chapter: NativeEpubText.Chapter): String =
+        readerBookTitle.text.toString() + ". " + chapter.title + ". " + chapter.text
+
     private fun showReadingSurface() {
         webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
         nativeScroll.visibility = if (nativeMode) View.VISIBLE else View.GONE
@@ -478,6 +526,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null) {
         val pub = publication ?: return
         val link = pub.readingOrder.getOrNull(index) ?: return
+        if (speech.active() && !advanceSpeech) speech.stop()
         nativeLoading?.cancel()
         val generation = ++nativeGeneration
         nativeLoading = lifecycleScope.launch {
@@ -504,10 +553,20 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 }
                 showReadingSurface()
                 loading.visibility = View.GONE
+                if (advanceSpeech) {
+                    advanceSpeech = false
+                    speech.continueWith(spokenChapter(chapter))
+                } else if (pendingSpeechStart) {
+                    pendingSpeechStart = false
+                    speech.toggle(this@EpubReaderActivity, spokenChapter(chapter), speechListener)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 if (generation != nativeGeneration) return@launch
+                advanceSpeech = false
+                pendingSpeechStart = false
+                speech.stop()
                 // A chapter consisting only of images/complex content must
                 // remain viewable in Readium without mutating the EPUB.
                 nativeMode = false
@@ -997,6 +1056,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         super.onSaveInstanceState(outState)
     }
     override fun onStop() {
+        speech.stop()
+        pendingSpeechStart = false
+        advanceSpeech = false
         pendingSave?.cancel()
         nativeSave?.cancel()
         if (nativeMode) {
@@ -1024,6 +1086,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
     override fun onDestroy() {
+        speech.shutdown()
         nativeLoading?.cancel()
         nativeSave?.cancel()
         super.onDestroy()
