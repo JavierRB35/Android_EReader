@@ -37,6 +37,7 @@ import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
+import com.javierrb35.bibliotecaia.reader.theme.ReaderAppearance
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -135,7 +136,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         // without its publication factory after process death; restore our persisted Locator instead.
         super.onCreate(null)
         bookId = intent.getStringExtra(BOOK) ?: run { finish(); return }
-        themeIndex = preferences.getInt("theme", 0).coerceIn(0, 3)
+        themeIndex = preferences.getInt("theme", 0).coerceIn(0, ReaderAppearance.SYSTEM)
         fontScale = preferences.getFloat("font", 1.1f).coerceIn(.75f, 2f)
         // Existing paginated installations are migrated once to the safer
         // vertical-scrolling default. Aa still lets the reader opt into pages.
@@ -306,13 +307,15 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setPadding(12.dp, 3.dp, 12.dp, 10.dp)
         }
         fun addAction(label: String, handler: () -> Unit) {
-            actions.addView(button(label, handler), LinearLayout.LayoutParams(-2, 42.dp).apply {
+            val action = button(label, handler)
+            if (label == "Aa") action.contentDescription = "Tipografía y aspecto de lectura"
+            actions.addView(action, LinearLayout.LayoutParams(-2, 42.dp).apply {
                 marginEnd = 6.dp
             })
         }
         addAction(getString(R.string.epub_contents)) { showContents() }
         addAction(getString(R.string.epub_search)) { search() }
-        addAction(getString(R.string.epub_settings)) { settings() }
+        addAction("Aa") { settings() }
         addAction("Notas") { showAnnotations() }
         speechButton = button("Escuchar") { toggleSpeech() }
         actions.addView(speechButton, LinearLayout.LayoutParams(-2, 42.dp).apply {
@@ -699,7 +702,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         footer.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
-    private fun palette(): Pair<Int, Int> = when (themeIndex) {
+    private fun resolvedTheme() =
+        ReaderAppearance.resolve(themeIndex, resources.configuration.uiMode)
+
+    private fun palette(): Pair<Int, Int> = when (resolvedTheme()) {
         1 -> Color.parseColor("#181A1B") to Color.parseColor("#E8DFCE")
         2 -> Color.parseColor("#F1E5CC") to Color.parseColor("#332B20")
         3 -> Color.parseColor("#FAF8F2") to Color.parseColor("#24221F")
@@ -708,8 +714,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun readerPreferences(): EpubPreferences {
         val (background, text) = palette()
+        val resolved = resolvedTheme()
         return EpubPreferences(backgroundColor = ReaderColor(background), textColor = ReaderColor(text),
-            theme = if (themeIndex <= 1) Theme.DARK else if (themeIndex == 2) Theme.SEPIA else Theme.LIGHT,
+            theme = if (resolved <= 1) Theme.DARK else if (resolved == 2) Theme.SEPIA else Theme.LIGHT,
             fontSize = fontScale.toDouble(), fontFamily = FontFamily(if (serif) "serif" else "sans-serif"),
             publisherStyles = false, lineHeight = 1.55, pageMargins = 1.2, scroll = scroll)
     }
@@ -720,7 +727,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeScroll.setBackgroundColor(background)
         nativeText.setBackgroundColor(background)
         nativeText.setTextColor(text)
-        nativeText.setHighlightColor(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
+        nativeText.setHighlightColor(if (resolvedTheme() <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
         nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
         controls.setBackgroundColor(getColor(R.color.bia_surface))
@@ -732,13 +739,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun settings() {
         MaterialAlertDialogBuilder(this).setTitle("Tu lectura").setItems(arrayOf(
-            "Tema: ${arrayOf("OLED", "Oscuro", "Sepia", "Claro")[themeIndex]}",
+            "Tema: ${ReaderAppearance.labels[themeIndex]}",
             "Letra más grande", "Letra más pequeña", if (serif) "Tipografía sin remates" else "Tipografía con remates",
             if (scroll) "Cambiar a páginas" else "Desplazamiento vertical"
         )) { _, which ->
             when (which) {
                 0 -> { MaterialAlertDialogBuilder(this).setTitle("Tema de lectura")
-                    .setSingleChoiceItems(arrayOf("OLED · negro puro", "Oscuro suave", "Sepia", "Claro"), themeIndex) { dialog, index ->
+                    .setSingleChoiceItems(arrayOf("OLED · negro puro", "Oscuro suave", "Sepia", "Claro",
+                        "Automático · según Android"), themeIndex) { dialog, index ->
                         themeIndex = index; savePreferences(); dialog.dismiss()
                     }.show(); return@setItems }
                 1 -> fontScale = (fontScale + .1f).coerceAtMost(2f)

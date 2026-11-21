@@ -28,6 +28,7 @@ import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
+import com.javierrb35.bibliotecaia.reader.theme.ReaderAppearance
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.study.DefinitionUi
@@ -350,7 +351,8 @@ class MobiReaderActivity : AppCompatActivity() {
             }.setNegativeButton("Cancelar", null).show()
     }
     private fun settings() {
-        val options = arrayOf("Letra más grande", "Letra más pequeña", "OLED", "Oscuro", "Sepia", "Claro")
+        val options = arrayOf("Letra más grande", "Letra más pequeña",
+            "OLED", "Oscuro", "Sepia", "Claro", "Automático · según Android")
         MaterialAlertDialogBuilder(this).setTitle("Lectura").setItems(options) { _, which ->
             val at = visibleOffset()
             if (which < 2) preferences.edit().putFloat("size",
@@ -361,7 +363,9 @@ class MobiReaderActivity : AppCompatActivity() {
         }.show()
     }
     private fun applySettings() {
-        val theme = preferences.getInt("theme", 0).coerceIn(0, 3)
+        val theme = ReaderAppearance.resolve(
+            preferences.getInt("theme", 0).coerceIn(0, ReaderAppearance.SYSTEM),
+            resources.configuration.uiMode)
         val backgrounds = intArrayOf(Color.BLACK, 0xff191b1d.toInt(), 0xfff4e7ce.toInt(), 0xfffaf9f5.toInt())
         val foreground = if (theme < 2) 0xffe8dfce.toInt() else 0xff302a24.toInt()
         root.setBackgroundColor(backgrounds[theme]); content.setTextColor(foreground); status.setTextColor(foreground)
