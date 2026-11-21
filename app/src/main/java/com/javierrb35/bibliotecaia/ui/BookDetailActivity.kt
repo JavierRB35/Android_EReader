@@ -140,7 +140,11 @@ class BookDetailActivity : AppCompatActivity() {
         val existing = savedSynopsis?.takeIf {
             it.bookId == current.id && it.text.isNotBlank()
         }
-        if (existing == null) editSynopsis(null) else showSavedSynopsis()
+        if (existing == null) {
+            // The CTA requests an AI-generated synopsis automatically; manual editing
+            // remains available in the saved-synopsis modal.
+            com.javierrb35.bibliotecaia.ai.AiChatActivity.startSynopsis(this, current.id)
+        } else showSavedSynopsis()
     }
 
     private fun renderSynopsisAction(bookId: String) {
@@ -264,10 +268,23 @@ class BookDetailActivity : AppCompatActivity() {
             minHeight = dp(44)
             setTextColor(getColor(R.color.bia_text))
         }
-        dialogContent.addView(editButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply {
-                setMargins(dp(16), dp(10), dp(16), 0)
-            })
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), dp(8), dp(12), 0)
+        }
+        actions.addView(editButton, LinearLayout.LayoutParams(
+            0, dp(48), 1f
+        ))
+        val deleteButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.detail_synopsis_delete)
+            isAllCaps = false
+            minHeight = dp(48)
+            setTextColor(getColor(R.color.bia_text))
+        }
+        actions.addView(deleteButton, LinearLayout.LayoutParams(
+            0, dp(48), 1f
+        ).apply { marginStart = dp(8) })
+        dialogContent.addView(actions)
         dialogContent.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val dialog = MaterialAlertDialogBuilder(this)
@@ -294,6 +311,32 @@ class BookDetailActivity : AppCompatActivity() {
             }
             .show()
         editButton.setOnClickListener { dialog.dismiss(); editSynopsis(saved) }
+        deleteButton.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.detail_synopsis_delete_title)
+                .setMessage(R.string.detail_synopsis_delete_message)
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .setPositiveButton(R.string.detail_synopsis_delete) { _, _ ->
+                    lifecycleScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                db.synopsisDao().deleteByBook(current.id)
+                            }
+                            savedSynopsis = null
+                            renderSynopsisAction(current.id)
+                            dialog.dismiss()
+                            Toast.makeText(this@BookDetailActivity,
+                                R.string.detail_synopsis_deleted, Toast.LENGTH_SHORT).show()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            Toast.makeText(this@BookDetailActivity,
+                                R.string.detail_synopsis_delete_failed, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .show()
+        }
     }
 
     /** Revinculación by hash, never by filename. Preserve the user's metadata. */
