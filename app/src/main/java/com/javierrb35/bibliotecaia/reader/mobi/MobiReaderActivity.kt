@@ -24,6 +24,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
@@ -139,12 +140,10 @@ class MobiReaderActivity : AppCompatActivity() {
             override fun onSelectionFinished() = Unit
         })
         MarkedTextTap.attach(content, marksAt = { textOffset ->
-            val absolute = offset + textOffset
+            // Only spans actually painted in this MOBI chunk can open a note.
+            val ids = MarkedTextTap.idsAt(content.text, textOffset).toSet()
             annotations.filter { saved ->
-                saved.kind in setOf("NOTE", "HIGHLIGHT") &&
-                    validatedMarkOffset(saved)?.let { start ->
-                        absolute >= start && absolute < start + saved.quote.length
-                    } == true
+                saved.id in ids && saved.kind in setOf("NOTE", "HIGHLIGHT")
             }
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
@@ -235,7 +234,9 @@ class MobiReaderActivity : AppCompatActivity() {
                 rendered.setSpan(BackgroundColorSpan(0x66b59b62),
                     start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 rendered.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
+            } else continue
+            rendered.setSpan(AnnotationHitSpan(mark.id), start, end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         val position = scroll.scrollY
         content.setText(rendered, TextView.BufferType.SPANNABLE)
