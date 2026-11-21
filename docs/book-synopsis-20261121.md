@@ -19,6 +19,7 @@
 2. `BookTextSourceTest`: muestreo representativo, sin spoilers en progreso cero, cobertura del argumento.
 3. `BookSynopsisDeviceTest`: guardado Room, etiquetas solo en libros vacíos, reconsulta sin sobreescritura, JSON compatible con copia v1, acceso real en ficha del libro.
 4. `BookDetailOrganizationDeviceTest`: evitar que el acceso a argumentos rompa la edición y disposición de categorías, etiquetas y colecciones.
-5. `BookSynopsisActionDeviceTest`: desde libro nuevo, introducir argumento manual, comprobar persistencia y cambio del botón, visualizar, editar y volver a visualizar sin claves de IA.\n6. QA de integración: generar sinopsis del libro real con una clave válida, salir y volver a entrar, exportar TXT a SAF, comprobar contenido y reabrir tras restaurar ZIP.
+5. `BookSynopsisActionDeviceTest`: desde libro nuevo, introducir argumento manual, comprobar persistencia y cambio del botón, visualizar, editar y volver a visualizar sin claves de IA.
+6. QA de integración: generar sinopsis del libro real con una clave válida, salir y volver a entrar, exportar TXT a SAF, comprobar contenido y reabrir tras restaurar ZIP.
 
 **La ampliación añadir/ver/editar está aislada en la rama WIP `wip/book-synopsis-add-view-edit-20261121`. No se declara disponible en APK ni probado físicamente hasta que el CI y el flujo de publicación se completen**. No se modifica la IA por selección ni se incorpora búsqueda externa falsa.
