@@ -244,6 +244,18 @@ class AiChatActivity : AppCompatActivity() {
             }
         }
         conversation.addView(content, LinearLayout.LayoutParams(-1, -2))
+        if (provider != null) {
+            conversation.addView(TextView(this).apply {
+                text = when (provider) {
+                    AiClients.GEMINI -> "Gemini"
+                    AiClients.GROQ -> "Groq"
+                    else -> provider
+                }
+                textSize = 12f
+                setTextColor(getColor(R.color.bia_text_secondary))
+                setPadding(dp(8), dp(7), dp(8), dp(7))
+            })
+        }
         // Preserve the existing explicit save-to-annotation feature as a secondary action.
         if (provider != null && selectedLocator != null) addSaveInterpretation(answer, provider)
     }
@@ -417,8 +429,11 @@ class AiChatActivity : AppCompatActivity() {
             minHeight = dp(48)
             cornerRadius = dp(16)
             setOnClickListener {
+                // Replace the failed draft/indicator, not a new conversational turn.
+                val position = conversation.indexOfChild(thinking)
+                if (position > 0) conversation.removeViewAt(position - 1)
+                conversation.removeView(thinking)
                 if (!overview) questionInput.setText(question)
-                thinking.removeView(this)
                 ask()
             }
         })
