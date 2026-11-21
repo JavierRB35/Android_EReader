@@ -33,13 +33,27 @@ object BookTextSource {
             // A fragment is capped before it enters the RAG retrieval pipeline.
             val text = stripTags(MobiDocument.readHtml(file))
             if (text.isBlank()) emptyList()
-            else text.take(MAX_TOTAL_CHARS).chunked(MAX_FRAGMENT_CHARS)
-                .mapIndexed { index, window ->
-                    val start = index * MAX_FRAGMENT_CHARS
+            else {
+                val windows = if (text.length <= MAX_TOTAL_CHARS) {
+                    (text.indices step MAX_FRAGMENT_CHARS).map { start ->
+                        start to text.substring(start, minOf(start + MAX_FRAGMENT_CHARS, text.length))
+                    }
+                } else {
+                    // Bounded coverage of a long MOBI: do not silently restrict
+                    // book synopsis and search to the first 40,000 characters.
+                    val count = MAX_TOTAL_CHARS / MAX_FRAGMENT_CHARS
+                    (0 until count).map { slot ->
+                        val start = ((text.length - MAX_FRAGMENT_CHARS).toLong() * slot /
+                            (count - 1)).toInt()
+                        start to text.substring(start, start + MAX_FRAGMENT_CHARS)
+                    }
+                }
+                windows.mapIndexed { index, (start, window) ->
                     val end = start + window.length
                     Fragment(index + 1, file.nameWithoutExtension + " · parte " + (index + 1),
                         window, start.toDouble() / text.length, end.toDouble() / text.length)
                 }
+            }
         } catch (_: Exception) {
             emptyList()
         }
