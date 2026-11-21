@@ -6,6 +6,14 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## FUNCIÓN NUEVA — ARGUMENTO GUARDADO EN FICHA — 21/11/2026
+
+- En consulta IA sobre el libro completo, pulsar **Consultar sin pregunta** solicita un argumento/sinopsis fundamentado en fragmentos de la edición importada; respeta «Evitar spoilers». Con pregunta escrita sigue siendo consulta RAG normal; la interpretación de selección no cambia.
+- Una respuesta válida se guarda en la nueva tabla Room `book_synopses`, migración v4→v5. La ficha del libro incorpora acceso compacto arriba, con opción de copiar o exportar TXT mediante el selector Android SAF (local/Drive/cualquier proveedor instalado). No se invoca la IA para releerlo.
+- Etiquetas: si el libro continúa sin etiquetas en el instante de guardado, se aceptan y asignan entre tres y cinco propuestas de la IA. Nunca se sustituyen las etiquetas manuales ni se genera un registro cuando falta texto extraíble.
+- Copia de seguridad JSON/ZIP contiene la sinopsis; conserva compatibilidad de restauración con formato v1 y no reemplaza una sinopsis local con una del archivo.
+- Pruebas: `BookOverviewTest`, `BookTextSourceTest`, `BookSynopsisDeviceTest`, `BookDetailOrganizationDeviceTest`. Documento de aceptación `docs/book-synopsis-20261121.md`. **Estado: rama de trabajo, pendiente CI y APK**.
+
 ## CORRECCIÓN P0 — TOCAR MARCA PARA ABRIR NOTA — 21/11/2026
 
 - Reporte de propietario: la marca subrayada con nota no abre el modal al pulsarla. Incidencia relacionada con #44 (intermitencia documentada en MOBI).
