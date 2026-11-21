@@ -188,13 +188,16 @@ class MobiReadingJourneyDeviceTest {
                 val x = displayedText.totalPaddingLeft + layout.getPrimaryHorizontal(at)
                 val y = displayedText.totalPaddingTop +
                     (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                val touchX = x + displayedText.left - scroll.scrollX
+                val touchY = y + displayedText.top - scroll.scrollY
                 val down = SystemClock.uptimeMillis()
                 val eventDown = MotionEvent.obtain(down, down,
-                    MotionEvent.ACTION_DOWN, x, y, 0)
+                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
                 val eventUp = MotionEvent.obtain(down, down + 70,
-                    MotionEvent.ACTION_UP, x, y, 0)
-                displayedText.dispatchTouchEvent(eventDown)
-                displayedText.dispatchTouchEvent(eventUp)
+                    MotionEvent.ACTION_UP, touchX, touchY, 0)
+                // Android sends physical touches through ScrollView first.
+                scroll.dispatchTouchEvent(eventDown)
+                scroll.dispatchTouchEvent(eventUp)
                 eventDown.recycle()
                 eventUp.recycle()
             }
