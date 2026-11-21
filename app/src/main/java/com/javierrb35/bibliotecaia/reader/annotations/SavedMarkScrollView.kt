@@ -23,7 +23,10 @@ import kotlin.math.abs
  */
 class SavedMarkScrollView(context: Context) : ScrollView(context) {
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val shortTapMs = ViewConfiguration.getLongPressTimeout() / 2
+    // A deliberate fingertip tap on Samsung may last 250-450ms; the old
+    // half-long-press cutoff silently discarded those taps. A long-press
+    // remains Android's own selection gesture at its configured timeout.
+    private val shortTapMs = ViewConfiguration.getLongPressTimeout()
     private val horizontalTolerance = 5f * resources.displayMetrics.density
     private var textView: TextView? = null
     private var marksAt: ((Int) -> List<AnnotationEntity>)? = null
