@@ -91,6 +91,39 @@ class SavedAnnotationModalDeviceTest {
         }
     }
 
+    @Test fun writtenNoteInsideUnderlineRecordIsNotHiddenByTheUnderlineModal() {
+        val quote = "fragmento marcado"
+        val body = "Nota escrita directamente sobre el subrayado."
+        val rendered = "El fragmento marcado conserva la reflexión guardada."
+        val from = rendered.indexOf(quote)
+        val highlightWithNote = AnnotationEntity(
+            id = "highlight-with-body", bookId = "highlight-note-fixture",
+            locator = null, quote = quote, body = body, kind = "HIGHLIGHT",
+            color = 0xffd4b483.toInt(), createdAt = 1, updatedAt = 1
+        )
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val painted = SpannableString(rendered).apply {
+                    setSpan(UnderlineSpan(), from, from + quote.length,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(AnnotationHitSpan(highlightWithNote.id), from,
+                        from + quote.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                SavedAnnotationSheet.show(activity, ReadingRepository(activity),
+                    listOf(highlightWithNote))
+            }
+            instrumentation.waitForIdleSync()
+            onView(withText("Subrayado con nota")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText(body)).check(matches(isDisplayed()))
+            onView(withText("Editar anotación")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
+        } finally {
+            scenario.close()
+        }
+    }
+
     @Test fun touchingAnUnderlinedNoteOpensTheFullAnnotationModal() {
         val body = "Una reflexión guardada y completa para consultar mientras leo."
         val quote = "palabras anotadas"
