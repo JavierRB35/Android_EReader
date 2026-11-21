@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
 import android.content.Context
+import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.widget.ScrollView
@@ -47,8 +48,13 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         val text = textView ?: return emptyList()
         val resolve = marksAt ?: return emptyList()
         if (!text.isShown || text.width <= 0 || text.height <= 0) return emptyList()
-        val localX = x + scrollX - text.left
-        val localY = y + scrollY - text.top
+        // Convert through ALL nested descendants, not just a direct child.
+        // PDF OCR uses ScrollView > padded LinearLayout > TextView; subtracting
+        // only text.left/top used to hit a different word after scrolling.
+        val bounds = Rect(0, 0, text.width, text.height)
+        offsetDescendantRectToMyCoords(text, bounds)
+        val localX = x - bounds.left
+        val localY = y - bounds.top
         if (localX < 0f || localY < 0f || localX >= text.width || localY >= text.height)
             return emptyList()
         // getOffsetForPosition() clamps taps in blank margins to a character.
@@ -60,10 +66,25 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         if (textX < layout.getLineLeft(line) - horizontalTolerance ||
             textX > layout.getLineRight(line) + horizontalTolerance)
             return emptyList()
-        val offset = text.getOffsetForPosition(localX, localY)
-        return resolve(offset).filter {
-            it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
-        }.distinctBy { it.id }
+        // A real finger may land slightly before a glyph/underline. Only
+        // probe within the system's touchSlop; never search similar quotes.
+        fun verified(px: Float, py: Float): List<AnnotationEntity> =
+            resolve(text.getOffsetForPosition(px, py)).filter {
+                it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+            }.distinctBy { it.id }
+        val exact = verified(localX, localY)
+        if (exact.isNotEmpty()) return exact
+        val delta = minOf(touchSlop.toFloat(), 10f * resources.displayMetrics.density) * .8f
+        val probes = arrayOf(
+            localX - delta to localY, localX + delta to localY,
+            localX to localY - delta, localX to localY + delta,
+            localX - delta to localY - delta, localX + delta to localY - delta,
+            localX - delta to localY + delta, localX + delta to localY + delta
+        )
+        return probes.asSequence().filter { (px, py) ->
+            px in 0f..text.width.toFloat() && py in 0f..text.height.toFloat()
+        }.flatMap { (px, py) -> verified(px, py).asSequence() }
+            .distinctBy { it.id }.toList()
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
