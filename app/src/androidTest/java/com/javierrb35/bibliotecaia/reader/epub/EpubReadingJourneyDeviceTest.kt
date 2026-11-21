@@ -3,6 +3,8 @@
 package com.javierrb35.bibliotecaia.reader.epub
 
 import android.content.Intent
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
@@ -10,6 +12,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
@@ -138,6 +142,32 @@ class EpubReadingJourneyDeviceTest {
                 noteId = note?.id
                 note != null && marked(reading.findViewById<TextView>(R.id.epub_native_text).text, quote)
             }
+            // Real tap on the underlined native EPUB text must open its
+            // saved-note modal without entering the selection editor.
+            instrumentation.runOnMainSync {
+                val view = reading.findViewById<TextView>(R.id.epub_native_text)
+                val layout = requireNotNull(view.layout)
+                val at = start + 2
+                val line = layout.getLineForOffset(at)
+                val x = view.totalPaddingLeft + layout.getPrimaryHorizontal(at)
+                val y = view.totalPaddingTop +
+                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                val downAt = SystemClock.uptimeMillis()
+                val down = MotionEvent.obtain(downAt, downAt, MotionEvent.ACTION_DOWN, x, y, 0)
+                val up = MotionEvent.obtain(downAt, downAt + 75, MotionEvent.ACTION_UP, x, y, 0)
+                try {
+                    view.dispatchTouchEvent(down)
+                    view.dispatchTouchEvent(up)
+                } finally {
+                    down.recycle()
+                    up.recycle()
+                }
+            }
+            instrumentation.waitForIdleSync()
+            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
+
             instrumentation.runOnMainSync { reading.finish() }
             instrumentation.waitForIdleSync()
             active = null
