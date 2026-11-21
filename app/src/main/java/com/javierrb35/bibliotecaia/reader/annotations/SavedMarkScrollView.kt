@@ -103,7 +103,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
                 if (event.pointerCount != 1 ||
                     abs(event.x - startX) > touchSlop ||
                     abs(event.y - startY) > touchSlop ||
-                    scrollY != startScrollY) {
+                    abs(scrollY - startScrollY) > touchSlop / 2) {
                     possibleTap = false
                     downMarks = emptyList()
                 }
@@ -123,7 +123,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
             event.eventTime - event.downTime < shortTapMs &&
             abs(event.x - startX) <= touchSlop &&
             abs(event.y - startY) <= touchSlop &&
-            scrollY == startScrollY
+            abs(scrollY - startScrollY) <= touchSlop / 2
         possibleTap = false
         if (!eligible || downMarks.isEmpty()) {
             downMarks = emptyList()
