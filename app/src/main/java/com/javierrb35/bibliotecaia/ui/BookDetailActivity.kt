@@ -163,7 +163,7 @@ class BookDetailActivity : AppCompatActivity() {
         val current = book ?: return
         val old = existing?.takeIf { it.bookId == current.id && it.text.isNotBlank() }
         val editor = EditText(this).apply {
-            id = R.id.editSynopsisText
+            id = View.generateViewId()
             hint = getString(R.string.detail_synopsis_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
