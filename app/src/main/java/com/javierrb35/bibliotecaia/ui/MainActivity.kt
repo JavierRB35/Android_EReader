@@ -210,7 +210,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadViewMode(): Boolean =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, false)
+        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, true)
 
     private fun applyViewMode(grid: Boolean) {
         // Large Android font scales need wider book cards instead of clipped 2-column text.

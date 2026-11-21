@@ -2,9 +2,15 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-20 (IA BYOK, backup transaccional y PR #13 RAG EPUB/MOBI integrada)
+**Última actualización:** 2026-11-21 (biblioteca premium compacta en rama de trabajo; otras tareas conservadas)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## REVISIÓN DE HOME PREMIUM — 21/11/2026
+
+- En `feature/compact-reading-premium-library-20261121` se reduce la tarjeta de reanudación a acceso de 56 dp mínimo (miniatura 32×44 dp), se compactan cabecera/controles y tarjetas de la rejilla, y la cuadrícula pasa a ser el modo predeterminado solo para instalaciones sin preferencia previa.
+- Material Components 1.12.0 / Material 3 ya está integrado; se reutiliza en lugar de añadir otro framework pesado. No se cambian motores de lectura, IA, copias de seguridad ni navegación fija.
+- Prueba focalizada `CompactLibraryHomeDeviceTest`; documentación `docs/ux-premium-compact-20261121.md`. Pendiente compilar en CI e inspeccionar renderizado Android antes de fusionar y publicar. No confundir con APK v0.1.35.
 
 ## DIRECTRIZ NUEVA Y ESTADO — 20/11/2026
 
