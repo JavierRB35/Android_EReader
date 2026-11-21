@@ -9,6 +9,7 @@ import android.text.Spanned
 import android.text.Spannable
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.PlatformNoteTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
@@ -211,6 +212,15 @@ class EpubReadingJourneyDeviceTest {
                 switch.text == "Maquetación" &&
                     marked(reopened.findViewById<TextView>(R.id.epub_native_text).text, quote)
             }
+
+            // Platform-level tap, AFTER closing/reopening the book and switching
+            // rendering modes. This goes through the Activity window, not a
+            // synthetic dispatchTouchEvent() on the view or its ScrollView.
+            PlatformNoteTap.tapOnText(instrumentation,
+                reopened.findViewById(R.id.epub_native_text), start + 2)
+            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
 
             val saved = requireNotNull(runBlocking { database.readingDao().annotation(noteId!!) })
             instrumentation.runOnMainSync { AnnotationEditor.edit(reopened, saved) }
