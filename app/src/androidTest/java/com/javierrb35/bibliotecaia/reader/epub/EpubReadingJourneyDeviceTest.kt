@@ -24,6 +24,7 @@ import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.R
@@ -141,8 +142,9 @@ class EpubReadingJourneyDeviceTest {
                 AnnotationEditor.show(reading, id, locator, quote, "NOTE")
             }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Nota EPUB real"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
 
             waitUntil("Saved EPUB note was not shown over its exact TextView selection") {
                 val note = runBlocking {
@@ -194,9 +196,9 @@ class EpubReadingJourneyDeviceTest {
                 }
             }
             instrumentation.waitForIdleSync()
-            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
 
             instrumentation.runOnMainSync { reading.finish() }
             instrumentation.waitForIdleSync()
@@ -226,15 +228,16 @@ class EpubReadingJourneyDeviceTest {
             // synthetic dispatchTouchEvent() on the view or its ScrollView.
             PlatformNoteTap.tapOnText(instrumentation,
                 reopened.findViewById(R.id.epub_native_text), start + 2)
-            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
 
             val saved = requireNotNull(runBlocking { database.readingDao().annotation(noteId!!) })
             instrumentation.runOnMainSync { AnnotationEditor.edit(reopened, saved) }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Nota EPUB corregida"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
             waitUntil("Edited EPUB note did not persist") {
                 runBlocking { database.readingDao().annotation(noteId!!)?.body } ==
                     "Nota EPUB corregida"
