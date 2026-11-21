@@ -826,21 +826,33 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 kind + " · " + (note.quote.ifBlank { note.body.ifBlank { "Punto de lectura" } }).take(100)
             }.toTypedArray()) { _, index ->
                 val note = annotations[index]
-                val choices = if (note.kind == "HIGHLIGHT")
-                    arrayOf("Ir al texto", "Quitar subrayado")
-                else arrayOf("Ir al texto", "Editar nota", "Eliminar anotación")
+                val hasTextMark = note.kind in setOf("NOTE", "HIGHLIGHT")
+                val choices = when (note.kind) {
+                    "HIGHLIGHT" -> arrayOf("Leer anotación", "Ir al texto", "Quitar subrayado")
+                    "NOTE" -> arrayOf("Leer anotación", "Ir al texto", "Editar nota", "Eliminar anotación")
+                    else -> arrayOf("Ir al texto", "Editar nota", "Eliminar anotación")
+                }
                 MaterialAlertDialogBuilder(this).setTitle(note.quote.ifBlank { "Anotación" })
                     .setItems(choices) { _, selected ->
-                        when (selected) {
+                        // The notebook itself MUST provide an unbreakable
+                        // read-only entry point independent of the TouchView
+                        // implementation or Samsung's selection menu.
+                        if (hasTextMark && selected == 0) {
+                            SavedAnnotationSheet.show(this, repository, listOf(note))
+                        } else when (if (hasTextMark) selected - 1 else selected) {
                             0 -> {
                                 val point = NativeEpubAnchors.point(note.locator)
                                 val pub = publication
                                 val chapterIndex = pub?.readingOrder?.indexOfFirst {
                                     it.url().toString() == point?.href
                                 } ?: -1
-                                if (nativeMode && point != null && chapterIndex >= 0)
+                                if (point != null && chapterIndex >= 0) {
+                                    // Native offsets cannot be turned into a
+                                    // fake Readium CFI. Navigate to the exact
+                                    // native anchor even from Maquetación.
+                                    if (!nativeMode) setNativeMode(true)
                                     showNativeChapter(chapterIndex, point.offset)
-                                else parseLocator(note.locator)?.let { navigator?.go(it) }
+                                } else parseLocator(note.locator)?.let { navigator?.go(it) }
                             }
                             1 -> if (note.kind == "HIGHLIGHT") {
                                 lifecycleScope.launch {
