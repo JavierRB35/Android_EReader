@@ -200,12 +200,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
                         if (nativeMode) return false
-                        // Readium's registered decoration listener handles
-                        // annotated edge text before the page-turn adapter.
-                        if (ReadiumMarkedTap.pageEdge(event.point.x,
-                                fragment.publicationView.width, scroll, 28.dp.toFloat())) return false
+                        // Check a saved note BEFORE interpreting a page-edge
+                        // tap as navigation. Previously we returned early at
+                        // the edges, making marked text there impossible to open.
                         val x = event.point.x
                         val y = event.point.y
+                        val edge = ReadiumMarkedTap.pageEdge(x,
+                            fragment.publicationView.width, scroll, 28.dp.toFloat())
                         lifecycleScope.launch {
                             val liveIds = annotations.filter {
                                 it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
@@ -217,8 +218,18 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                 )
                             }.getOrNull()
                             val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
-                            if (mark != null && !nativeMode) showSavedTextMark(mark)
-                            else toggleReadingControls()
+                            if (mark != null && !nativeMode) {
+                                showSavedTextMark(mark)
+                            } else if (edge && !scroll && !nativeMode) {
+                                // This tap was consumed for async hit testing.
+                                // Keep the previous narrow page-turn behavior
+                                // when no saved mark was verified at the edge.
+                                if (x <= fragment.publicationView.width / 2f)
+                                    fragment.goBackward()
+                                else fragment.goForward()
+                            } else if (!nativeMode) {
+                                toggleReadingControls()
+                            }
                         }
                         return true
                     }
@@ -450,10 +461,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             val chapter = nativeChapter
             if (chapter == null) emptyList()
             else {
-                // Tap only a mark painted for this exact chapter/edition.
-                val paintedIds = MarkedTextTap.idsAt(nativeText.text, at).toSet()
+                // Scriptura's working v0.1.38 path: the validated saved
+                // anchor is the source of truth, not a transient CharacterStyle
+                // span that TextView may drop when selection/rendering changes.
+                // paintNativeMarks() uses this EXACT same validated range.
                 annotations.filter { mark ->
-                    mark.id in paintedIds && mark.kind in setOf("NOTE", "HIGHLIGHT")
+                    mark.deletedAt == null && mark.kind in setOf("NOTE", "HIGHLIGHT") &&
+                        nativeMarkRange(mark, chapter)?.contains(at) == true
                 }
             }
         }, onMarks = { overlapping ->
@@ -469,9 +483,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     /** Native Android selection acts on verified painted spans, not quote guesses. */
     private fun nativeSavedMarksWithin(start: Int, end: Int): List<AnnotationEntity> {
-        val ids = MarkedTextTap.idsWithin(nativeText.text, start, end).toSet()
-        return annotations.filter {
-            it.id in ids && it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+        if (start < 0 || end <= start) return emptyList()
+        val chapter = nativeChapter ?: return emptyList()
+        // The same persisted, verified anchors must work for both tapping
+        // and a long-press selection, including previously imported notes.
+        return annotations.filter { note ->
+            val range = nativeMarkRange(note, chapter)
+            note.deletedAt == null && note.kind in setOf("NOTE", "HIGHLIGHT") &&
+                range != null && range.first < end && start <= range.last
         }
     }
 

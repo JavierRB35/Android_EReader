@@ -50,6 +50,7 @@ object MarkedTextTap {
         var downY = 0f
         var active = false
         var parentReserved = false
+        var downMatches = emptyList<AnnotationEntity>()
 
         fun releaseScroll() {
             if (parentReserved) text.parent?.requestDisallowInterceptTouchEvent(false)
@@ -66,7 +67,10 @@ object MarkedTextTap {
                     // The ScrollView must not steal a tap on a marked passage.
                     // Long presses still reach TextView's native selection handler.
                     val offset = text.getOffsetForPosition(downX, downY)
-                    parentReserved = marksAt(offset).any { it.deletedAt == null }
+                    downMatches = marksAt(offset)
+                        .filter { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }
+                        .distinctBy { it.id }
+                    parentReserved = downMatches.isNotEmpty()
                     if (parentReserved) text.parent?.requestDisallowInterceptTouchEvent(true)
                     false
                 }
@@ -76,6 +80,7 @@ object MarkedTextTap {
                         abs(event.y - downY) > slop
                     ) {
                         active = false
+                        downMatches = emptyList()
                         releaseScroll()
                     }
                     false
@@ -86,22 +91,31 @@ object MarkedTextTap {
                         abs(event.x - downX) <= slop && abs(event.y - downY) <= slop
                     active = false
                     releaseScroll()
-                    if (!stationary) false else {
-                        val matches = marksAt(text.getOffsetForPosition(event.x, event.y))
+                    if (!stationary) {
+                        downMatches = emptyList()
+                        false
+                    } else {
+                        val upMatches = marksAt(text.getOffsetForPosition(event.x, event.y))
                             .filter { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }
                             .distinctBy { it.id }
+                        // The finger can move a few pixels within touchSlop;
+                        // if that crosses a glyph boundary use the mark verified
+                        // under ACTION_DOWN rather than silently losing the tap.
+                        val matches = if (upMatches.isNotEmpty()) upMatches else downMatches
+                        downMatches = emptyList()
                         if (matches.isEmpty()) false
                         else {
-                            // Don't display a window while TextView is finishing
-                            // its touch/selection lifecycle.
-                            if (text.isAttachedToWindow) text.post { onMarks(matches) }
-                            else onMarks(matches)
+                            // Scriptura and BibliotecaAI <= v0.1.38 open inline.
+                            // Deferred post() could race with a reader redraw or
+                            // an active Android selection mode.
+                            onMarks(matches)
                             true
                         }
                     }
                 }
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
                     active = false
+                    downMatches = emptyList()
                     releaseScroll()
                     false
                 }

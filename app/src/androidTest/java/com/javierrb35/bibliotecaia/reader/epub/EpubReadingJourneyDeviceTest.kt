@@ -6,11 +6,15 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.text.Spanned
+import android.text.Spannable
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.ScrollView
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -142,6 +146,18 @@ class EpubReadingJourneyDeviceTest {
                 noteId = note?.id
                 note != null && marked(reading.findViewById<TextView>(R.id.epub_native_text).text, quote)
             }
+            // Regression introduced in 0.1.40: simulated TextView re-render
+            // strips transient hit spans while the persisted locator and
+            // visible underline remain intact. Scriptura always opened the
+            // saved note from its verified range in this situation.
+            instrumentation.runOnMainSync {
+                val view = reading.findViewById<TextView>(R.id.epub_native_text)
+                val text = view.text as Spannable
+                text.getSpans(0, text.length, AnnotationHitSpan::class.java)
+                    .forEach { text.removeSpan(it) }
+                assertTrue(marked(view.text, quote))
+                assertTrue(MarkedTextTap.idsAt(view.text, start + 2).isEmpty())
+            }
             // Real tap on the underlined native EPUB text must open its
             // saved-note modal without entering the selection editor.
             instrumentation.runOnMainSync {
@@ -152,12 +168,19 @@ class EpubReadingJourneyDeviceTest {
                 val x = view.totalPaddingLeft + layout.getPrimaryHorizontal(at)
                 val y = view.totalPaddingTop +
                     (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                // Inject through the actual scrolling parent, not directly
+                // into TextView: that bypassed interception on older tests.
+                val parent = view.parent as ScrollView
+                val touchX = x + view.left - parent.scrollX
+                val touchY = y + view.top - parent.scrollY
                 val downAt = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(downAt, downAt, MotionEvent.ACTION_DOWN, x, y, 0)
-                val up = MotionEvent.obtain(downAt, downAt + 75, MotionEvent.ACTION_UP, x, y, 0)
+                val down = MotionEvent.obtain(downAt, downAt,
+                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
+                val up = MotionEvent.obtain(downAt, downAt + 75,
+                    MotionEvent.ACTION_UP, touchX, touchY, 0)
                 try {
-                    view.dispatchTouchEvent(down)
-                    view.dispatchTouchEvent(up)
+                    parent.dispatchTouchEvent(down)
+                    parent.dispatchTouchEvent(up)
                 } finally {
                     down.recycle()
                     up.recycle()

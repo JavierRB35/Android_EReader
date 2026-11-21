@@ -6,6 +6,9 @@ import android.view.MotionEvent
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import android.text.Spanned
+import android.text.Spannable
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
@@ -165,9 +168,19 @@ class MobiReadingJourneyDeviceTest {
                 saved != null && exactMark((scroll.getChildAt(0) as TextView).text, quote)
             }
 
+            // Recreate v0.1.40 regression: after a TextView transformation,
+            // painted underline/background remain while transient annotation
+            // IDs can disappear. The saved absolute locator MUST still open.
+            val displayedText = scroll.getChildAt(0) as TextView
+            instrumentation.runOnMainSync {
+                val spanned = displayedText.text as Spannable
+                spanned.getSpans(0, spanned.length, AnnotationHitSpan::class.java)
+                    .forEach { spanned.removeSpan(it) }
+                assertTrue(exactMark(displayedText.text, quote))
+                assertTrue(MarkedTextTap.idsAt(displayedText.text, quoteOffset + 2).isEmpty())
+            }
             // Use an actual short tap on the highlighted TextView, not a
             // direct dialog call. Scriptura opens the complete saved note.
-            val displayedText = scroll.getChildAt(0) as TextView
             instrumentation.runOnMainSync {
                 val layout = requireNotNull(displayedText.layout)
                 val at = quoteOffset + 2
@@ -175,13 +188,16 @@ class MobiReadingJourneyDeviceTest {
                 val x = displayedText.totalPaddingLeft + layout.getPrimaryHorizontal(at)
                 val y = displayedText.totalPaddingTop +
                     (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
+                val touchX = x + displayedText.left - scroll.scrollX
+                val touchY = y + displayedText.top - scroll.scrollY
                 val down = SystemClock.uptimeMillis()
                 val eventDown = MotionEvent.obtain(down, down,
-                    MotionEvent.ACTION_DOWN, x, y, 0)
+                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
                 val eventUp = MotionEvent.obtain(down, down + 70,
-                    MotionEvent.ACTION_UP, x, y, 0)
-                displayedText.dispatchTouchEvent(eventDown)
-                displayedText.dispatchTouchEvent(eventUp)
+                    MotionEvent.ACTION_UP, touchX, touchY, 0)
+                // Android sends physical touches through ScrollView first.
+                scroll.dispatchTouchEvent(eventDown)
+                scroll.dispatchTouchEvent(eventUp)
                 eventDown.recycle()
                 eventUp.recycle()
             }

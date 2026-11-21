@@ -170,10 +170,15 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         })
         MarkedTextTap.attach(content, marksAt = { textOffset ->
-            // Only spans actually painted in this MOBI chunk can open a note.
-            val ids = MarkedTextTap.idsAt(content.text, textOffset).toSet()
+            // Validated absolute range is the same ground truth paintMarks()
+            // uses. Do NOT depend on AnnotationHitSpan surviving TextView's
+            // selection/transformation lifecycle (regression since v0.1.40).
+            val absolute = offset + textOffset
             annotations.filter { saved ->
-                saved.id in ids && saved.kind in setOf("NOTE", "HIGHLIGHT")
+                val start = validatedMarkOffset(saved)
+                saved.deletedAt == null && saved.kind in setOf("NOTE", "HIGHLIGHT") &&
+                    start != null && absolute >= start &&
+                    absolute < start + saved.quote.length
             }
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
@@ -231,9 +236,14 @@ class MobiReaderActivity : AppCompatActivity() {
 
     /** The contextual Ver anotación action uses the same painted ranges as tapping. */
     private fun savedMarksWithin(start: Int, end: Int): List<AnnotationEntity> {
-        val ids = MarkedTextTap.idsWithin(content.text, start, end).toSet()
-        return annotations.filter {
-            it.id in ids && it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+        if (start < 0 || end <= start) return emptyList()
+        val absoluteStart = offset + start
+        val absoluteEnd = offset + end
+        return annotations.filter { saved ->
+            val markStart = validatedMarkOffset(saved)
+            saved.deletedAt == null && saved.kind in setOf("NOTE", "HIGHLIGHT") &&
+                markStart != null && markStart < absoluteEnd &&
+                absoluteStart < markStart + saved.quote.length
         }
     }
 
