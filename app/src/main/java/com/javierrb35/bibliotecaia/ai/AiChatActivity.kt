@@ -355,7 +355,8 @@ class AiChatActivity : AppCompatActivity() {
                         // Both providers receive exactly the SAME already bounded context.
                         // The failed Gemini call does not enter the conversation history.
                         AiClients.ask(requestedProvider, currentKey, question,
-                            requestContext, requestHistory)
+                            requestContext, requestHistory,
+                            geminiModel = AiModelSettings.current(applicationContext))
                     }
                 }
                 val provider = answer.provider

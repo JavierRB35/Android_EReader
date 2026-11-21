@@ -104,10 +104,11 @@ object AiClients {
     // ---------- llamada real ----------
 
     fun ask(provider: String, key: String, question: String, fragments: List<String>,
-            history: List<Pair<String, String>>): Answer {
+            history: List<Pair<String, String>>,
+            geminiModel: String = GEMINI_MODEL): Answer {
         val route: Triple<String, JSONObject, (String) -> String> = when (provider) {
             GEMINI -> Triple(
-                "https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:generateContent",
+                "https://generativelanguage.googleapis.com/v1beta/models/$geminiModel:generateContent",
                 geminiBody(question, fragments, history),
                 ::parseGemini,
             )
@@ -132,7 +133,7 @@ object AiClients {
             val payload = ((if (status in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() } ?: "")
             if (status !in 200..299) throw classifyHttp(status, payload)
-            return Answer(route.third(payload), provider, if (provider == GEMINI) GEMINI_MODEL else GROQ_MODEL)
+            return Answer(route.third(payload), provider, if (provider == GEMINI) geminiModel else GROQ_MODEL)
         } catch (e: AiException) {
             throw e
         } catch (_: java.net.SocketTimeoutException) {

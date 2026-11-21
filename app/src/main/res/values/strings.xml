@@ -213,4 +213,10 @@
     <string name="ai_fallback_consent_title">Autorizar el respaldo automático con Groq</string>
     <string name="ai_fallback_consent_text">Solo ante cuota agotada, error temporal del servidor o tiempo de espera de Gemini, BibliotecaAI enviará automáticamente a Groq los mismos fragmentos del libro, la cita seleccionada, tu pregunta y el contexto conversacional incluido en esa consulta.\n\nSe trata de un proveedor distinto de Google. No se envían libros completos, claves API ni todas tus anotaciones, salvo el contenido que hayas introducido en una consulta. Puedes revocar esta autorización en cualquier momento. Una clave Groq nueva la desactiva.\n\n¿Autorizas activar el respaldo?</string>
     <string name="ai_fallback_allow">Autorizar y activar</string>
+    <string name="ai_gemini_model_label">Modelo Gemini: %1$s</string>
+    <string name="ai_gemini_model_title">Modelo de Gemini</string>
+    <string name="ai_gemini_model_hint">ID del modelo de tu cuenta</string>
+    <string name="ai_gemini_model_description">El modelo predeterminado es gemini-3.6-flash. Puedes cambiarlo por un ID habilitado en tu cuenta de Google AI Studio si el anterior deja de estar disponible. El nombre debe corresponder a un modelo real; BibliotecaAI no lo puede garantizar sin hacer la prueba de conexión.</string>
+    <string name="ai_gemini_model_save">Guardar modelo</string>
+    <string name="ai_gemini_model_invalid">El identificador del modelo no es válido.</string>
 </resources>

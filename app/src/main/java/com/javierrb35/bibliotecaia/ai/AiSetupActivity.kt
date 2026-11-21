@@ -38,6 +38,7 @@ class AiSetupActivity : AppCompatActivity() {
     private lateinit var keyInput: TextInputEditText
     private lateinit var keyLayout: TextInputLayout
     private lateinit var groqFallbackToggle: SwitchMaterial
+    private lateinit var modelButton: MaterialButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +72,15 @@ class AiSetupActivity : AppCompatActivity() {
                 marginEnd = dp(5)
             })
         }
+
+        modelButton = MaterialButton(this).apply {
+            text = getString(R.string.ai_gemini_model_label, AiModelSettings.current(this@AiSetupActivity))
+            isAllCaps = false
+            minHeight = dp(48)
+            cornerRadius = dp(15)
+            setOnClickListener { chooseGeminiModel() }
+        }
+        layout.addView(modelButton)
 
         section(layout, getString(R.string.ai_key_section))
         hint(layout, getString(R.string.ai_key_howto_gemini))
@@ -175,6 +185,33 @@ class AiSetupActivity : AppCompatActivity() {
         }
     }
 
+    private fun chooseGeminiModel() {
+        val input = TextInputEditText(this).apply {
+            setSingleLine()
+            setText(AiModelSettings.current(this@AiSetupActivity))
+            hint = getString(R.string.ai_gemini_model_hint)
+        }
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+            addView(input)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.ai_gemini_model_title)
+            .setMessage(R.string.ai_gemini_model_description)
+            .setView(wrapper)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.ai_gemini_model_save) { _, _ ->
+                try {
+                    AiModelSettings.save(this, input.text?.toString().orEmpty())
+                    modelButton.text = getString(R.string.ai_gemini_model_label,
+                        AiModelSettings.current(this))
+                } catch (_: IllegalArgumentException) {
+                    Toast.makeText(this, R.string.ai_gemini_model_invalid, Toast.LENGTH_LONG).show()
+                }
+            }.show()
+    }
+
     private fun saveAndTest() {
         val key = keyInput.text?.toString()?.trim().orEmpty()
         if (key.isEmpty()) {
@@ -190,7 +227,8 @@ class AiSetupActivity : AppCompatActivity() {
             try {
                 val answer = withContext(Dispatchers.IO) {
                     AiClients.ask(provider, key, "Responde únicamente: OK",
-                        fragments = listOf("Prueba de funcionamiento."), history = emptyList())
+                        fragments = listOf("Prueba de funcionamiento."), history = emptyList(),
+                        geminiModel = AiModelSettings.current(applicationContext))
                 }
                 status.text = getString(R.string.ai_test_ok, answer.model)
                 Toast.makeText(this@AiSetupActivity, R.string.ai_test_ok_toast, Toast.LENGTH_SHORT).show()
