@@ -24,9 +24,9 @@ Scriptura tiene un lector **bíblico (73 libros, versículos y orden canónico)*
 | Localizador | `AnnotationAnchors`, `LibraryTextAnchors`, `ReadingProgress` | `ReadingRepository`, `NativeEpubAnchors`, `SelectionAnchors`, `PdfOcrAnchors` | **Parcial**: UI real debe verificar reanclaje y exactitud por edición |
 | Nota y subrayado | `StudyAnnotations`, `applyStudyMarks`, `showStudyAnnotation` | `AnnotationEditor`, `MarkedTextTap`, `SavedAnnotationSheet`, `KnowledgeActivity` | **Parcial**: existe persistencia, diálogo y toque, falta Samsung y filtros completos |
 | Selección nativa | `DefinitionUi`, callbacks de acción, Copiar/Compartir/Definir/Anotar/Subrayar/IA | `study.DefinitionUi`, callbacks propios EPUB/MOBI/PDF OCR | **Parcial**: verificar menú de Android, varias palabras, acciones nativas sin anularlas |
-| Voz | `ReaderSpeech` (Android TTS por bloques, continuidad libro/capítulo canónicos) | Sin motor TTS común en `reader/epub`, `reader/pdf` y `reader/mobi` auditados | **No trasladado**: adaptar voz a capítulos EPUB, documento MOBI y páginas/texto OCR PDF si lo permiten; no narrar texto inexistente |
+| Voz | `ReaderSpeech` (Android TTS por bloques, continuidad entre capítulos) | `reader/speech/ReaderSpeech.java` enlazado desde `EpubReaderActivity`, `MobiReaderActivity` y `PdfReaderActivity` | **Implementado en código**: EPUB avanza por capítulos; MOBI narra el texto disponible; PDF solo OCR de la página. Pendiente escucha efectiva en dispositivo y accesibilidad |
 | Diseño lector | `DisplayModes` normal/cómodo/OLED/sistema; `Aa`, acciones compactas, hojas contextuales | Configuración EPUB y controles PDF/MOBI heterogéneos; `PremiumBottomBar` en biblioteca | **Parcial**: unificar jerarquía, densidad, tipografía, accesibilidad y acciones entre formatos |
-| IA Gemini/Groq | `AiRouter`, `GeminiClient`, `GroqClient`, `AiRecoverableException` | `AiClients`, `AiKeyStore`, `AiChatActivity` | **P0 detectado**: faltaba enrutador y consentimiento automático |
+| IA Gemini/Groq | `AiRouter`, `GeminiClient`, `GroqClient`, `AiRecoverableException` | `AiClients`, `AiFallbackRouter`, `AiFallbackConsent`, `AiKeyStore`, `AiChatActivity` | **Integrado en `main`**: respaldos selectivos y consentimiento; falta verificar con claves reales y en móvil |
 | IA con selección | `interpretSelectedFragment`, diálogo de respuesta y `Añadir al texto` | `AiChatActivity` en modo interpretación, indicador y `Guardar en mis anotaciones` | **Implementado parcialmente**; conservar lectura/scroll y distinguir proveedor |
 | IA general | `askBibleQuestion` con citas verificadas contra EPUB local | `BookTextSource.retrieve`, chat por libro, historial local | **Parcial**: reforzar referencias y deep links verificables por fragmento |
 | Argumento/sinopsis | Scriptura cachea interpretaciones y reflexiones por pasaje/obra | `BookOverview`, `BookSynopsisRepository`, `BookDetailActivity` | **Ya existe**: argumento por libro, etiquetas solo si vacío, acceso, copia y exportación; no sobrescribir |
@@ -43,7 +43,7 @@ Fuente exacta:
 - `Scriptura/AiRouterTest.java`: verifica éxito Gemini, 429, consentimiento, fallo no recuperable y doble fallo.
 - **Precisión de nombre:** el proveedor real es **Groq** (GroqCloud), no **Grok** (xAI). No añadir xAI.
 
-Adaptación real en PR de esta auditoría:
+Adaptación integrada en `main` y comprobada por inspección de fuente (no certificación de servicio remoto):
 1. `AiFallbackRouter` con secuencia Gemini → Groq **a lo sumo una vez** para cuota, servidor 5xx o timeout. 400/401/403/404, bloqueo, errores de parseo y fallos genéricos de red **no** deben activar un proveedor distinto.
 2. `AiFallbackConsent` y control explícito en `AiSetupActivity`: permiso revocable, desactivado de forma predeterminada; reemplazar/eliminar la clave Groq lo revoca.
 3. `AiChatActivity` hace uso de la misma ruta para **interpretación de selección**, **preguntas libres** y **argumento del libro completo**; el historial solo se guarda una vez tras éxito. La misma pregunta, fragmentos y contexto van al proveedor elegido.
@@ -51,7 +51,7 @@ Adaptación real en PR de esta auditoría:
 5. Cuando solo existe clave Groq y no Gemini se conserva el modo directo Groq anterior, porque quitarlo supondría perder funcionalidad.
 6. Cuando ambos proveedores fallan se muestra error y posibilidad de reintento humano; **no garantizar respuestas si no hay red, cuotas o claves válidas**. No cambiar proveedores infinitamente.
 
-**Pendiente P1 estrechamente vinculado:** Scriptura permite elegir el modelo Gemini (`GeminiClient.model()` y `configureModel`); BibliotecaAI mantiene un ID constante. Evaluar portar un selector validado contra los modelos autorizados de la clave. No prometer que cualquier ID existe. Comprobar disponibilidad oficial del modelo en el API usado por el usuario antes de atribuir errores a la red.
+**Selector de modelo ya integrado:** BibliotecaAI incluye `AiModelSettings` y `AiSetupActivity.chooseGeminiModel()`; el identificador inicial `gemini-3.6-flash` y `openai/gpt-oss-20b` constan en la documentación oficial de Google y Groq (consulta 21/11/2026). El control valida sintaxis, no garantiza que la clave del usuario tenga acceso: usar «Guardar y probar» con la clave real.
 
 ## 3. Lectura y selección: equivalencias obligatorias
 
@@ -72,7 +72,7 @@ Adaptación real en PR de esta auditoría:
 | Modos normal, lectura cómoda, OLED y sistema | Reutilizar paleta por lector; persistir la preferencia por formato, respetar tema Android | Parcial |
 | Restaurar scroll en misma lectura; saltos explícitos prevalecen | `bookId + locator + versión` por formato; regreso exacto desde Conocimiento/IA | Parcial |
 | Navegar capítulos contiguos y, en la Biblia, siguiente libro del canon | EPUB: índice y capítulos de su EPUB; MOBI: estructura real si existe; PDF: páginas | Implementado parcial; no inventar canon de biblioteca |
-| `ReaderSpeech` TTS local y continuidad automática | Voz por secciones reales, con botones Escuchar/Detener, sin leer índices o etiquetas creadas por UI | Pendiente |
+| `ReaderSpeech` TTS local y continuidad automática | EPUB y MOBI: botones Escuchar/Detener y narración por contenido; PDF: texto OCR si existe. No narra el PDF escaneado sin texto reconocido | Código integrado, QA auditiva en teléfono pendiente |
 | Diálogo o hoja de IA sin alterar el texto ni la posición | Mostrar espera animada y resultado, guardar opcionalmente y retornar al mismo localizador | Parcial |
 | Iconos vectoriales y barra con mínimo para letra grande | Accesibilidad, objetivos táctiles >=48dp, contraste y fuentes aumentadas | Parcial; evidencia Samsung necesaria |
 
@@ -115,4 +115,22 @@ Adaptación real en PR de esta auditoría:
 - Fuente a escala 1.3/1.5, pantallas compactas, TalkBack, área de toque 48dp, teclado y Back; barras no tapan contenido.
 - Revisar originales EPUB largo, PDF escaneado con OCR y PDF sin OCR, MOBI con y sin índice; no presentar controles ficticios.
 
-**Estado de implantación:** el respaldo IA de este documento se trabaja en la **PR de paridad Gemini/Groq**; el resto de filas son auditoría/cobertura a completar, **no funcionalidades nuevas ya validadas**. No fusionar mejoras visuales sin comparativa real ni declarar “Scriptura idéntica” antes de completar bloque B/C en Samsung.
+**Estado de implantación (21/11/2026):** el respaldo Gemini/Groq y la narración están en `main`. La rama `feature/scriptura-ai-source-parity-retry-20261121` añade numeración unívoca de las fuentes entre ambos proveedores y la UI, la persistencia del listado de fuentes con la sinopsis y la opción de reintentar consultas manuales sin duplicar turnos fallidos. PR #55 (apariencia `Aa`/sistema) y PR #46 (capturas de QA) continúan siendo trabajo independiente. La compilación, pruebas CI, comprobación de claves del usuario y comparación Samsung siguen siendo puertas de aceptación; no declarar «paridad completa» sin ellas.
+
+
+## 6. Brecha de integridad identificada y corregida en rama de revisión IA
+
+En la implementación previa de BibliotecaAI, `BookTextSource.retrieve()` podía devolver
+capítulos no consecutivos (p. ej. 7 y 23), mientras `AiClients.contextBlock()`
+los numeraba 1 y 2 para el modelo. La interfaz mostraba 7 y 23,
+por lo que una cita **[1]** de Gemini/Groq no se podía conciliar con la lista visible.
+Una cita seleccionada añadida al principio desplazaba todavía más los números.
+
+La solución crea `AiSourceReferences` como único contrato de referencias:
+1. `[1]`, `[2]`… designan **el orden de evidencia en la petición**, con independencia del identificador interno de capítulo/página;
+2. ambas IA reciben exactamente los mismos fragmentos y el mismo orden;
+3. las referencias visibles coinciden con los números que puede citar el modelo;
+4. la sinopsis persistida incluye su leyenda de fuentes para lectura posterior sin IA;
+5. un error no guarda un turno ficticio en el historial; aparece «Reintentar consulta» y el borrador original se restituye.
+
+**Límite explícito:** esto alinea referencias y mejora trazabilidad, pero no certifica que el modelo haya citado realmente todas ellas ni crea hipervínculos verificables al lugar concreto del libro. El salto desde cada cita al fragmento original exige un trabajo adicional de locators por formato. Los errores de proveedor continúan siendo posibles si ambos servicios están indisponibles.
