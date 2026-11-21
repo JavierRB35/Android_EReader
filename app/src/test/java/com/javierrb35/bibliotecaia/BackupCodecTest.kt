@@ -81,7 +81,7 @@ class BackupCodecTest {
     fun `el manifiesto incluye app y version de formato`() {
         val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.2.0", 5))
         assertEquals("biblioteca-ia", root.getJSONObject("manifest").getString("app"))
-        assertEquals(1, root.getJSONObject("manifest").getInt("formatVersion"))
+        assertEquals(2, root.getJSONObject("manifest").getInt("formatVersion"))
         assertEquals("0.2.0", root.getJSONObject("manifest").getString("appVersion"))
     }
 
