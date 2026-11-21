@@ -101,7 +101,7 @@ class BackupCodecTest {
     @Test
     fun `rechaza formato futuro`() {
         val json = BackupCodec.toJson(sample(), "0.1.0", 1)
-            .replace("\"formatVersion\": 1", "\"formatVersion\": 99")
+            .replace("\"formatVersion\": 2", "\"formatVersion\": 99")
         try {
             BackupCodec.fromJson(json)
             throw AssertionError("Debe rechazar formato futuro")
