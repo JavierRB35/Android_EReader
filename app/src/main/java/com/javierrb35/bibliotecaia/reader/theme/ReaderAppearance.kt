@@ -13,7 +13,7 @@ object ReaderAppearance {
 
     fun resolve(saved: Int, uiMode: Int): Int = when (saved) {
         0, 1, 2, 3 -> saved
-        SYSTEM -> if (uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+        SYSTEM -> if ((uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES) 1 else 3
         else -> 0
     }
