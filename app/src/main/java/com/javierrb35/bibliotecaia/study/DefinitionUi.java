@@ -150,13 +150,15 @@ public final class DefinitionUi {
             }
             private void ensureViewSavedMark(Menu menu){
                 if(savedMarkHandler==null)return;
-                int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
-                boolean marked=start>=0&&end>start&&savedMarkHandler.hasSavedMark(start,end);
-                MenuItem item=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
-                if(marked&&item==null){
+                // Android creates ActionMode before some TextView implementations
+                // have finalized their selection offsets. Hiding this action at
+                // that moment makes the saved note permanently inaccessible on
+                // vendor selection UIs (including Samsung). Always offer it;
+                // verify the exact persisted mark at click time instead.
+                if(menu.findItem(VIEW_SAVED_MARK_ACTION_ID)==null){
                     menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,Menu.CATEGORY_SECONDARY,
-                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                }else if(item!=null)item.setVisible(marked);
+                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                }
             }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
                 preserveNativeTextActions(menu);
