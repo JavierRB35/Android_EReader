@@ -36,7 +36,7 @@ class CompactLibraryHomeDeviceTest {
                     card.minimumHeight <= dp(56))
                 assertEquals(1, title.maxLines)
                 assertEquals(0, params.height)
-                assertEquals(1f, params.weight)
+                assertEquals(1f, params.weight, 0.01f)
                 assertNotNull(activity.findViewById<View>(R.id.txtSearch))
                 assertNotNull(activity.findViewById<View>(R.id.chipShelves))
 
