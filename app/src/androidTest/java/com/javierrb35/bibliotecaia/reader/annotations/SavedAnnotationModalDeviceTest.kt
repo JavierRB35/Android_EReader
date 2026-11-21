@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
 import android.os.SystemClock
+import android.graphics.Rect
 import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
@@ -10,6 +11,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -156,7 +158,14 @@ class SavedAnnotationModalDeviceTest {
                     setText(painted, TextView.BufferType.SPANNABLE)
                     setBackgroundColor(0xff1b1a18.toInt())
                 }
-                scrolling = SavedMarkScrollView(activity).apply { addView(target) }
+                // PDF OCR nests the text inside a padded panel; a parent
+                // hit test must handle every ancestor, not only direct children.
+                val panel = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(34, 42, 16, 12)
+                    addView(target)
+                }
+                scrolling = SavedMarkScrollView(activity).apply { addView(panel) }
                 scrolling.attach(target, marksAt = { at ->
                     if (at in from until (from + quote.length))
                         listOf(note, underline)
@@ -174,10 +183,11 @@ class SavedAnnotationModalDeviceTest {
                 val char = from + 5
                 val line = layout.getLineForOffset(char)
                 scrolling.scrollTo(0, (layout.getLineTop(line) - 100).coerceAtLeast(0))
-                val x = target.totalPaddingLeft + layout.getPrimaryHorizontal(char)
-                val y = target.totalPaddingTop +
-                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f -
-                    scrolling.scrollY
+                val rect = Rect(0, 0, target.width, target.height)
+                scrolling.offsetDescendantRectToMyCoords(target, rect)
+                val x = rect.left + target.totalPaddingLeft + layout.getPrimaryHorizontal(char)
+                val y = rect.top + target.totalPaddingTop +
+                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
                 assertTrue("The test should actually scroll", scrolling.scrollY > 0)
                 assertEquals(emptyList<String>(), MarkedTextTap.idsAt(target.text, char))
                 val now = SystemClock.uptimeMillis()
