@@ -2,6 +2,8 @@ package com.javierrb35.bibliotecaia.reader.annotations
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.text.SpannableString
+import android.text.Spanned
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -40,6 +42,24 @@ class ScripturaMarkTapDeviceTest {
         kind = "NOTE", color = 0xffd4b483.toInt(),
         createdAt = 1, updatedAt = 1
     )
+
+    @Test fun contextualSelectionOnlyFindsIdsOnActuallyPaintedCharacters() {
+        val text = SpannableString("abc def ghi jkl")
+        text.setSpan(AnnotationHitSpan("note"), 4, 7,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.setSpan(AnnotationHitSpan("underline"), 4, 7,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.setSpan(AnnotationHitSpan("other"), 8, 11,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        assertEquals(setOf("note", "underline"),
+            MarkedTextTap.idsWithin(text, 5, 6).toSet())
+        assertEquals(emptyList<String>(), MarkedTextTap.idsWithin(text, 0, 4))
+        assertEquals(emptyList<String>(), MarkedTextTap.idsWithin(text, 7, 8))
+        assertEquals(setOf("note", "underline", "other"),
+            MarkedTextTap.idsWithin(text, 5, 9).toSet())
+        assertTrue(MarkedTextTap.idsWithin(text, -1, 5).isEmpty())
+        assertTrue(MarkedTextTap.idsWithin(text, 4, 20).isEmpty())
+    }
 
     @Test fun shortTapOpensSavedTextButLongPressAndDragRemainSelectionGestures() {
         val hits = mutableListOf<List<String>>()
