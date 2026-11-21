@@ -56,7 +56,10 @@ El menú Readium ya ofrecía esta acción y se conserva.
 La corrección añade «Ver anotación» **solo cuando la selección intersecta
 un `AnnotationHitSpan` realmente dibujado**, conservando todas las acciones
 nativas. La selección exacta resuelve tanto NOTE como HIGHLIGHT, y la nota
-escrita prevalece sobre el mero subrayado en el modal compartido. La opción
+escrita prevalece sobre el mero subrayado en el modal compartido. Si un
+registro HIGHLIGHT contiene texto de nota en su propio campo `body`, el modal
+muestra ese contenido (antes quedaba oculto) y permite editarlo; en un
+subrayado sin nota ofrece «Añadir nota», conservando el mismo registro y rango. La opción
 no consulta por palabras parecidas ni altera libro, localizador, Room o backups.
 El toque breve directo sigue abriendo el mismo modal.
 
