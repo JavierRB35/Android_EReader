@@ -101,7 +101,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { promptReadingStatus() }
         findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
-        findViewById<View>(R.id.btnSynopsis).setOnClickListener { showSavedSynopsis() }
+        findViewById<View>(R.id.btnSynopsis).setOnClickListener { openSynopsisAction() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
@@ -134,6 +134,101 @@ class BookDetailActivity : AppCompatActivity() {
         else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
     }
 
+    /** A single book-scoped entry point: add if absent, read if already stored. */
+    private fun openSynopsisAction() {
+        val current = book ?: return
+        val existing = savedSynopsis?.takeIf {
+            it.bookId == current.id && it.text.isNotBlank()
+        }
+        if (existing == null) editSynopsis(null) else showSavedSynopsis()
+    }
+
+    private fun renderSynopsisAction(bookId: String) {
+        val hasSynopsis = savedSynopsis?.let {
+            it.bookId == bookId && it.text.isNotBlank()
+        } == true
+        val label = if (hasSynopsis) R.string.detail_synopsis_view else R.string.detail_synopsis_add
+        findViewById<TextView>(R.id.txtSynopsisAction).setText(label)
+        findViewById<View>(R.id.btnSynopsis).apply {
+            visibility = View.VISIBLE
+            contentDescription = getString(label)
+        }
+    }
+
+    /**
+     * Write or edit the same Room synopsis used by AI, export and backup.
+     * A manual edit changes provenance and cannot be claimed spoiler-safe.
+     */
+    private fun editSynopsis(existing: BookSynopsisEntity? = savedSynopsis) {
+        val current = book ?: return
+        val old = existing?.takeIf { it.bookId == current.id && it.text.isNotBlank() }
+        val editor = EditText(this).apply {
+            id = View.generateViewId()
+            hint = getString(R.string.detail_synopsis_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            minLines = 6
+            maxLines = 12
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setTextColor(getColor(R.color.bia_text))
+            setHintTextColor(getColor(R.color.bia_text_secondary))
+            filters = arrayOf(InputFilter.LengthFilter(100_000))
+            setText(old?.text.orEmpty())
+            setSelection(text.length)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dp, 8.dp, 16.dp, 0)
+            addView(editor, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(if (old == null) R.string.detail_synopsis_add else R.string.detail_synopsis_edit)
+            .setView(layout)
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(R.string.detail_synopsis_save, null)
+            .create()
+        dialog.setOnShowListener {
+            val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            save.setOnClickListener {
+                val value = editor.text.toString().trim()
+                if (value.isEmpty()) {
+                    editor.error = getString(R.string.detail_synopsis_required)
+                    return@setOnClickListener
+                }
+                save.isEnabled = false
+                lifecycleScope.launch {
+                    try {
+                        val changed = BookSynopsisEntity(
+                            bookId = current.id,
+                            text = value,
+                            provider = "manual",
+                            generatedAt = System.currentTimeMillis(),
+                            spoilerSafe = false
+                        )
+                        withContext(Dispatchers.IO) {
+                            requireNotNull(db.bookDao().findById(current.id))
+                            db.synopsisDao().save(changed)
+                        }
+                        savedSynopsis = changed
+                        renderSynopsisAction(current.id)
+                        dialog.dismiss()
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_synopsis_saved, Toast.LENGTH_SHORT).show()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        save.isEnabled = true
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_synopsis_save_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
     /** Read the saved book argument instantly without calling an AI provider again. */
     private fun showSavedSynopsis() {
         val current = book ?: return
@@ -160,9 +255,24 @@ class BookDetailActivity : AppCompatActivity() {
             isFillViewport = false
             addView(modalText)
         }
-        MaterialAlertDialogBuilder(this)
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val editButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.detail_synopsis_edit)
+            isAllCaps = false
+            minHeight = dp(44)
+            setTextColor(getColor(R.color.bia_text))
+        }
+        dialogContent.addView(editButton, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply {
+                setMargins(dp(16), dp(10), dp(16), 0)
+            })
+        dialogContent.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.ai_book_overview)
-            .setView(scroll)
+            .setView(dialogContent)
             .setNegativeButton("Cerrar", null)
             .setNeutralButton(R.string.detail_synopsis_copy) { _, _ ->
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -173,13 +283,17 @@ class BookDetailActivity : AppCompatActivity() {
                 // and any provider selected by the user; no OAuth inside the app.
                 pendingSynopsisExport = "Argumento de: " + current.title + "\n" +
                     "Autor: " + (current.authors ?: "No indicado") + "\n\n" +
-                    saved.text + "\n\n— Texto generado con IA a partir de fragmentos del libro."
+                    saved.text + "\n\n" + getString(
+                        if (saved.provider == "manual") R.string.detail_synopsis_manual_source
+                        else R.string.detail_synopsis_ai_source
+                    )
                 val safeTitle = current.title
                     .replace(Regex("""[^\p{L}\p{N}_\- ]"""), "")
                     .trim().take(60).ifBlank { "Libro" }
                 exportSynopsisLauncher.launch("Argumento - " + safeTitle + ".txt")
             }
             .show()
+        editButton.setOnClickListener { dialog.dismiss(); editSynopsis(saved) }
     }
 
     /** Revinculación by hash, never by filename. Preserve the user's metadata. */
@@ -221,8 +335,7 @@ class BookDetailActivity : AppCompatActivity() {
                 book = loaded
                 savedSynopsis = db.synopsisDao().byBook(loaded.id)
                 show(loaded)
-                findViewById<View>(R.id.btnSynopsis).visibility =
-                    if (savedSynopsis != null) View.VISIBLE else View.GONE
+                renderSynopsisAction(loaded.id)
                 showAssignments(loaded.id)
             }
         }

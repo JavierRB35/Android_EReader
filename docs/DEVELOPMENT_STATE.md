@@ -6,6 +6,13 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## WIP — Añadir / visualizar / editar argumento desde ficha — 21/11/2026
+
+- Rama aislada `wip/book-synopsis-add-view-edit-20261121` y PR en borrador para coordinación con el resto de agentes; no tocar lectores, motor de anotaciones ni flujos de publicación.
+- El acceso `btnSynopsis` deja de ocultarse al no haber sinopsis: «Añadir argumento del libro» abre editor manual. Con sinopsis: «Ver argumento del libro» abre el texto guardado y permite «Editar argumento» sin perder Copiar/Exportar.
+- Guardado en `book_synopses` existente (incluida en ZIP), con validación de texto, identificación de edición manual y actualización inmediata del estado del botón. No cambia el esquema ni requiere IA.
+- Prueba focalizada `BookSynopsisActionDeviceTest`. **Estado: código enviado a WIP; CI y prueba física pendientes.** Integración a `main` y APK corresponden al integrador.
+
 ## FUNCIÓN NUEVA — ARGUMENTO GUARDADO EN FICHA — 21/11/2026
 
 - En consulta IA sobre el libro completo, pulsar **Consultar sin pregunta** solicita un argumento/sinopsis fundamentado en fragmentos de la edición importada; respeta «Evitar spoilers». Con pregunta escrita sigue siendo consulta RAG normal; la interpretación de selección no cambia.

@@ -125,3 +125,11 @@ El instalador descarga APK y SHA-256 oficiales por HTTPS, valida hash,
 **nativo** Android. No es instalación silenciosa, no requiere OAuth/Gmail/Drive.
 No tocar los archivos de libros/cuentas ni publicar release antes de pasar CI.
 El integrador principal fusiona tras revisión, igual que los demás agentes.
+
+
+## WIP en ficha de libro — botón contextual de argumento (21/11/2026)
+
+- **Agente / rama:** `wip/book-synopsis-add-view-edit-20261121`; PR borrador a `main`. Se reserva únicamente `ui/BookDetailActivity.kt`, `res/layout/activity_book_detail.xml`, los recursos `detail_synopsis_*`, su prueba instrumentada y documentación asociada.
+- **Contrato:** sin sinopsis → «Añadir argumento del libro» y editor manual; con sinopsis → «Ver argumento del libro» y modal con «Editar argumento». Mantener «Copiar» y «Guardar argumento en…». Persistir siempre en Room `book_synopses`; ninguna migración ni proveedor IA nuevos.
+- **Coordinación:** agentes de anotaciones/lectores (incluida la rama `fix/p0-actual-note-tap-parity-20261121`) y agentes de #55 (Aa/modos de lectura) y #46 (QA home) deben evitar editar estos ficheros o comunicar el solapamiento en la PR WIP. Esta rama **no fusiona main ni publica APK** por su cuenta.
+- **Validación pendiente:** CI con compilación Android y `BookSynopsisActionDeviceTest` / `BookSynopsisDeviceTest`; aceptación visual en dispositivo. No confundir código en WIP con release instalada.
