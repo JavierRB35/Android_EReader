@@ -193,7 +193,9 @@ class SavedAnnotationModalDeviceTest {
                 val now = SystemClock.uptimeMillis()
                 val down = MotionEvent.obtain(now, now,
                     MotionEvent.ACTION_DOWN, x, y, 0)
-                val up = MotionEvent.obtain(now, now + 75,
+                // Deliberate 320ms tap (not just a perfect 75ms emulator
+                // tap). This must remain below Android's long-press window.
+                val up = MotionEvent.obtain(now, now + 320,
                     MotionEvent.ACTION_UP, x + 1f, y + 1f, 0)
                 try {
                     // The parent dispatcher sees the touch even if the
