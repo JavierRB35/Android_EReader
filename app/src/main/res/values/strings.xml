@@ -159,7 +159,16 @@
     <string name="ai_overview_saved">Argumento guardado en la ficha del libro.</string>
     <string name="ai_overview_saved_tags">Argumento guardado. Etiquetas añadidas: %1$s</string>
     <string name="ai_overview_no_evidence">No hay contenido del libro suficiente para elaborar un argumento verificable. En PDF puede ser necesario reconocer páginas con OCR.</string>
-    <string name="detail_synopsis_view">Leer argumento del libro</string>
+    <string name="detail_synopsis_view">Ver argumento del libro</string>
+    <string name="detail_synopsis_add">Añadir argumento del libro</string>
+    <string name="detail_synopsis_edit">Editar argumento</string>
+    <string name="detail_synopsis_save">Guardar argumento</string>
+    <string name="detail_synopsis_hint">Escribe o pega aquí el argumento del libro…</string>
+    <string name="detail_synopsis_required">Introduce un argumento antes de guardarlo.</string>
+    <string name="detail_synopsis_saved">Argumento guardado en el libro.</string>
+    <string name="detail_synopsis_save_failed">No se pudo guardar el argumento. Inténtalo de nuevo.</string>
+    <string name="detail_synopsis_manual_source">— Texto añadido o revisado manualmente.</string>
+    <string name="detail_synopsis_ai_source">— Texto generado con IA a partir de fragmentos del libro.</string>
     <string name="detail_synopsis_export">Guardar argumento en…</string>
     <string name="detail_synopsis_export_success">Argumento guardado en la ubicación elegida.</string>
     <string name="detail_synopsis_export_error">No se pudo guardar el argumento.</string>
