@@ -148,16 +148,24 @@ public final class DefinitionUi {
                     explain.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 }
             }
-            private void ensureViewSavedMark(Menu menu){
+            private void ensureViewSavedMark(Menu menu,boolean preparing){
                 if(savedMarkHandler==null)return;
-                // Android creates ActionMode before some TextView implementations
-                // have finalized their selection offsets. Hiding this action at
-                // that moment makes the saved note permanently inaccessible on
-                // vendor selection UIs (including Samsung). Always offer it;
-                // verify the exact persisted mark at click time instead.
-                if(menu.findItem(VIEW_SAVED_MARK_ACTION_ID)==null){
-                    menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,Menu.CATEGORY_SECONDARY,
-                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                // Samsung may create ActionMode before TextView exposes the
+                // selected range. Keep the action on creation. Once Android
+                // prepares a finalized, non-empty selection, only show it when
+                // that exact range overlaps a verified painted saved note.
+                MenuItem action=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
+                if(action==null){
+                    action=menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,
+                        Menu.CATEGORY_SECONDARY,"Ver anotación");
+                    action.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                }
+                if(!preparing){
+                    action.setVisible(true);
+                }else{
+                    int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    action.setVisible(start<0||end<=start||
+                        savedMarkHandler.hasSavedMark(start,end));
                 }
             }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
@@ -166,7 +174,7 @@ public final class DefinitionUi {
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
-                ensureViewSavedMark(menu);
+                ensureViewSavedMark(menu,false);
                 reportSelection();
                 return true;
             }
@@ -181,7 +189,7 @@ public final class DefinitionUi {
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
-                ensureViewSavedMark(menu);
+                ensureViewSavedMark(menu,true);
                 reportSelection();
                 return true;
             }
