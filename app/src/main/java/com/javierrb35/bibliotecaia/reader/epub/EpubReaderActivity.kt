@@ -450,10 +450,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             val chapter = nativeChapter
             if (chapter == null) emptyList()
             else {
-                // Tap only a mark painted for this exact chapter/edition.
-                val paintedIds = MarkedTextTap.idsAt(nativeText.text, at).toSet()
+                // Scriptura's working v0.1.38 path: the validated saved
+                // anchor is the source of truth, not a transient CharacterStyle
+                // span that TextView may drop when selection/rendering changes.
+                // paintNativeMarks() uses this EXACT same validated range.
                 annotations.filter { mark ->
-                    mark.id in paintedIds && mark.kind in setOf("NOTE", "HIGHLIGHT")
+                    mark.deletedAt == null && mark.kind in setOf("NOTE", "HIGHLIGHT") &&
+                        nativeMarkRange(mark, chapter)?.contains(at) == true
                 }
             }
         }, onMarks = { overlapping ->
@@ -469,9 +472,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     /** Native Android selection acts on verified painted spans, not quote guesses. */
     private fun nativeSavedMarksWithin(start: Int, end: Int): List<AnnotationEntity> {
-        val ids = MarkedTextTap.idsWithin(nativeText.text, start, end).toSet()
-        return annotations.filter {
-            it.id in ids && it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+        if (start < 0 || end <= start) return emptyList()
+        val chapter = nativeChapter ?: return emptyList()
+        // The same persisted, verified anchors must work for both tapping
+        // and a long-press selection, including previously imported notes.
+        return annotations.filter { note ->
+            val range = nativeMarkRange(note, chapter)
+            note.deletedAt == null && note.kind in setOf("NOTE", "HIGHLIGHT") &&
+                range != null && range.first < end && start <= range.last
         }
     }
 
