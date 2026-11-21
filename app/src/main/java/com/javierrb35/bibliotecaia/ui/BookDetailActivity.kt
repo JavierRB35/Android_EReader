@@ -1,6 +1,8 @@
 package com.javierrb35.bibliotecaia.ui
 
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -14,6 +16,7 @@ import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,7 +25,9 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.ReadingStatus
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,10 +62,35 @@ class BookDetailActivity : AppCompatActivity() {
         if (uri != null) linkOriginal(uri)
     }
     private var book: BookEntity? = null
+    private var savedSynopsis: BookSynopsisEntity? = null
+    private var pendingSynopsisExport: String? = null
+    private val exportSynopsisLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val payload = pendingSynopsisExport
+        pendingSynopsisExport = null
+        if (uri != null && payload != null) {
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val stream = contentResolver.openOutputStream(uri, "wt")
+                            ?: error("No se puede escribir en el destino elegido.")
+                        stream.bufferedWriter(Charsets.UTF_8).use { it.write(payload) }
+                    }
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.detail_synopsis_export_success, Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.detail_synopsis_export_error, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_book_detail)
+        pendingSynopsisExport = savedInstanceState?.getString("synopsis_export_pending")
 
         val bookId = intent.getStringExtra(EXTRA_BOOK_ID)
         if (bookId == null) {
@@ -71,6 +101,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { promptReadingStatus() }
         findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
+        findViewById<View>(R.id.btnSynopsis).setOnClickListener { showSavedSynopsis() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
@@ -85,6 +116,11 @@ class BookDetailActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        pendingSynopsisExport?.let { outState.putString("synopsis_export_pending", it) }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onResume() {
         super.onResume()
         intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
@@ -96,6 +132,54 @@ class BookDetailActivity : AppCompatActivity() {
             .any { com.javierrb35.bibliotecaia.ai.AiKeyStore.getKey(this, it) != null }
         if (keyStored) com.javierrb35.bibliotecaia.ai.AiChatActivity.start(this, current.id)
         else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
+    }
+
+    /** Read the saved book argument instantly without calling an AI provider again. */
+    private fun showSavedSynopsis() {
+        val current = book ?: return
+        val saved = savedSynopsis ?: return
+        if (current.id != saved.bookId || saved.text.isBlank()) return
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + .5f).toInt()
+        val maxHeight = (resources.displayMetrics.heightPixels * .64f).toInt()
+        val modalText = TextView(this).apply {
+            text = saved.text
+            textSize = 16f
+            typeface = android.graphics.Typeface.SERIF
+            setLineSpacing(dp(4).toFloat(), 1.1f)
+            setTextColor(getColor(R.color.bia_text))
+            setTextIsSelectable(true)
+            setPadding(dp(20), dp(14), dp(20), dp(18))
+        }
+        val scroll = object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec,
+                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST))
+            }
+        }.apply {
+            isFillViewport = false
+            addView(modalText)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.ai_book_overview)
+            .setView(scroll)
+            .setNegativeButton("Cerrar", null)
+            .setNeutralButton(R.string.detail_synopsis_copy) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Argumento · " + current.title, saved.text))
+            }
+            .setPositiveButton(R.string.detail_synopsis_export) { _, _ ->
+                // Android's system document picker offers local storage, Drive
+                // and any provider selected by the user; no OAuth inside the app.
+                pendingSynopsisExport = "Argumento de: " + current.title + "\n" +
+                    "Autor: " + (current.authors ?: "No indicado") + "\n\n" +
+                    saved.text + "\n\n— Texto generado con IA a partir de fragmentos del libro."
+                val safeTitle = current.title
+                    .replace(Regex("""[^\p{L}\p{N}_\- ]"""), "")
+                    .trim().take(60).ifBlank { "Libro" }
+                exportSynopsisLauncher.launch("Argumento - " + safeTitle + ".txt")
+            }
+            .show()
     }
 
     /** Revinculación by hash, never by filename. Preserve the user's metadata. */
@@ -135,7 +219,10 @@ class BookDetailActivity : AppCompatActivity() {
                 finish()
             } else {
                 book = loaded
+                savedSynopsis = db.synopsisDao().byBook(loaded.id)
                 show(loaded)
+                findViewById<View>(R.id.btnSynopsis).visibility =
+                    if (savedSynopsis != null) View.VISIBLE else View.GONE
                 showAssignments(loaded.id)
             }
         }
