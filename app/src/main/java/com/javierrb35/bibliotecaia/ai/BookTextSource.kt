@@ -33,13 +33,27 @@ object BookTextSource {
             // A fragment is capped before it enters the RAG retrieval pipeline.
             val text = stripTags(MobiDocument.readHtml(file))
             if (text.isBlank()) emptyList()
-            else text.take(MAX_TOTAL_CHARS).chunked(MAX_FRAGMENT_CHARS)
-                .mapIndexed { index, window ->
-                    val start = index * MAX_FRAGMENT_CHARS
+            else {
+                val windows = if (text.length <= MAX_TOTAL_CHARS) {
+                    (text.indices step MAX_FRAGMENT_CHARS).map { start ->
+                        start to text.substring(start, minOf(start + MAX_FRAGMENT_CHARS, text.length))
+                    }
+                } else {
+                    // Bounded coverage of a long MOBI: do not silently restrict
+                    // book synopsis and search to the first 40,000 characters.
+                    val count = MAX_TOTAL_CHARS / MAX_FRAGMENT_CHARS
+                    (0 until count).map { slot ->
+                        val start = ((text.length - MAX_FRAGMENT_CHARS).toLong() * slot /
+                            (count - 1)).toInt()
+                        start to text.substring(start, start + MAX_FRAGMENT_CHARS)
+                    }
+                }
+                windows.mapIndexed { index, (start, window) ->
                     val end = start + window.length
                     Fragment(index + 1, file.nameWithoutExtension + " · parte " + (index + 1),
                         window, start.toDouble() / text.length, end.toDouble() / text.length)
                 }
+            }
         } catch (_: Exception) {
             emptyList()
         }
@@ -166,6 +180,44 @@ object BookTextSource {
     }
 
     // ---------- selección RAG ----------
+
+    /**
+     * A blank book-level question is a request for a synopsis, not keyword RAG.
+     * With spoilers disabled, sample the beginning, middle and end instead of
+     * only the first three search hits. With spoilers enabled, use only text
+     * the reader has reached; at 0% use a short opening preview for a useful
+     * introductory synopsis without revealing later chapters.
+     *
+     * The source is a bounded representative sample, not a claim to have
+     * processed every word of a long book.
+     */
+    fun overview(
+        chapters: List<Fragment>, spoilerSafe: Boolean, progress: Float,
+        maxFragments: Int = 5
+    ): List<Fragment> {
+        if (chapters.isEmpty() || maxFragments <= 0) return emptyList()
+        val count = maxFragments.coerceAtMost(6)
+        if (spoilerSafe) {
+            val p = if (progress.isFinite()) progress.coerceIn(0f, 1f) else 0f
+            if (p <= 0f) {
+                val first = chapters.first()
+                return listOf(first.copy(text = first.text.take(1800)))
+                    .filter { it.text.isNotBlank() }
+            }
+            if (chapters.any { it.startFraction != null }) {
+                return retrieve(chapters, "", true, p, count)
+            }
+            val allowed = (p * chapters.size).toInt().coerceIn(1, chapters.size)
+            return chapters.take(allowed).take(count)
+                .map { it.copy(text = it.text.take(MAX_FRAGMENT_CHARS)) }
+        }
+        val size = minOf(chapters.size, count)
+        val indices = if (size == 1) listOf(0) else
+            (0 until size).map { it * chapters.lastIndex / (size - 1) }.distinct()
+        return indices.map { chapters[it].let { fragment ->
+            fragment.copy(text = fragment.text.take(MAX_FRAGMENT_CHARS))
+        } }
+    }
 
     /**
      * Recuperación de fragmentos relevantes sin embeddings: puntuación por

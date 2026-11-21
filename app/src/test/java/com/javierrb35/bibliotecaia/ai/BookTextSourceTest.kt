@@ -140,4 +140,21 @@ class BookTextSourceTest {
         assertTrue(fullyRead.any { it.text.contains("DESENLACE") })
     }
 
+    @Test fun synopsisUsesCoverageAcrossBookWhenSpoilersAreDisabled() {
+        val chapters = (1..10).map { BookTextSource.Fragment(it, "Capítulo $it", "Texto $it") }
+        val result = BookTextSource.overview(chapters, spoilerSafe = false, progress = 0f)
+        assertEquals(listOf(1, 3, 5, 7, 10), result.map { it.index })
+    }
+
+    @Test fun synopsisAvoidsUnreadMaterialAndAtZeroUsesOnlyTheOpeningExcerpt() {
+        val chapters = (1..10).map {
+            BookTextSource.Fragment(it, "Capítulo $it", "Texto $it " + "a".repeat(2400))
+        }
+        val first = BookTextSource.overview(chapters, spoilerSafe = true, progress = 0f)
+        assertEquals(listOf(1), first.map { it.index })
+        assertEquals(1800, first.single().text.length)
+        val partial = BookTextSource.overview(chapters, spoilerSafe = true, progress = .2f)
+        assertEquals(listOf(1, 2), partial.map { it.index })
+    }
+
 }

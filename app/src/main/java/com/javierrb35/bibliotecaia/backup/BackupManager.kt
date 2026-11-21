@@ -31,6 +31,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 annotations = dao.annotationsAll(),
                 versions = dao.versionsAll(),
                 positions = dao.positionsAll(),
+                synopses = db.synopsisDao().all(),
             )
         }
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
@@ -98,6 +99,9 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
             require(snapshot.annotations.all { note ->
                 note.bookId == null || identity.book(note.bookId) in knownBooks
             }) { "La copia contiene anotaciones de libros desconocidos." }
+            require(snapshot.synopses.all { identity.book(it.bookId) in knownBooks }) {
+                "La copia contiene argumentos de libros desconocidos."
+            }
             require(snapshot.positions.all { identity.book(it.bookId) in knownBooks }) {
                 "La copia contiene posiciones de libros desconocidos."
             }
@@ -112,6 +116,9 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
             dao.insertCollectionBooksIgnore(snapshot.collectionBooks.map {
                 it.copy(bookId = identity.book(it.bookId))
             })
+
+            // Add only missing synopses; never overwrite a local synopsis when restoring.
+            db.synopsisDao().insertIgnore(snapshot.synopses.map { it.copy(bookId = identity.book(it.bookId)) })
 
             val existingNotes = dao.annotationsAll().associateBy { it.id }
             val remappedNotes = snapshot.annotations.map { note ->

@@ -81,7 +81,7 @@ class BackupCodecTest {
     fun `el manifiesto incluye app y version de formato`() {
         val root = org.json.JSONObject(BackupCodec.toJson(sample(), "0.2.0", 5))
         assertEquals("biblioteca-ia", root.getJSONObject("manifest").getString("app"))
-        assertEquals(1, root.getJSONObject("manifest").getInt("formatVersion"))
+        assertEquals(2, root.getJSONObject("manifest").getInt("formatVersion"))
         assertEquals("0.2.0", root.getJSONObject("manifest").getString("appVersion"))
     }
 
@@ -101,7 +101,7 @@ class BackupCodecTest {
     @Test
     fun `rechaza formato futuro`() {
         val json = BackupCodec.toJson(sample(), "0.1.0", 1)
-            .replace("\"formatVersion\": 1", "\"formatVersion\": 99")
+            .replace("\"formatVersion\": 2", "\"formatVersion\": 99")
         try {
             BackupCodec.fromJson(json)
             throw AssertionError("Debe rechazar formato futuro")

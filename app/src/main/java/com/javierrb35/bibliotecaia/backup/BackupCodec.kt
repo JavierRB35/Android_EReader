@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia.backup
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
+import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.data.BookTagCrossRef
@@ -27,11 +28,12 @@ data class LibrarySnapshot(
     val annotations: List<AnnotationEntity>,
     val versions: List<AnnotationVersionEntity>,
     val positions: List<ReadingPositionEntity>,
+    val synopses: List<BookSynopsisEntity> = emptyList(),
 )
 
 object BackupCodec {
 
-    const val FORMAT_VERSION = 1
+    const val FORMAT_VERSION = 2
     private const val APP_ID = "biblioteca-ia"
 
     fun toJson(snapshot: LibrarySnapshot, appVersion: String, exportedAt: Long): String {
@@ -47,7 +49,8 @@ object BackupCodec {
                     .put("books", snapshot.books.size)
                     .put("annotations", snapshot.annotations.size)
                     .put("versions", snapshot.versions.size)
-                    .put("positions", snapshot.positions.size))
+                    .put("positions", snapshot.positions.size)
+                    .put("synopses", snapshot.synopses.size))
         )
         root.put("books", JSONArray().apply { snapshot.books.forEach { put(bookJson(it)) } })
         root.put("categories", JSONArray().apply { snapshot.categories.forEach { put(categoryJson(it)) } })
@@ -59,6 +62,7 @@ object BackupCodec {
         root.put("annotations", JSONArray().apply { snapshot.annotations.forEach { put(annotationJson(it)) } })
         root.put("annotationVersions", JSONArray().apply { snapshot.versions.forEach { put(versionJson(it)) } })
         root.put("readingPositions", JSONArray().apply { snapshot.positions.forEach { put(positionJson(it)) } })
+        root.put("bookSynopses", JSONArray().apply { snapshot.synopses.forEach { put(synopsisJson(it)) } })
         return root.toString(2)
     }
 
@@ -75,6 +79,11 @@ object BackupCodec {
         .put("reading_status", b.readingStatus.name)
         .put("favorite", b.favorite)
         .put("progress", b.progress.toDouble())
+
+    private fun synopsisJson(s: BookSynopsisEntity): JSONObject = JSONObject()
+        .put("book_id", s.bookId).put("text", s.text)
+        .put("provider", s.provider).put("generated_at", s.generatedAt)
+        .put("spoiler_safe", s.spoilerSafe)
 
     private fun categoryJson(c: CategoryEntity): JSONObject = JSONObject()
         .put("id", c.id).put("name", c.name)
@@ -136,6 +145,10 @@ object BackupCodec {
             if (expectedBooks >= 0 && root.optJSONArray("books")?.length() != expectedBooks) {
                 throw IllegalArgumentException("La copia está incompleta (libros declarados: $expectedBooks).")
             }
+            val expectedSynopses = counts.optInt("synopses", -1)
+            if (expectedSynopses >= 0 && root.optJSONArray("bookSynopses")?.length() != expectedSynopses) {
+                throw IllegalArgumentException("La copia contiene argumentos incompletos.")
+            }
             val expectedAnnotations = counts.optInt("annotations", -1)
             if (expectedAnnotations >= 0 && root.optJSONArray("annotations")?.length() != expectedAnnotations) {
                 throw IllegalArgumentException("La copia está incompleta (anotaciones declaradas: $expectedAnnotations).")
@@ -155,6 +168,7 @@ object BackupCodec {
             annotations = root.optJSONArray("annotations").mapList { annotationFrom(it) },
             versions = root.optJSONArray("annotationVersions").mapList { versionFrom(it) },
             positions = root.optJSONArray("readingPositions").mapList { positionFrom(it) },
+            synopses = root.optJSONArray("bookSynopses").mapList { synopsisFrom(it) },
         )
     }
 
@@ -224,6 +238,16 @@ object BackupCodec {
         body = o.optString("body"),
         color = o.optInt("color", 0),
         savedAt = o.optLong("saved_at", 0),
+    )
+
+    private fun synopsisFrom(o: JSONObject): BookSynopsisEntity = BookSynopsisEntity(
+        bookId = safePathSegment(o.getString("book_id"), "identificador de argumento"),
+        text = o.getString("text").also { require(it.isNotBlank() && it.length <= 100_000) {
+            "La copia contiene un argumento vacío o excesivo."
+        } },
+        provider = o.optString("provider").take(100),
+        generatedAt = o.optLong("generated_at", 0L),
+        spoilerSafe = o.optBoolean("spoiler_safe", true),
     )
 
     private fun positionFrom(o: JSONObject): ReadingPositionEntity = ReadingPositionEntity(

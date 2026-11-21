@@ -24,12 +24,15 @@ import java.util.UUID
         ReadingPositionEntity::class,
         AnnotationEntity::class,
         AnnotationVersionEntity::class,
+        BookSynopsisEntity::class,
         SyncQueueEntry::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
+
+    abstract fun synopsisDao(): SynopsisDao
 
     abstract fun readingDao(): ReadingDao
 
@@ -52,6 +55,18 @@ abstract class AppDatabase : RoomDatabase() {
             "Economía", "Finanzas", "Empresa", "Psicología", "Biografías",
             "Formación", "Referencia", "Otros"
         )
+
+        /** v4→v5: saved synopsis, preserving every prior annotation and book. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS book_synopses (" +
+                        "bookId TEXT NOT NULL PRIMARY KEY, text TEXT NOT NULL, " +
+                        "provider TEXT NOT NULL, generatedAt INTEGER NOT NULL, " +
+                        "spoilerSafe INTEGER NOT NULL)"
+                )
+            }
+        }
 
         /** v3→v4: cola local de cambios pendientes de sincronizar (Incremento 5-6). */
         private val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -93,7 +108,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
