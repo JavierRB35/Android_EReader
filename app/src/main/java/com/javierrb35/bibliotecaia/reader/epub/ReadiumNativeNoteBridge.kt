@@ -119,8 +119,10 @@ internal object ReadiumNativeNoteBridge {
                   'text-decoration-color:#d4b483}';
                 (document.head || document.documentElement).appendChild(style);
               }
-              CSS.highlights.set('bia-native-notes', new Highlight(...noteRanges));
-              CSS.highlights.set('bia-native-underlines', new Highlight(...underlineRanges));
+              try {
+                CSS.highlights.set('bia-native-notes', new Highlight(...noteRanges));
+                CSS.highlights.set('bia-native-underlines', new Highlight(...underlineRanges));
+              } catch (_) { return 0; }
               return noteRanges.length + underlineRanges.length;
             })();
         """.trimIndent()
