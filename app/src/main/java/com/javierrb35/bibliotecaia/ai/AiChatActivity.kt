@@ -33,6 +33,8 @@ class AiChatActivity : AppCompatActivity() {
         private const val EXTRA_BOOK_ID = "book_id"
         private const val EXTRA_QUOTE = "selected_quote"
         private const val EXTRA_LOCATOR = "selected_locator"
+        private const val EXTRA_GENERATE_SYNOPSIS = "generate_synopsis"
+        private const val STATE_AUTO_SYNOPSIS_STARTED = "auto_synopsis_started"
         private const val STATE_INTERPRETATION = "premium_interpretation_answer"
         private const val STATE_PROVIDER = "premium_interpretation_provider"
         fun start(context: Context, bookId: String, quote: String? = null, locator: String? = null) {
@@ -43,6 +45,15 @@ class AiChatActivity : AppCompatActivity() {
             }
             context.startActivity(intent)
         }
+
+        /** Direct CTA from the book detail: no empty question or second tap needed. */
+        fun startSynopsis(context: Context, bookId: String) {
+            context.startActivity(
+                Intent(context, AiChatActivity::class.java)
+                    .putExtra(EXTRA_BOOK_ID, bookId)
+                    .putExtra(EXTRA_GENERATE_SYNOPSIS, true)
+            )
+        }
     }
 
     private val db by lazy { AppDatabase.get(this) }
@@ -52,6 +63,9 @@ class AiChatActivity : AppCompatActivity() {
     private var selectedQuote: String? = null
     private var selectedLocator: String? = null
     private val interpretationMode get() = selectedQuote != null
+    private val automaticSynopsisMode get() =
+        !interpretationMode && intent.getBooleanExtra(EXTRA_GENERATE_SYNOPSIS, false)
+    private var autoSynopsisStarted = false
     private var requestInProgress = false
     private var interpretationLoading: View? = null
     private var interpretationAnswer: String? = null
@@ -69,6 +83,7 @@ class AiChatActivity : AppCompatActivity() {
         bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: run { finish(); return }
         selectedQuote = intent.getStringExtra(EXTRA_QUOTE)?.takeIf { it.isNotBlank() && it.length <= 1200 }
         selectedLocator = intent.getStringExtra(EXTRA_LOCATOR)?.takeIf { it.length <= 65536 }
+        autoSynopsisStarted = savedInstanceState?.getBoolean(STATE_AUTO_SYNOPSIS_STARTED) ?: false
 
         if (interpretationMode) {
             buildAutomaticInterpretationScreen()
@@ -81,6 +96,12 @@ class AiChatActivity : AppCompatActivity() {
             bookTitle = book.title
             bookAuthors = book.authors
             progress = book.progress
+            if (automaticSynopsisMode && !autoSynopsisStarted &&
+                !db.synopsisDao().byBook(bookId)?.text.isNullOrBlank()
+            ) {
+                finish() // A concurrent lookup already generated the argument.
+                return@launch
+            }
             if (interpretationMode) {
                 val restored = savedInstanceState?.getString(STATE_INTERPRETATION)
                 val restoredProvider = savedInstanceState?.getString(STATE_PROVIDER)
@@ -111,7 +132,15 @@ class AiChatActivity : AppCompatActivity() {
                 addBubble(getString(R.string.ai_no_text, book.format.name))
                 questionInput.isEnabled = false
             } else {
-                addBubble(getString(R.string.ai_ready, chapters.size, bookTitle))
+                if (automaticSynopsisMode && !autoSynopsisStarted) {
+                    // Explicitly requesting the whole-book argument permits full-book
+                    // evidence rather than silently truncating to progress=0.
+                    spoilerSwitch.isChecked = false
+                    autoSynopsisStarted = true
+                    ask()
+                } else {
+                    addBubble(getString(R.string.ai_ready, chapters.size, bookTitle))
+                }
             }
         }
     }
@@ -119,6 +148,7 @@ class AiChatActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         interpretationAnswer?.let { outState.putString(STATE_INTERPRETATION, it) }
         interpretationProvider?.let { outState.putString(STATE_PROVIDER, it) }
+        outState.putBoolean(STATE_AUTO_SYNOPSIS_STARTED, autoSynopsisStarted)
         super.onSaveInstanceState(outState)
     }
 
@@ -391,6 +421,7 @@ class AiChatActivity : AppCompatActivity() {
                         addAnswer(parsed.synopsis, provider, geminiConfigured)
                         addBubble(if (assigned.isEmpty()) getString(R.string.ai_overview_saved)
                             else getString(R.string.ai_overview_saved_tags, assigned.joinToString(", ")))
+                        if (automaticSynopsisMode) finish() // Refresh detail CTA in onResume.
                     }
                 } else {
                     recordSuccessfulExchange(label, answer.text, provider)
