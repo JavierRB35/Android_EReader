@@ -154,7 +154,17 @@
     <string name="ai_privacy_note">Al consultar, se envían al proveedor solo los fragmentos relevantes del libro y tu pregunta. Revisa las condiciones de privacidad del proveedor. La clave nunca se incluye en copias de seguridad ni registros.</string>
     <string name="ai_chat_title">Consultar IA</string>
     <string name="ai_spoiler_switch">Evitar spoilers (solo lo ya leído)</string>
-    <string name="ai_question_hint">Pregunta sobre el libro…</string>
+    <string name="ai_question_hint">Pregunta sobre el libro… (deja vacío para generar su argumento)</string>
+    <string name="ai_book_overview">Argumento del libro</string>
+    <string name="ai_overview_saved">Argumento guardado en la ficha del libro.</string>
+    <string name="ai_overview_saved_tags">Argumento guardado. Etiquetas añadidas: %1$s</string>
+    <string name="ai_overview_no_evidence">No hay contenido del libro suficiente para elaborar un argumento verificable. En PDF puede ser necesario reconocer páginas con OCR.</string>
+    <string name="detail_synopsis_view">Leer argumento del libro</string>
+    <string name="detail_synopsis_export">Guardar argumento en…</string>
+    <string name="detail_synopsis_export_success">Argumento guardado en la ubicación elegida.</string>
+    <string name="detail_synopsis_export_error">No se pudo guardar el argumento.</string>
+    <string name="detail_synopsis_copy">Copiar</string>
+
     <string name="ai_ask">Consultar</string>
     <string name="ai_thinking">Consultando al proveedor…</string>
     <string name="ai_needs_key">Para consultar se necesita tu clave. Pulsa aquí para configurarla.</string>
