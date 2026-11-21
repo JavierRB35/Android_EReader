@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
 import android.os.SystemClock
+import android.graphics.Rect
 import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
@@ -10,6 +11,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -74,12 +76,15 @@ class SavedAnnotationModalDeviceTest {
                 activity.findViewById<FrameLayout>(android.R.id.content).addView(
                     target, FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 250, Gravity.TOP))
-                Selection.setSelection(target.text as Spannable, from + 2, from + 11)
                 val callback = requireNotNull(target.customSelectionActionModeCallback)
                 val menu = PopupMenu(activity, target).menu
+                // Regression: Samsung can create ActionMode BEFORE setting
+                // the final selection range. The action must not disappear.
+                Selection.setSelection(target.text as Spannable, 0, 0)
                 assertTrue(callback.onCreateActionMode(null, menu))
                 val action = requireNotNull(menu.findItem(0x5C124))
                 assertTrue(action.isVisible)
+                Selection.setSelection(target.text as Spannable, from + 2, from + 11)
                 assertTrue(callback.onActionItemClicked(null, action))
             }
             instrumentation.waitForIdleSync()
@@ -124,10 +129,11 @@ class SavedAnnotationModalDeviceTest {
         }
     }
 
-    @Test fun touchingAnUnderlinedNoteOpensTheFullAnnotationModal() {
+    @Test fun scrollingParentOpensNoteAfterChildConsumesTouchAndSpansDisappear() {
         val body = "Una reflexión guardada y completa para consultar mientras leo."
         val quote = "palabras anotadas"
-        val rendered = "Estas palabras anotadas pertenecen al libro y no se deben modificar."
+        val rendered = "Inicio del libro. " + "texto del libro y lectura. ".repeat(100) +
+            "Estas palabras anotadas pertenecen al libro y no se deben modificar."
         val from = rendered.indexOf(quote)
         val note = AnnotationEntity(
             id = "note-modal-fixture", bookId = "book-fixture", locator = null,
@@ -138,14 +144,13 @@ class SavedAnnotationModalDeviceTest {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             lateinit var target: TextView
+            lateinit var scrolling: SavedMarkScrollView
             scenario.onActivity { activity ->
                 val painted = SpannableString(rendered)
                 painted.setSpan(UnderlineSpan(), from, from + quote.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                painted.setSpan(AnnotationHitSpan(note.id), from, from + quote.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                painted.setSpan(AnnotationHitSpan(underline.id), from, from + quote.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                // Reproduce a TextView transformation dropping transient hit
+                // spans while the underline and persisted anchor remain.
                 target = TextView(activity).apply {
                     textSize = 22f
                     setPadding(24, 24, 24, 24)
@@ -153,42 +158,56 @@ class SavedAnnotationModalDeviceTest {
                     setText(painted, TextView.BufferType.SPANNABLE)
                     setBackgroundColor(0xff1b1a18.toInt())
                 }
-                MarkedTextTap.attach(target, marksAt = { at ->
-                    val ids = MarkedTextTap.idsAt(target.text, at)
-                    listOf(note, underline).filter { it.id in ids }
+                // PDF OCR nests the text inside a padded panel; a parent
+                // hit test must handle every ancestor, not only direct children.
+                val panel = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(34, 42, 16, 12)
+                    addView(target)
+                }
+                scrolling = SavedMarkScrollView(activity).apply { addView(panel) }
+                scrolling.attach(target, marksAt = { at ->
+                    if (at in from until (from + quote.length))
+                        listOf(note, underline)
+                    else emptyList()
                 }, onMarks = { marks ->
                     SavedAnnotationSheet.show(activity, ReadingRepository(activity), marks)
                 })
                 val parent = activity.findViewById<FrameLayout>(android.R.id.content)
-                parent.addView(target, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 240, Gravity.TOP))
+                parent.addView(scrolling, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 280, Gravity.TOP))
             }
             instrumentation.waitForIdleSync()
             scenario.onActivity {
                 val layout = requireNotNull(target.layout)
                 val char = from + 5
                 val line = layout.getLineForOffset(char)
-                val x = target.totalPaddingLeft + layout.getPrimaryHorizontal(char)
-                val y = target.totalPaddingTop +
+                scrolling.scrollTo(0, (layout.getLineTop(line) - 100).coerceAtLeast(0))
+                val rect = Rect(0, 0, target.width, target.height)
+                scrolling.offsetDescendantRectToMyCoords(target, rect)
+                val x = rect.left + target.totalPaddingLeft + layout.getPrimaryHorizontal(char)
+                val y = rect.top + target.totalPaddingTop +
                     (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
-                assertTrue(MarkedTextTap.idsAt(target.text, char).contains(note.id))
-                assertEquals(emptyList<String>(), MarkedTextTap.idsAt(target.text, 0))
-                val downAt = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(downAt, downAt,
+                assertTrue("The test should actually scroll", scrolling.scrollY > 0)
+                assertEquals(emptyList<String>(), MarkedTextTap.idsAt(target.text, char))
+                val now = SystemClock.uptimeMillis()
+                val down = MotionEvent.obtain(now, now,
                     MotionEvent.ACTION_DOWN, x, y, 0)
-                val up = MotionEvent.obtain(downAt, downAt + 75,
+                // Deliberate 320ms tap (not just a perfect 75ms emulator
+                // tap). This must remain below Android's long-press window.
+                val up = MotionEvent.obtain(now, now + 320,
                     MotionEvent.ACTION_UP, x + 1f, y + 1f, 0)
                 try {
-                    target.dispatchTouchEvent(down)
-                    target.dispatchTouchEvent(up)
+                    // The parent dispatcher sees the touch even if the
+                    // selectable child consumes its own ACTION_UP.
+                    scrolling.dispatchTouchEvent(down)
+                    scrolling.dispatchTouchEvent(up)
                 } finally {
                     down.recycle()
                     up.recycle()
                 }
             }
             instrumentation.waitForIdleSync()
-            // A NOTE overlapping an underline must show the note directly,
-            // not a choice dialog or the annotation editor.
             onView(withText("Tu anotación")).check(matches(isDisplayed()))
             onView(withText(body)).check(matches(isDisplayed()))
             onView(withText("Cerrar")).perform(click())
