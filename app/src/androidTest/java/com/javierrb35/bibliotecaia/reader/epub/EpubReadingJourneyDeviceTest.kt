@@ -61,6 +61,12 @@ class EpubReadingJourneyDeviceTest {
         fail(message)
     }
 
+    private fun chapterLoader(activity: EpubReaderActivity): TextView {
+        val field = EpubReaderActivity::class.java.getDeclaredField("loading")
+        field.isAccessible = true
+        return field.get(activity) as TextView
+    }
+
     private fun chapter(activity: EpubReaderActivity): NativeEpubText.Chapter? {
         val field = EpubReaderActivity::class.java.getDeclaredField("nativeChapter")
         field.isAccessible = true
@@ -208,9 +214,11 @@ class EpubReadingJourneyDeviceTest {
                     switch.text == "Selección precisa"
             }
             instrumentation.runOnMainSync { switch.performClick() }
-            waitUntil("Returning to native mode lost the EPUB NOTE marker") {
-                switch.text == "Maquetación" &&
-                    marked(reopened.findViewById<TextView>(R.id.epub_native_text).text, quote)
+            waitUntil("Native EPUB mode must be really visible and ready before a touch") {
+                val text = reopened.findViewById<TextView>(R.id.epub_native_text)
+                switch.text == "Maquetación" && text.isShown &&
+                    chapterLoader(reopened).visibility == View.GONE &&
+                    reopened.hasWindowFocus() && marked(text.text, quote)
             }
 
             // Platform-level tap, AFTER closing/reopening the book and switching
