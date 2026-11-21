@@ -72,8 +72,14 @@ public final class DefinitionUi {
     private static final int ANNOTATE_ACTION_ID=0x5C121;
     private static final int UNDERLINE_ACTION_ID=0x5C122;
     private static final int GEMINI_FRAGMENT_ACTION_ID=0x5C123;
+    private static final int VIEW_SAVED_MARK_ACTION_ID=0x5C124;
     public interface FragmentHandler {
         void onExplainSelection(String selected,int start,int end);
+    }
+    /** Same exact painted spans used by tapping; never resolve notes by quote alone. */
+    public interface SavedMarkHandler {
+        boolean hasSavedMark(int start,int end);
+        void onShowSavedMark(int start,int end);
     }
     /** Permite al lector mantener una selección al tocar una acción fija externa. */
     public interface SelectionLifecycle {
@@ -102,6 +108,13 @@ public final class DefinitionUi {
                               Delegate delegate,SelectionHandler selectionHandler,
                               UnderlineHandler underlineHandler,FragmentHandler fragmentHandler,
                               SelectionLifecycle lifecycle){
+        attach(activity,textView,geminiEnabled,delegate,selectionHandler,
+            underlineHandler,fragmentHandler,lifecycle,null);
+    }
+    public static void attach(Activity activity,TextView textView,boolean geminiEnabled,
+                              Delegate delegate,SelectionHandler selectionHandler,
+                              UnderlineHandler underlineHandler,FragmentHandler fragmentHandler,
+                              SelectionLifecycle lifecycle,SavedMarkHandler savedMarkHandler){
         // No reemplazar ni consumir las acciones nativas Copiar/Compartir/Seleccionar todo.
         textView.setTextIsSelectable(true);
         // Algunos TextView no se marcan como long-clickable por el motor de
@@ -135,12 +148,23 @@ public final class DefinitionUi {
                     explain.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 }
             }
+            private void ensureViewSavedMark(Menu menu){
+                if(savedMarkHandler==null)return;
+                int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                boolean marked=start>=0&&end>start&&savedMarkHandler.hasSavedMark(start,end);
+                MenuItem item=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
+                if(marked&&item==null){
+                    menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,Menu.CATEGORY_SECONDARY,
+                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                }else if(item!=null)item.setVisible(marked);
+            }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
                 preserveNativeTextActions(menu);
                 ensureDefine(menu);
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
+                ensureViewSavedMark(menu);
                 reportSelection();
                 return true;
             }
@@ -155,10 +179,20 @@ public final class DefinitionUi {
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
+                ensureViewSavedMark(menu);
                 reportSelection();
                 return true;
             }
             @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){
+                if(item.getItemId()==VIEW_SAVED_MARK_ACTION_ID&&savedMarkHandler!=null){
+                    final int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    if(start>=0&&end>start&&savedMarkHandler.hasSavedMark(start,end)){
+                        if(mode!=null)mode.finish();
+                        // ActionMode must finish before the Material note modal is shown.
+                        textView.post(()->savedMarkHandler.onShowSavedMark(start,end));
+                    }else delegate.showError("Selecciona el texto marcado para ver su anotación.");
+                    return true;
+                }
                 if(item.getItemId()==GEMINI_FRAGMENT_ACTION_ID&&fragmentHandler!=null){
                     int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
                     if(start<0||end<=start)return true;
