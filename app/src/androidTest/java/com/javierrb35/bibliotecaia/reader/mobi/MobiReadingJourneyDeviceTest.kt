@@ -9,6 +9,7 @@ import android.text.Spanned
 import android.text.Spannable
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.PlatformNoteTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
@@ -21,6 +22,7 @@ import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.AppDatabase
@@ -157,8 +159,9 @@ class MobiReadingJourneyDeviceTest {
                 AnnotationEditor.show(readingA, a, locator, quote, "NOTE")
             }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Primera reflexión"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
 
             waitUntil("The MOBI NOTE was not stored or drawn on its selected words") {
                 val saved = runBlocking { database.readingDao().allNotes().firstOrNull {
@@ -201,9 +204,9 @@ class MobiReadingJourneyDeviceTest {
                 eventDown.recycle()
                 eventUp.recycle()
             }
-            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
 
             instrumentation.runOnMainSync { scroll.scrollTo(0, 610) }
             waitUntil("MOBI scrolling did not move the reading viewport") { scroll.scrollY > 0 }
@@ -268,11 +271,31 @@ class MobiReadingJourneyDeviceTest {
             waitUntil("Reopened MOBI Activity never regained input focus") {
                 origin.hasWindowFocus()
             }
+            // Physical Android input after closing/reopening, not merely
+            // dispatchTouchEvent() on a test view. Check the persisted note
+            // before allowing any edit flow to mask a broken tap.
+            val reopenedText = requireNotNull(findScroll(origin)).getChildAt(0) as TextView
+            val visibleQuoteAt = reopenedText.text.indexOf(quote)
+            assertTrue("Reopened note's quote must be visible in this chunk",
+                visibleQuoteAt >= 0)
+            PlatformNoteTap.tapOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Primera reflexión")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
+            // On Android 16 the previous note modal may still own the focus
+            // while the Activity window becomes visible again. Opening the
+            // editor immediately can confuse Espresso's root picker even
+            // though the saved-note tap itself succeeded.
+            waitUntil("MOBI reader did not regain focus after closing saved note") {
+                origin.hasWindowFocus()
+            }
+
             instrumentation.runOnMainSync { AnnotationEditor.edit(origin, saved) }
             instrumentation.waitForIdleSync()
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Reflexión editada"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
             waitUntil("Edited MOBI note not committed") {
                 runBlocking { database.readingDao().annotation(annotationId!!)?.body } ==
                     "Reflexión editada"
