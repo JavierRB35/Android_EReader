@@ -39,6 +39,9 @@ class KnowledgeActivity : AppCompatActivity() {
     private val query = MutableStateFlow("")
     private val trash = MutableStateFlow(false)
     private val kindFilter = MutableStateFlow("ALL")
+    private val bookFilter = MutableStateFlow(KnowledgeBookIndex.ALL)
+    private var bookTitles = emptyMap<String, String>()
+    private var availableBookChoices = emptyList<KnowledgeBookIndex.Choice>()
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -70,6 +73,8 @@ class KnowledgeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        bookFilter.value = savedInstanceState?.getString("selected_book_filter")
+            ?: KnowledgeBookIndex.ALL
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.bia_background))
@@ -177,6 +182,30 @@ class KnowledgeActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(6) })
         controls.addView(actionsRow)
 
+        val bookIndex = button("Todas las obras", "Filtrar notas por libro") {
+            val choices = availableBookChoices
+            val labels = choices.map { choice ->
+                choice.title + " · " + choice.count + if (choice.count == 1) " apunte" else " apuntes"
+            }.toTypedArray()
+            val selected = choices.indexOfFirst { it.id == bookFilter.value }.coerceAtLeast(0)
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Notas por libro")
+                .setSingleChoiceItems(labels, selected) { dialog, index ->
+                    bookFilter.value = choices[index].id
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cerrar", null)
+                .show()
+        }.apply {
+            backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_surface))
+            setTextColor(getColor(R.color.bia_text))
+            strokeWidth = dp(1)
+            strokeColor = ColorStateList.valueOf(getColor(R.color.bia_outline))
+        }
+        controls.addView(bookIndex, LinearLayout.LayoutParams(-1, dp(48)).apply {
+            topMargin = dp(6)
+        })
+
         controls.addView(com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
             text = "Mostrar papelera"
             textSize = 13f
@@ -211,28 +240,44 @@ class KnowledgeActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(query, trash, kindFilter) { q, t, kind -> Triple(q, t, kind) }
-                    .flatMapLatest { (q, t, kind) ->
-                        db.readingDao().notebook(q, t).map { notes ->
-                            when (kind) {
-                                "QUOTE" -> notes.filter { it.quote.isNotBlank() }
-                                "IDEAS" -> notes.filter { it.kind == "NOTE" && it.bookId == null }
-                                else -> notes
-                            }
-                        }
-                    }.collect { notes ->
-                        adapter.submit(notes)
-                        empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
-                        empty.text = when {
-                            query.value.isNotEmpty() -> "No hay resultados para esta búsqueda."
-                            trash.value -> "La papelera está vacía."
-                            kindFilter.value == "QUOTE" -> "Aquí aparecerán los fragmentos que guardes al leer."
-                            kindFilter.value == "IDEAS" -> "Aquí aparecerán tus notas independientes."
-                            else -> "Tu cuaderno empieza con una idea. Crea una nota o guarda un fragmento al leer."
-                        }
+                combine(query, trash, kindFilter, bookFilter) { q, t, kind, book ->
+                    arrayOf(q, if (t) "1" else "0", kind, book)
+                }.flatMapLatest { state ->
+                    combine(
+                        db.readingDao().notebook(state[0], state[1] == "1"),
+                        db.bookDao().observeAll()
+                    ) { notes, books ->
+                        val kindFiltered = KnowledgeBookIndex.byKind(notes, state[2])
+                        val titles = books.associate { it.id to it.title }
+                        val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
+                        val visible = KnowledgeBookIndex.byBook(kindFiltered, state[3])
+                        Triple(visible, titles, choices)
                     }
+                }.collect { (notes, titles, choices) ->
+                    bookTitles = titles
+                    availableBookChoices = choices
+                    bookIndex.text = "Libro: " + (choices.firstOrNull {
+                        it.id == bookFilter.value
+                    }?.title ?: "Todas las obras")
+                    adapter.submit(notes, titles)
+                    empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
+                    empty.text = when {
+                        query.value.isNotEmpty() -> "No hay resultados para esta búsqueda."
+                        bookFilter.value != KnowledgeBookIndex.ALL ->
+                            "No hay anotaciones de esta obra con los filtros actuales."
+                        trash.value -> "La papelera está vacía."
+                        kindFilter.value == "QUOTE" -> "Aquí aparecerán los fragmentos que guardes al leer."
+                        kindFilter.value == "IDEAS" -> "Aquí aparecerán tus notas independientes."
+                        else -> "Tu cuaderno empieza con una idea. Crea una nota o guarda un fragmento al leer."
+                    }
+                }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("selected_book_filter", bookFilter.value)
+        super.onSaveInstanceState(outState)
     }
 
     private fun actions(note: AnnotationEntity) {
@@ -283,8 +328,10 @@ class KnowledgeActivity : AppCompatActivity() {
         RecyclerView.Adapter<NotesAdapter.Holder>() {
 
         private var notes = emptyList<AnnotationEntity>()
-        fun submit(value: List<AnnotationEntity>) {
+        private var titles = emptyMap<String, String>()
+        fun submit(value: List<AnnotationEntity>, bookTitles: Map<String, String>) {
             notes = value
+            titles = bookTitles
             notifyDataSetChanged()
         }
 
@@ -368,9 +415,12 @@ class KnowledgeActivity : AppCompatActivity() {
                 note.body else if (note.body.isNotBlank() && firstLine != note.body.trim())
                 note.body else ""
             holder.body.visibility = if (holder.body.text.isNotBlank()) View.VISIBLE else View.GONE
-            holder.date.text = "${label(note.kind)}  ·  ${DateFormat.getDateInstance().format(Date(note.updatedAt))}" +
+            val source = note.bookId?.let { titles[it] ?: "Obra no disponible" } ?: "Nota independiente"
+            holder.date.text = source + "  ·  " + label(note.kind) + "  ·  " +
+                DateFormat.getDateInstance().format(Date(note.updatedAt)) +
                 if (note.deletedAt != null) "  ·  Papelera" else ""
-            holder.card.contentDescription = "${label(note.kind)}: ${firstLine.take(80)}"
+            holder.card.contentDescription = source + ", " +
+                label(note.kind) + ": " + firstLine.take(80)
             holder.card.setOnClickListener { click(note) }
         }
     }
