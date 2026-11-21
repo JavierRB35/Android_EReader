@@ -6,6 +6,9 @@ import android.view.MotionEvent
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import android.text.Spanned
+import android.text.Spannable
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
+import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import android.text.style.BackgroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.View
@@ -165,9 +168,19 @@ class MobiReadingJourneyDeviceTest {
                 saved != null && exactMark((scroll.getChildAt(0) as TextView).text, quote)
             }
 
+            // Recreate v0.1.40 regression: after a TextView transformation,
+            // painted underline/background remain while transient annotation
+            // IDs can disappear. The saved absolute locator MUST still open.
+            val displayedText = scroll.getChildAt(0) as TextView
+            instrumentation.runOnMainSync {
+                val spanned = displayedText.text as Spannable
+                spanned.getSpans(0, spanned.length, AnnotationHitSpan::class.java)
+                    .forEach { spanned.removeSpan(it) }
+                assertTrue(exactMark(displayedText.text, quote))
+                assertTrue(MarkedTextTap.idsAt(displayedText.text, quoteOffset + 2).isEmpty())
+            }
             // Use an actual short tap on the highlighted TextView, not a
             // direct dialog call. Scriptura opens the complete saved note.
-            val displayedText = scroll.getChildAt(0) as TextView
             instrumentation.runOnMainSync {
                 val layout = requireNotNull(displayedText.layout)
                 val at = quoteOffset + 2
