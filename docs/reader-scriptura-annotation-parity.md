@@ -45,3 +45,22 @@
 La batería instrumentada `android-scriptura-annotation-parity.yml` valida el gesto corto frente a pulsación larga/arrastre, colisiones de múltiples marcas PDF y la apertura real del detalle desde MOBI. Los demás flujos previos de lectura EPUB/PDF/MOBI siguen cubiertos por `android-reader-e2e-v01.yml` y `android-emulator-reader.yml`.
 
 **Antes de declarar aceptado en Samsung:** sobre una actualización firmada sin desinstalar, anotar una cita, tocar la marca, ver la cita y la nota completas, editar, eliminar, cerrar/reabrir y comprobar la marca; repetir en EPUB nativo, Readium, MOBI y PDF/OCR. Probar dos marcas en el mismo fragmento y seleccionar por pulsación larga. Se mantiene #24 abierto hasta QA físico.
+
+## Regresión de menú «Ver anotación» — 21/11/2026
+
+Se ha detectado una omisión concreta: el menú contextual de selección Android
+en EPUB nativo y MOBI ofrecía «Copiar», «Anotar», «Subrayar» y «Definir»,
+pero no «Ver anotación» aunque la nota estaba guardada y pintada sobre el texto.
+El menú Readium ya ofrecía esta acción y se conserva.
+
+La corrección añade «Ver anotación» **solo cuando la selección intersecta
+un `AnnotationHitSpan` realmente dibujado**, conservando todas las acciones
+nativas. La selección exacta resuelve tanto NOTE como HIGHLIGHT, y la nota
+escrita prevalece sobre el mero subrayado en el modal compartido. La opción
+no consulta por palabras parecidas ni altera libro, localizador, Room o backups.
+El toque breve directo sigue abriendo el mismo modal.
+
+Se añade regresión instrumentada para el menú nativo y para el recorrido
+selección → «Ver anotación» → texto de la nota en el diálogo real, además de
+la prueba de límites de las marcas. La prueba en el Samsung del propietario
+continúa siendo necesaria para certificar el gesto físico.
