@@ -209,6 +209,18 @@ class EpubReadingJourneyDeviceTest {
             waitUntil("Saved NOTE is no longer highlighted after reopening EPUB") {
                 marked(reopened.findViewById<TextView>(R.id.epub_native_text).text, quote)
             }
+            // A second entry point is mandatory when a vendor's native
+            // selection toolbar does not deliver its action. The notebook
+            // must READ the note, not force users into an editor.
+            instrumentation.runOnMainSync {
+                EpubReaderActivity::class.java.getDeclaredMethod("showAnnotations").apply {
+                    isAccessible = true
+                }.invoke(reopened)
+            }
+            onView(withText("Nota · $quote")).perform(click())
+            onView(withText("Leer anotación")).perform(click())
+            onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
+            onView(withText("Cerrar")).perform(click())
             val switch = requireNotNull(findToggle(reopened.window.decorView))
             instrumentation.runOnMainSync { switch.performClick() }
             waitUntil("Maquetación Readium was not shown after switching modes") {

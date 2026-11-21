@@ -89,6 +89,11 @@ class PdfReadingJourneyDeviceTest {
         waitUntil("Actual PDF reader never rendered the first page") {
             pdfView(activity.window.decorView)?.currentBitmap() != null
         }
+        // PdfRenderService is asynchronous. Bitmap ready is not equivalent
+        // to the Activity window having focus: Espresso needs both.
+        waitUntil("PDF reader window never regained focus after opening") {
+            activity.hasWindowFocus()
+        }
         return activity
     }
 
@@ -186,6 +191,9 @@ class PdfReadingJourneyDeviceTest {
                 differsFromUnmarked(reloaded)
             }
             val note = requireNotNull(runBlocking { database.readingDao().annotation(noteId!!) })
+            waitUntil("Reopened PDF reader lost focus before note editing") {
+                reopened.hasWindowFocus()
+            }
             instrumentation.runOnMainSync { AnnotationEditor.edit(reopened, note) }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
                 .perform(replaceText("PDF nota editada"), closeSoftKeyboard())

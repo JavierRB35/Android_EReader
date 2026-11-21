@@ -24,7 +24,7 @@ import com.javierrb35.bibliotecaia.ai.AiChatActivity
 import com.javierrb35.bibliotecaia.ai.AiKeyStore
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
-import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedMarkScrollView
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.study.DefinitionUi
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
@@ -148,7 +148,7 @@ class PdfOcrStudy(
             setTextIsSelectable(true)
         }
         panel.addView(selection)
-        val scroll = ScrollView(activity).apply {
+        val scroll = SavedMarkScrollView(activity).apply {
             addView(panel)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 (activity.resources.displayMetrics.heightPixels * 0.70f).toInt())
@@ -228,7 +228,7 @@ class PdfOcrStudy(
 
         // Scriptura parity in the OCR transcript: tapping a painted quote
         // opens all notes anchored there; long press remains selectable text.
-        MarkedTextTap.attach(selection, marksAt = { at ->
+        scroll.attach(selection, marksAt = { at ->
             visibleRanges.filter { (_, range) -> at in range }.map { it.first }
         }, onMarks = { selected ->
             SavedAnnotationSheet.show(activity, repository, selected)

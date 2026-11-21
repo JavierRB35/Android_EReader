@@ -148,15 +148,24 @@ public final class DefinitionUi {
                     explain.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 }
             }
-            private void ensureViewSavedMark(Menu menu){
+            private void ensureViewSavedMark(Menu menu,boolean preparing){
                 if(savedMarkHandler==null)return;
-                int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
-                boolean marked=start>=0&&end>start&&savedMarkHandler.hasSavedMark(start,end);
-                MenuItem item=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
-                if(marked&&item==null){
-                    menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,Menu.CATEGORY_SECONDARY,
-                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                }else if(item!=null)item.setVisible(marked);
+                // One UI may create the toolbar before TextView has set the
+                // selection. Show the action initially; only hide it once a
+                // complete unmarked range is confirmed in onPrepareActionMode.
+                MenuItem action=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
+                if(action==null){
+                    action=menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,
+                        Menu.CATEGORY_SECONDARY,"Ver anotación");
+                    action.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+                }
+                if(!preparing){
+                    action.setVisible(true);
+                }else{
+                    int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                    action.setVisible(start<0||end<=start||
+                        savedMarkHandler.hasSavedMark(start,end));
+                }
             }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
                 preserveNativeTextActions(menu);
@@ -164,7 +173,7 @@ public final class DefinitionUi {
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
-                ensureViewSavedMark(menu);
+                ensureViewSavedMark(menu,false);
                 reportSelection();
                 return true;
             }
@@ -179,7 +188,7 @@ public final class DefinitionUi {
                 ensureAnnotate(menu);
                 ensureUnderline(menu);
                 ensureExplainFragment(menu);
-                ensureViewSavedMark(menu);
+                ensureViewSavedMark(menu,true);
                 reportSelection();
                 return true;
             }

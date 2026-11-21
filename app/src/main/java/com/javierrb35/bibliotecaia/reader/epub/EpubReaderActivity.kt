@@ -34,7 +34,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
-import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedMarkScrollView
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
@@ -97,7 +97,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var positionLabel: TextView
     private lateinit var loading: TextView
     private lateinit var webFrame: FrameLayout
-    private lateinit var nativeScroll: ScrollView
+    private lateinit var nativeScroll: SavedMarkScrollView
     private lateinit var nativeText: TextView
     private lateinit var nativeToggle: MaterialButton
     private lateinit var speechButton: MaterialButton
@@ -125,6 +125,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeTouchX = 0f
     private var nativeTouchY = 0f
     private var nativeGeneration = 0
+    private var lastNativeReadiumKey: String? = null
+    private var nativeReadiumRefresh: Job? = null
     private var themeIndex = 0
     private var fontScale = 1.1f
     private var scroll = false
@@ -217,7 +219,23 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                     liveIds
                                 )
                             }.getOrNull()
-                            val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
+                            // Native TextView offsets are not Readium CFIs.
+                            // For saved native notes, hit-test the ONE verified
+                            // XHTML quote directly without guessing a CFI.
+                            val nativeNotes = ReadiumNativeNoteBridge.notesForHref(
+                                annotations, latest?.href?.toString())
+                            val nativeMatch = if (matchId == null && nativeNotes.isNotEmpty())
+                                runCatching {
+                                    ReadiumMarkedTap.verifiedId(
+                                        fragment.evaluateJavascript(
+                                            ReadiumNativeNoteBridge.hitTestScript(x, y, nativeNotes)),
+                                        nativeNotes.map { it.id }.toSet()
+                                    )
+                                }.getOrNull()
+                            else null
+                            val mark = annotations.firstOrNull {
+                                it.id == (matchId ?: nativeMatch) && it.deletedAt == null
+                            }
                             if (mark != null && !nativeMode) {
                                 showSavedTextMark(mark)
                             } else if (edge && !scroll && !nativeMode) {
@@ -239,8 +257,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     horizontalEdgeThresholdPercent = 0.10))
                 launch {
                     fragment.currentLocator.collect { locator ->
+                        // Keep the WebView resource locator even while its
+                        // native TextView surface is visible. Otherwise an
+                        // immediate Maquetación toggle on the SAME chapter
+                        // has no href for the saved-note bridge until the user
+                        // manually navigates to another chapter.
+                        latest = locator
                         if (!nativeMode) {
-                            latest = locator
+                            refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             pendingSave?.cancel()
                             pendingSave = lifecycleScope.launch {
@@ -256,10 +280,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
                         if (nativeMode && nativeChapter != null) paintNativeMarks()
-                        // Readium needs a visual decoration for NOTE as well as
-                        // HIGHLIGHT. Notes from the native EPUB text surface are
-                        // kept separate because their offsets refer to normalized text.
                         fragment.applyDecorations(EpubAnnotationMarks.forReadium(saved), "annotations")
+                        if (!nativeMode) {
+                            lastNativeReadiumKey = null
+                            refreshNativeReadiumMarks(fragment)
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -355,7 +380,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setLineSpacing(6.dp.toFloat(), 1.1f)
             textSize = 22f
         }
-        nativeScroll = ScrollView(this).apply {
+        nativeScroll = SavedMarkScrollView(this).apply {
             isFillViewport = false
             isVerticalScrollBarEnabled = true
             visibility = View.GONE
@@ -457,7 +482,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
         // Scriptura parity: short tap opens all annotations at the character,
         // long-press/drag remains owned by TextView's native selection mode.
-        MarkedTextTap.attach(nativeText, marksAt = { at ->
+        nativeScroll.attach(nativeText, marksAt = { at ->
             val chapter = nativeChapter
             if (chapter == null) emptyList()
             else {
@@ -508,6 +533,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             saveNativePosition(visibleNativeOffset())
         }
         nativeMode = enabled
+        if (!enabled) lastNativeReadiumKey = null
+        else nativeReadiumRefresh?.cancel()
         preferences.edit().putBoolean("native_selection", enabled).apply()
         nativeToggle.text = if (enabled) "Maquetación" else "Selección precisa"
         if (enabled) {
@@ -520,6 +547,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         } else {
             nativeLoading?.cancel()
             showReadingSurface()
+            navigator?.let { refreshNativeReadiumMarks(it) }
             val chapter = nativeChapter
             if (chapter != null) {
                 // Navigate to the same chapter, not a false CFI derived from
@@ -551,6 +579,30 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun spokenChapter(chapter: NativeEpubText.Chapter): String =
         readerBookTitle.text.toString() + ". " + chapter.title + ". " + chapter.text
+
+    /**
+     * Paint only verified native notes in the CURRENT XHTML resource, without
+     * fabricating a Readium CFI from a TextView position. Unique DOM matches
+     * can be highlighted by CSS; ambiguous ones remain in "Notas".
+     */
+    private fun refreshNativeReadiumMarks(fragment: EpubNavigatorFragment) {
+        if (nativeMode) return
+        val href = latest?.href?.toString() ?: return
+        val notes = ReadiumNativeNoteBridge.notesForHref(annotations, href)
+        val key = href + "|" + notes.joinToString("|") { it.id + ":" + it.updatedAt }
+        if (key == lastNativeReadiumKey) return
+        lastNativeReadiumKey = key
+        nativeReadiumRefresh?.cancel()
+        nativeReadiumRefresh = lifecycleScope.launch {
+            delay(180)
+            if (!nativeMode && latest?.href?.toString() == href &&
+                !isFinishing && !isDestroyed) {
+                runCatching {
+                    fragment.evaluateJavascript(ReadiumNativeNoteBridge.decorateScript(notes))
+                }
+            }
+        }
+    }
 
     private fun showReadingSurface() {
         webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
@@ -826,21 +878,33 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 kind + " · " + (note.quote.ifBlank { note.body.ifBlank { "Punto de lectura" } }).take(100)
             }.toTypedArray()) { _, index ->
                 val note = annotations[index]
-                val choices = if (note.kind == "HIGHLIGHT")
-                    arrayOf("Ir al texto", "Quitar subrayado")
-                else arrayOf("Ir al texto", "Editar nota", "Eliminar anotación")
+                val hasTextMark = note.kind in setOf("NOTE", "HIGHLIGHT")
+                val choices = when (note.kind) {
+                    "HIGHLIGHT" -> arrayOf("Leer anotación", "Ir al texto", "Quitar subrayado")
+                    "NOTE" -> arrayOf("Leer anotación", "Ir al texto", "Editar nota", "Eliminar anotación")
+                    else -> arrayOf("Ir al texto", "Editar nota", "Eliminar anotación")
+                }
                 MaterialAlertDialogBuilder(this).setTitle(note.quote.ifBlank { "Anotación" })
                     .setItems(choices) { _, selected ->
-                        when (selected) {
+                        // The notebook itself MUST provide an unbreakable
+                        // read-only entry point independent of the TouchView
+                        // implementation or Samsung's selection menu.
+                        if (hasTextMark && selected == 0) {
+                            SavedAnnotationSheet.show(this, repository, listOf(note))
+                        } else when (if (hasTextMark) selected - 1 else selected) {
                             0 -> {
                                 val point = NativeEpubAnchors.point(note.locator)
                                 val pub = publication
                                 val chapterIndex = pub?.readingOrder?.indexOfFirst {
                                     it.url().toString() == point?.href
                                 } ?: -1
-                                if (nativeMode && point != null && chapterIndex >= 0)
+                                if (point != null && chapterIndex >= 0) {
+                                    // Native offsets cannot be turned into a
+                                    // fake Readium CFI. Navigate to the exact
+                                    // native anchor even from Maquetación.
+                                    if (!nativeMode) setNativeMode(true)
                                     showNativeChapter(chapterIndex, point.offset)
-                                else parseLocator(note.locator)?.let { navigator?.go(it) }
+                                } else parseLocator(note.locator)?.let { navigator?.go(it) }
                             }
                             1 -> if (note.kind == "HIGHLIGHT") {
                                 lifecycleScope.launch {

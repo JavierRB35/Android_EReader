@@ -11,9 +11,9 @@ import kotlin.math.abs
  * A short, stationary tap over the EXACT painted mark opens its saved annotation.
  * Long press and dragging keep Android's native selection/copy/share behaviour.
  *
- * In a scroll reader, parent interception during a small diagonal movement used
- * to drop ACTION_UP intermittently. Reserve the gesture until it is clearly a
- * scroll, and show dialogs after the touch dispatch completes.
+ * In a scroll reader, reserve a verified saved mark for a short gesture,
+ * but release interception on drags; open the detail during ACTION_UP as in
+ * Scriptura. A small touchSlop hit area accommodates real fingertips.
  */
 object MarkedTextTap {
     /** Only IDs attached to painted ranges can be opened; never guess by quote. */
@@ -52,6 +52,37 @@ object MarkedTextTap {
         var parentReserved = false
         var downMatches = emptyList<AnnotationEntity>()
 
+        /**
+         * Pixel-perfect taps pass in an emulator, but a physical finger on
+         * Samsung can land a few dp outside a thin underline or on the
+         * inter-glyph boundary. Sample only inside Android touchSlop, and
+         * always prefer the actual glyph before nearby offsets.
+         *
+         * The caller validates exact saved note anchors (and edition) so we
+         * never resolve an arbitrary repeated quote or invent a note.
+         */
+        fun findSavedMark(x: Float, y: Float): List<AnnotationEntity> {
+            fun at(px: Float, py: Float): List<AnnotationEntity> =
+                marksAt(text.getOffsetForPosition(px, py))
+                    .filter { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }
+                    .distinctBy { it.id }
+
+            val exact = at(x, y)
+            if (exact.isNotEmpty()) return exact
+            val tolerance = minOf(slop.toFloat(),
+                10f * text.resources.displayMetrics.density)
+            val inset = tolerance * .8f
+            val probes = arrayOf(
+                x - inset to y, x + inset to y,
+                x to y - inset, x to y + inset,
+                x - inset to y - inset, x + inset to y - inset,
+                x - inset to y + inset, x + inset to y + inset
+            )
+            return probes.asSequence().flatMap { (px, py) ->
+                at(px, py).asSequence()
+            }.distinctBy { it.id }.toList()
+        }
+
         fun releaseScroll() {
             if (parentReserved) text.parent?.requestDisallowInterceptTouchEvent(false)
             parentReserved = false
@@ -66,10 +97,7 @@ object MarkedTextTap {
                     releaseScroll()
                     // The ScrollView must not steal a tap on a marked passage.
                     // Long presses still reach TextView's native selection handler.
-                    val offset = text.getOffsetForPosition(downX, downY)
-                    downMatches = marksAt(offset)
-                        .filter { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }
-                        .distinctBy { it.id }
+                    downMatches = findSavedMark(downX, downY)
                     parentReserved = downMatches.isNotEmpty()
                     if (parentReserved) text.parent?.requestDisallowInterceptTouchEvent(true)
                     false
@@ -95,9 +123,7 @@ object MarkedTextTap {
                         downMatches = emptyList()
                         false
                     } else {
-                        val upMatches = marksAt(text.getOffsetForPosition(event.x, event.y))
-                            .filter { it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT") }
-                            .distinctBy { it.id }
+                        val upMatches = findSavedMark(event.x, event.y)
                         // The finger can move a few pixels within touchSlop;
                         // if that crosses a glyph boundary use the mark verified
                         // under ACTION_DOWN rather than silently losing the tap.
