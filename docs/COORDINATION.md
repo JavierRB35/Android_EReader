@@ -133,3 +133,8 @@ El integrador principal fusiona tras revisión, igual que los demás agentes.
 - **Contrato:** sin sinopsis → «Añadir argumento del libro» y editor manual; con sinopsis → «Ver argumento del libro» y modal con «Editar argumento». Mantener «Copiar» y «Guardar argumento en…». Persistir siempre en Room `book_synopses`; ninguna migración ni proveedor IA nuevos.
 - **Coordinación:** agentes de anotaciones/lectores (incluida la rama `fix/p0-actual-note-tap-parity-20261121`) y agentes de #55 (Aa/modos de lectura) y #46 (QA home) deben evitar editar estos ficheros o comunicar el solapamiento en la PR WIP. Esta rama **no fusiona main ni publica APK** por su cuenta.
 - **Validación pendiente:** CI con compilación Android y `BookSynopsisActionDeviceTest` / `BookSynopsisDeviceTest`; aceptación visual en dispositivo. No confundir código en WIP con release instalada.
+
+
+## Corrección prioritaria de argumento tras captura de Samsung (21/11/2026)
+
+Rama: `fix/ai-synopsis-cta-place-fallback-20261121`. Contrato del propietario: **mover botón debajo de Colecciones, Añadir solicita a IA directamente, Leer abre modal con Editar/Borrar**, Gemini principal y Groq de respaldo como Scriptura. Reservas exclusivas de esta rama: `ui/BookDetailActivity.kt`, `res/layout/activity_book_detail.xml`, `ai/AiChatActivity.kt` (solo nuevo modo de generación desde CTA), `data/SynopsisDao.kt`, recursos `detail_synopsis_*`, prueba `BookSynopsisActionDeviceTest.kt`. Evitar conflictos con agentes de anotaciones y apariencia lectora. Integrar y publicar únicamente con CI verde; el usuario ha autorizado ambas operaciones.
