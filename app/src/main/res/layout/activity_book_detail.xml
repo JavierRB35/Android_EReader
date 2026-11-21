@@ -40,7 +40,7 @@
             android:textSize="15sp"
             android:textColor="@color/bia_text_secondary" />
 
-        <!-- Compact entry at the top of book details, shown after a synopsis exists. -->
+        <!-- Single synopsis entry: always visible; label is resolved from Room. -->
         <LinearLayout
             android:id="@+id/btnSynopsis"
             android:layout_width="match_parent"
@@ -53,13 +53,13 @@
             android:background="@drawable/bg_book_detail_row"
             android:clickable="true"
             android:focusable="true"
-            android:visibility="gone"
-            android:contentDescription="@string/detail_synopsis_view">
+            android:contentDescription="@string/detail_synopsis_add">
             <TextView
+                android:id="@+id/txtSynopsisAction"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/detail_synopsis_view"
+                android:text="@string/detail_synopsis_add"
                 android:textColor="@color/bia_text"
                 android:textSize="14sp"
                 android:textStyle="bold"/>
