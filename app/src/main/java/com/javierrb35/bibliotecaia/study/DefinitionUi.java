@@ -150,13 +150,18 @@ public final class DefinitionUi {
             }
             private void ensureViewSavedMark(Menu menu){
                 if(savedMarkHandler==null)return;
-                int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
-                boolean marked=start>=0&&end>start&&savedMarkHandler.hasSavedMark(start,end);
+                // On Samsung One UI, ActionMode may be created BEFORE Android
+                // has finalized getSelectionStart/End. A menu entry hidden
+                // at creation is not guaranteed to become visible later.
+                // Always expose the action; validate its anchor on invocation.
+                // This is an additional route, not a replacement for taps.
                 MenuItem item=menu.findItem(VIEW_SAVED_MARK_ACTION_ID);
-                if(marked&&item==null){
-                    menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,Menu.CATEGORY_SECONDARY,
-                        "Ver anotación").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-                }else if(item!=null)item.setVisible(marked);
+                if(item==null){
+                    item=menu.add(Menu.NONE,VIEW_SAVED_MARK_ACTION_ID,
+                        Menu.CATEGORY_SECONDARY,"Ver nota");
+                }
+                item.setVisible(true);
+                item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
             }
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu){
                 preserveNativeTextActions(menu);
