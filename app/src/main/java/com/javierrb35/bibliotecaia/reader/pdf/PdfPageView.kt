@@ -68,10 +68,21 @@ class PdfPageView(context: Context) : View(context) {
                     // Same position can contain a NOTE and an underline (or
                     // several notes). Scriptura lets the reader choose which
                     // annotation to open instead of silently taking the last.
-                    val hits = marks.asReversed().filter {
-                        nx >= it.bounds.left && nx <= it.bounds.right &&
-                            ny >= it.bounds.top && ny <= it.bounds.bottom
-                    }.map { it.annotationId }.distinct()
+                    // Exact painted boxes first. A tiny physical tap allowance
+                    // compensates for thin underline geometry on high-density PDFs.
+                    // Never infer a mark by searching the OCR quote elsewhere.
+                    fun matches(padX: Float, padY: Float): List<String> =
+                        marks.asReversed().filter {
+                            nx >= it.bounds.left - padX && nx <= it.bounds.right + padX &&
+                                ny >= it.bounds.top - padY && ny <= it.bounds.bottom + padY
+                        }.map { it.annotationId }.distinct()
+                    val exact = matches(0f, 0f)
+                    val hits = if (exact.isNotEmpty()) exact else {
+                        val scale = baseScale(image) * zoom
+                        val px = 5f * resources.displayMetrics.density
+                        matches((px / (image.width * scale)).coerceAtMost(.012f),
+                            (px / (image.height * scale)).coerceAtMost(.012f))
+                    }
                     if (hits.isNotEmpty()) {
                         onMarkedTap?.invoke(hits)
                         return true

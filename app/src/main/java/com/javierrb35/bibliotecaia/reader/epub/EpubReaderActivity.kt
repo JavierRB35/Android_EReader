@@ -33,6 +33,7 @@ import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.ReadingRepository
+import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
 import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
@@ -181,6 +182,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
                         if (nativeMode) return false
+                        // Readium's registered decoration listener handles
+                        // annotated edge text before the page-turn adapter.
                         if (ReadiumMarkedTap.pageEdge(event.point.x,
                                 fragment.publicationView.width, scroll, 28.dp.toFloat())) return false
                         val x = event.point.x
@@ -416,9 +419,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         MarkedTextTap.attach(nativeText, marksAt = { at ->
             val chapter = nativeChapter
             if (chapter == null) emptyList()
-            else annotations.filter { mark ->
-                mark.kind in setOf("NOTE", "HIGHLIGHT") &&
-                    nativeMarkRange(mark, chapter)?.contains(at) == true
+            else {
+                // Tap only a mark painted for this exact chapter/edition.
+                val paintedIds = MarkedTextTap.idsAt(nativeText.text, at).toSet()
+                annotations.filter { mark ->
+                    mark.id in paintedIds && mark.kind in setOf("NOTE", "HIGHLIGHT")
+                }
             }
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
@@ -590,7 +596,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 text.setSpan(UnderlineSpan(), range.first, range.last + 1,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
+            } else continue
+            // Same precise validated range as the visible underline.
+            text.setSpan(AnnotationHitSpan(note.id), range.first,
+                range.last + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         nativeText.setText(text, TextView.BufferType.SPANNABLE)
     }

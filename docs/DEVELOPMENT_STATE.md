@@ -2,9 +2,17 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-21 (biblioteca premium compacta en rama de trabajo; otras tareas conservadas)
+**Última actualización:** 2026-11-21 (corrección de toque de anotación en rama de trabajo; portadas premium ya integradas)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## CORRECCIÓN P0 — TOCAR MARCA PARA ABRIR NOTA — 21/11/2026
+
+- Reporte de propietario: la marca subrayada con nota no abre el modal al pulsarla. Incidencia relacionada con #44 (intermitencia documentada en MOBI).
+- Rama `fix/annotation-mark-tap-modal-20261121`: EPUB nativo y MOBI atan IDs al `Spannable` de la **marca realmente pintada** mediante `AnnotationHitSpan`, evitando localizar por el texto de nuevo durante el toque. `MarkedTextTap` preserva selección larga y desplazamiento, impide que el `ScrollView` robe una pulsación breve sobre una marca y abre la nota tras terminar el despacho táctil.
+- `SavedAnnotationSheet` muestra directamente la NOTE cuando coincide con un HIGHLIGHT, en un modal Material de altura ajustada al contenido y desplazable para notas largas. PDF añade un margen de toque máximo de 5 dp sobre la geometría OCR sin buscar texto a ciegas. Readium conserva su decorador oficial y control de borde.
+- Pruebas instrumentadas: `SavedAnnotationModalDeviceTest` con TextView adjunto y nota+subrayado superpuestos; `EpubReadingJourneyDeviceTest` ahora toca la marca EPUB y comprueba la nota; `MobiReadingJourneyDeviceTest` ya comprueba el tap real y se ejecuta en la regresión Scriptura.
+- Verificación CI y emulador: **pendiente** antes de fusionar/publicar. Validación Samsung físico: **pendiente**, no se proclama hasta evidencia.
 
 ## REVISIÓN DE HOME PREMIUM — 21/11/2026
 

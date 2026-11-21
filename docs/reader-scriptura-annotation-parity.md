@@ -32,6 +32,14 @@
 - En Readium la activación de anotaciones depende de las decoraciones disponibles; las marcas nativas UTF-16 no siempre tienen localizador DOM equivalente.
 - PDF escaneado y digital sigue usando el panel OCR para selección de texto; el bitmap no admite selección por arrastre. El toque breve sobre marcas existentes sí abre la nota.
 
+## Corrección reforzada 21/11/2026
+
+- `AnnotationHitSpan` identifica cada nota sobre el mismo rango que realmente se dibujó en EPUB nativo/MOBI: toque y pintura no repiten búsquedas de cita ni recalculan offsets durante el gesto.
+- Se bloquea la interceptación del scroll únicamente para toques que comienzan sobre una marca; se libera ante arrastre, segundo dedo y cancelación. El detalle se abre después de concluir `ACTION_UP`.
+- Si coinciden una NOTE escrita y un HIGHLIGHT, el modal de la nota aparece directamente. Dos o más notas escritas superpuestas siguen ofreciendo elección. La altura de un modal breve ya no ocupa el 67 % de pantalla: las notas largas se desplazan.
+- El PDF amplía mínimamente la zona táctil sobre el rectángulo exacto OCR (hasta 5 dp), sin asociar texto ajeno.
+- Se refuerza el recorrido del lector EPUB con un toque real sobre la nota recién creada y la prueba `SavedAnnotationModalDeviceTest` comprueba todo el circuito toque → modal. Se conserva la prueba MOBI ya existente del issue #44.
+
 ## Evidencia y aceptación pendiente
 
 La batería instrumentada `android-scriptura-annotation-parity.yml` valida el gesto corto frente a pulsación larga/arrastre, colisiones de múltiples marcas PDF y la apertura real del detalle desde MOBI. Los demás flujos previos de lectura EPUB/PDF/MOBI siguen cubiertos por `android-reader-e2e-v01.yml` y `android-emulator-reader.yml`.

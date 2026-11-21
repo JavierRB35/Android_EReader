@@ -28,6 +28,14 @@ object SavedAnnotationSheet {
             it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
         }.distinctBy { it.id }
         if (available.isEmpty() || activity.isFinishing || activity.isDestroyed) return
+        // A written note on top of an underline is the reader's primary target.
+        // Open it directly; only ask the reader to choose if multiple written
+        // notes overlap the same visible passage.
+        val notes = available.filter { it.kind == "NOTE" }
+        if (notes.size == 1) {
+            detail(activity, repository, notes.single())
+            return
+        }
         if (available.size == 1) {
             detail(activity, repository, available.single())
             return
@@ -77,14 +85,22 @@ object SavedAnnotationSheet {
             line("Fragmento subrayado. El texto original no se modifica.",
                 14f, 0xffb8b0a4.toInt())
         }
-        val scroll = ScrollView(activity).apply {
+        val maxHeight = (activity.resources.displayMetrics.heightPixels * .67f).toInt()
+        val scroll = object : ScrollView(activity) {
+            // Let brief notes form a genuinely compact modal; longer notes scroll.
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec,
+                    android.view.View.MeasureSpec.makeMeasureSpec(
+                        maxHeight, android.view.View.MeasureSpec.AT_MOST))
+            }
+        }.apply {
             isFillViewport = false
+            isVerticalScrollBarEnabled = true
             addView(body)
         }
-        // Cap the dialog, not the note: never truncate 900/1200 characters.
         scroll.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            (activity.resources.displayMetrics.heightPixels * .67f).toInt()
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
         val isUnderline = mark.kind == "HIGHLIGHT"
         MaterialAlertDialogBuilder(activity)
