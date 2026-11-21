@@ -22,6 +22,7 @@ import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.AppDatabase
@@ -280,12 +281,20 @@ class MobiReadingJourneyDeviceTest {
             onView(withText("Tu anotación")).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).perform(click())
+            // On Android 16 the previous note modal may still own the focus
+            // while the Activity window becomes visible again. Opening the
+            // editor immediately can confuse Espresso's root picker even
+            // though the saved-note tap itself succeeded.
+            waitUntil("MOBI reader did not regain focus after closing saved note") {
+                origin.hasWindowFocus()
+            }
 
             instrumentation.runOnMainSync { AnnotationEditor.edit(origin, saved) }
             instrumentation.waitForIdleSync()
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Reflexión editada"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
             waitUntil("Edited MOBI note not committed") {
                 runBlocking { database.readingDao().annotation(annotationId!!)?.body } ==
                     "Reflexión editada"
