@@ -125,6 +125,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeTouchX = 0f
     private var nativeTouchY = 0f
     private var nativeGeneration = 0
+    private var lastNativeReadiumKey: String? = null
+    private var nativeReadiumRefresh: Job? = null
     private var themeIndex = 0
     private var fontScale = 1.1f
     private var scroll = false
@@ -217,7 +219,23 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                     liveIds
                                 )
                             }.getOrNull()
-                            val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
+                            // Native TextView offsets are not Readium CFIs.
+                            // For saved native notes, hit-test the ONE verified
+                            // XHTML quote directly without guessing a CFI.
+                            val nativeNotes = ReadiumNativeNoteBridge.notesForHref(
+                                annotations, latest?.href?.toString())
+                            val nativeMatch = if (matchId == null && nativeNotes.isNotEmpty())
+                                runCatching {
+                                    ReadiumMarkedTap.verifiedId(
+                                        fragment.evaluateJavascript(
+                                            ReadiumNativeNoteBridge.hitTestScript(x, y, nativeNotes)),
+                                        nativeNotes.map { it.id }.toSet()
+                                    )
+                                }.getOrNull()
+                            else null
+                            val mark = annotations.firstOrNull {
+                                it.id == (matchId ?: nativeMatch) && it.deletedAt == null
+                            }
                             if (mark != null && !nativeMode) {
                                 showSavedTextMark(mark)
                             } else if (edge && !scroll && !nativeMode) {
@@ -241,6 +259,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     fragment.currentLocator.collect { locator ->
                         if (!nativeMode) {
                             latest = locator
+                            refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             pendingSave?.cancel()
                             pendingSave = lifecycleScope.launch {
@@ -256,10 +275,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     repository.observeAnnotations(bookId).collect { saved ->
                         annotations = saved
                         if (nativeMode && nativeChapter != null) paintNativeMarks()
-                        // Readium needs a visual decoration for NOTE as well as
-                        // HIGHLIGHT. Notes from the native EPUB text surface are
-                        // kept separate because their offsets refer to normalized text.
                         fragment.applyDecorations(EpubAnnotationMarks.forReadium(saved), "annotations")
+                        if (!nativeMode) {
+                            lastNativeReadiumKey = null
+                            refreshNativeReadiumMarks(fragment)
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -508,6 +528,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             saveNativePosition(visibleNativeOffset())
         }
         nativeMode = enabled
+        if (!enabled) lastNativeReadiumKey = null
+        else nativeReadiumRefresh?.cancel()
         preferences.edit().putBoolean("native_selection", enabled).apply()
         nativeToggle.text = if (enabled) "Maquetación" else "Selección precisa"
         if (enabled) {
@@ -520,6 +542,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         } else {
             nativeLoading?.cancel()
             showReadingSurface()
+            navigator?.let { refreshNativeReadiumMarks(it) }
             val chapter = nativeChapter
             if (chapter != null) {
                 // Navigate to the same chapter, not a false CFI derived from
@@ -551,6 +574,30 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
 
     private fun spokenChapter(chapter: NativeEpubText.Chapter): String =
         readerBookTitle.text.toString() + ". " + chapter.title + ". " + chapter.text
+
+    /**
+     * Paint only verified native notes in the CURRENT XHTML resource, without
+     * fabricating a Readium CFI from a TextView position. Unique DOM matches
+     * can be highlighted by CSS; ambiguous ones remain in "Notas".
+     */
+    private fun refreshNativeReadiumMarks(fragment: EpubNavigatorFragment) {
+        if (nativeMode) return
+        val href = latest?.href?.toString() ?: return
+        val notes = ReadiumNativeNoteBridge.notesForHref(annotations, href)
+        val key = href + "|" + notes.joinToString("|") { it.id + ":" + it.updatedAt }
+        if (key == lastNativeReadiumKey) return
+        lastNativeReadiumKey = key
+        nativeReadiumRefresh?.cancel()
+        nativeReadiumRefresh = lifecycleScope.launch {
+            delay(180)
+            if (!nativeMode && latest?.href?.toString() == href &&
+                !isFinishing && !isDestroyed) {
+                runCatching {
+                    fragment.evaluateJavascript(ReadiumNativeNoteBridge.decorateScript(notes))
+                }
+            }
+        }
+    }
 
     private fun showReadingSurface() {
         webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
