@@ -7,6 +7,10 @@ import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
+import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
+import android.view.Gravity
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.UnderlineSpan
@@ -66,6 +70,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         private const val BOOK = "book_id"
         private const val LOCATION = "locator"
         private const val VIEW_SAVED_TEXT_ID = 0x5C124
+        private const val VERTICAL_GESTURES_MIGRATION = "vertical_gestures_v1"
         private val saves = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val saveMutex = Mutex()
         fun start(context: Context, bookId: String, locatorJson: String? = null) {
@@ -85,6 +90,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var annotations = emptyList<AnnotationEntity>()
     private lateinit var root: LinearLayout
     private lateinit var controls: LinearLayout
+    private lateinit var readerBookTitle: TextView
     private lateinit var footer: LinearLayout
     private lateinit var positionLabel: TextView
     private lateinit var loading: TextView
@@ -112,7 +118,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         bookId = intent.getStringExtra(BOOK) ?: run { finish(); return }
         themeIndex = preferences.getInt("theme", 0).coerceIn(0, 3)
         fontScale = preferences.getFloat("font", 1.1f).coerceIn(.75f, 2f)
-        scroll = preferences.getBoolean("scroll", false)
+        // Existing paginated installations are migrated once to the safer
+        // vertical-scrolling default. Aa still lets the reader opt into pages.
+        val migrated = preferences.getBoolean(VERTICAL_GESTURES_MIGRATION, false)
+        scroll = if (migrated) preferences.getBoolean("scroll", true) else true
+        if (!migrated) preferences.edit().putBoolean("scroll", true)
+            .putBoolean(VERTICAL_GESTURES_MIGRATION, true).apply()
         serif = preferences.getBoolean("serif", true)
         nativeMode = preferences.getBoolean("native_selection", true)
         createLayout()
@@ -121,6 +132,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             try {
                 val book = AppDatabase.get(this@EpubReaderActivity).bookDao().findById(bookId)
                     ?: error("El libro ya no está en la biblioteca.")
+                readerBookTitle.text = book.title
                 val savedLocator = restored ?: repository.position(bookId)?.locator
                 val initial = parseLocator(savedLocator)
                 val opened = EpubOpener.open(applicationContext, File(book.localPath))
@@ -162,15 +174,37 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 } else {
                     showReadingSurface()
                 }
-                fragment.addInputListener(DirectionalNavigationAdapter(fragment))
+                // In scroll mode a diagonal vertical gesture must NOT turn a
+                // page. The dedicated edge tap region is also much narrower.
+                // Readium's own decoration event is primary; this secondary
+                // short-tap hit-test improves access to saved marked notes.
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
-                        val visibility = if (controls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                        controls.visibility = visibility
-                        footer.visibility = visibility
+                        if (nativeMode) return false
+                        if (ReadiumMarkedTap.pageEdge(event.point.x,
+                                fragment.publicationView.width, scroll, 28.dp.toFloat())) return false
+                        val x = event.point.x
+                        val y = event.point.y
+                        lifecycleScope.launch {
+                            val liveIds = annotations.filter {
+                                it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+                            }.map { it.id }.toSet()
+                            val matchId = if (liveIds.isEmpty()) null else runCatching {
+                                ReadiumMarkedTap.verifiedId(
+                                    fragment.evaluateJavascript(ReadiumMarkedTap.hitTestScript(x, y)),
+                                    liveIds
+                                )
+                            }.getOrNull()
+                            val mark = annotations.firstOrNull { it.id == matchId && it.deletedAt == null }
+                            if (mark != null && !nativeMode) showSavedTextMark(mark)
+                            else toggleReadingControls()
+                        }
                         return true
                     }
                 })
+                fragment.addInputListener(DirectionalNavigationAdapter(fragment,
+                    minimumHorizontalEdgeSize = 28.dp.toDouble(),
+                    horizontalEdgeThresholdPercent = 0.10))
                 launch {
                     fragment.currentLocator.collect { locator ->
                         if (!nativeMode) {
@@ -206,28 +240,71 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     }
 
     private fun createLayout() {
-        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        controls = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(getColor(R.color.bia_background))
         }
-        val heading = LinearLayout(this)
-        heading.addView(button("Volver") { finish() })
-        heading.addView(TextView(this).apply {
-            text = "LEER"; textSize = 14f; setTextColor(Color.parseColor("#D4B483"))
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, 52.dp, 1f))
+        controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(getColor(R.color.bia_surface))
+        }
+        val heading = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(14.dp, 8.dp, 16.dp, 3.dp)
+        }
+        heading.addView(button("‹") { finish() }.apply {
+            textSize = 27f
+            contentDescription = "Volver a la biblioteca"
+            minimumWidth = 46.dp
+            minWidth = 46.dp
+        }, LinearLayout.LayoutParams(48.dp, 46.dp))
+        val identity = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(13.dp, 0, 0, 0)
+        }
+        identity.addView(TextView(this).apply {
+            text = "BIBLIOTECAAI  /  LECTURA"
+            textSize = 10f
+            letterSpacing = .16f
+            setTextColor(getColor(R.color.bia_accent))
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        readerBookTitle = TextView(this).apply {
+            text = "Tu lectura"
+            textSize = 19f
+            typeface = Typeface.SERIF
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setTextColor(getColor(R.color.bia_text))
+        }
+        identity.addView(readerBookTitle)
+        heading.addView(identity, LinearLayout.LayoutParams(0, -2, 1f))
         controls.addView(heading)
-        val actions = LinearLayout(this)
-        actions.addView(button(getString(R.string.epub_contents)) { showContents() })
-        actions.addView(button(getString(R.string.epub_search)) { search() })
-        actions.addView(button(getString(R.string.epub_settings)) { settings() })
-        actions.addView(button("Notas") { showAnnotations() })
+        val actions = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(12.dp, 3.dp, 12.dp, 10.dp)
+        }
+        fun addAction(label: String, handler: () -> Unit) {
+            actions.addView(button(label, handler), LinearLayout.LayoutParams(-2, 42.dp).apply {
+                marginEnd = 6.dp
+            })
+        }
+        addAction(getString(R.string.epub_contents)) { showContents() }
+        addAction(getString(R.string.epub_search)) { search() }
+        addAction(getString(R.string.epub_settings)) { settings() }
+        addAction("Notas") { showAnnotations() }
         nativeToggle = button(if (nativeMode) "Maquetación" else "Selección precisa") {
             setNativeMode(!nativeMode)
         }
-        actions.addView(nativeToggle)
-        controls.addView(HorizontalScrollView(this).apply { addView(actions); isHorizontalScrollBarEnabled = false })
+        actions.addView(nativeToggle, LinearLayout.LayoutParams(-2, 42.dp))
+        controls.addView(HorizontalScrollView(this).apply {
+            addView(actions)
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        })
+        controls.addView(View(this).apply {
+            setBackgroundColor(getColor(R.color.bia_outline))
+        }, LinearLayout.LayoutParams(-1, 1.dp))
         root.addView(controls)
         val frame = FrameLayout(this)
         webFrame = FrameLayout(this).apply { id = R.id.epub_navigator }
@@ -256,20 +333,38 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
         frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
         root.addView(frame, LinearLayout.LayoutParams(-1, 0, 1f))
-        footer = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        footer = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(getColor(R.color.bia_surface))
+            setPadding(12.dp, 8.dp, 12.dp, 8.dp)
+        }
         footer.addView(button("‹") {
             if (nativeMode) showNativeChapter(nativeIndex - 1) else navigator?.goBackward()
-        }.apply { contentDescription = getString(R.string.epub_previous) })
-        positionLabel = TextView(this).apply { text = "0 %"; gravity = android.view.Gravity.CENTER }
+        }.apply { contentDescription = getString(R.string.epub_previous); textSize = 23f },
+            LinearLayout.LayoutParams(48.dp, 46.dp))
+        positionLabel = TextView(this).apply {
+            text = "0 %"
+            textSize = 16f
+            typeface = Typeface.SERIF
+            gravity = Gravity.CENTER
+            setTextColor(getColor(R.color.bia_text))
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
         footer.addView(positionLabel, LinearLayout.LayoutParams(0, 48.dp, 1f))
         footer.addView(button(getString(R.string.epub_bookmark)) {
             val locator = if (nativeMode) nativeLocator(visibleNativeOffset(), "")
                 else latest?.toJSON()?.toString()
             locator?.let { AnnotationEditor.show(this, bookId, it, "", "BOOKMARK") }
-        })
+        }.apply { contentDescription = "Guardar marcador en esta posición" },
+            LinearLayout.LayoutParams(-2, 46.dp).apply { marginEnd = 6.dp })
         footer.addView(button("›") {
             if (nativeMode) showNativeChapter(nativeIndex + 1) else navigator?.goForward()
-        }.apply { contentDescription = getString(R.string.epub_next) })
+        }.apply { contentDescription = getString(R.string.epub_next); textSize = 23f },
+            LinearLayout.LayoutParams(48.dp, 46.dp))
+        root.addView(View(this).apply {
+            setBackgroundColor(getColor(R.color.bia_outline))
+        }, LinearLayout.LayoutParams(-1, 1.dp))
         root.addView(footer)
         setContentView(root)
         applyTheme()
@@ -515,15 +610,25 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         com.google.android.material.R.attr.borderlessButtonStyle).apply {
         text = label
         isAllCaps = false
-        minWidth = 48.dp
-        minimumWidth = 48.dp
-        minHeight = 48.dp
-        cornerRadius = 14.dp
-        backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_surface_high))
+        textSize = 14f
+        minWidth = 40.dp
+        minimumWidth = 40.dp
+        minHeight = 42.dp
+        insetTop = 0
+        insetBottom = 0
+        setPadding(12.dp, 0, 12.dp, 0)
+        cornerRadius = 12.dp
+        backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_surface_high))
         setTextColor(getColor(R.color.bia_accent))
         strokeWidth = 1.dp
-        strokeColor = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_accent_low))
+        strokeColor = ColorStateList.valueOf(getColor(R.color.bia_outline))
         setOnClickListener { action() }
+    }
+
+    private fun toggleReadingControls() {
+        val visible = controls.visibility != View.VISIBLE
+        controls.visibility = if (visible) View.VISIBLE else View.GONE
+        footer.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
     private fun palette(): Pair<Int, Int> = when (themeIndex) {
@@ -550,8 +655,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeText.setHighlightColor(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
         nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
-        controls.setBackgroundColor(Color.parseColor("#17191C")); footer.setBackgroundColor(Color.parseColor("#17191C"))
-        positionLabel.setTextColor(Color.parseColor("#E8DFCE"))
+        controls.setBackgroundColor(getColor(R.color.bia_surface))
+        footer.setBackgroundColor(getColor(R.color.bia_surface))
+        positionLabel.setTextColor(getColor(R.color.bia_text))
         window.statusBarColor = background; window.navigationBarColor = Color.BLACK
         navigator?.submitPreferences(readerPreferences())
     }
