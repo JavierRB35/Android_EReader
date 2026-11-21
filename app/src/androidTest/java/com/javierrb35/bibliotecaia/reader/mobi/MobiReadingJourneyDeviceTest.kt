@@ -159,8 +159,9 @@ class MobiReadingJourneyDeviceTest {
                 AnnotationEditor.show(readingA, a, locator, quote, "NOTE")
             }
             onView(withHint("Tu reflexión (opcional al guardar un fragmento)"))
+                .inRoot(isDialog())
                 .perform(replaceText("Primera reflexión"), closeSoftKeyboard())
-            onView(withText("Guardar")).perform(click())
+            onView(withText("Guardar")).inRoot(isDialog()).perform(click())
 
             waitUntil("The MOBI NOTE was not stored or drawn on its selected words") {
                 val saved = runBlocking { database.readingDao().allNotes().firstOrNull {
@@ -203,9 +204,9 @@ class MobiReadingJourneyDeviceTest {
                 eventDown.recycle()
                 eventUp.recycle()
             }
-            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
 
             instrumentation.runOnMainSync { scroll.scrollTo(0, 610) }
             waitUntil("MOBI scrolling did not move the reading viewport") { scroll.scrollY > 0 }
@@ -278,9 +279,9 @@ class MobiReadingJourneyDeviceTest {
             assertTrue("Reopened note's quote must be visible in this chunk",
                 visibleQuoteAt >= 0)
             PlatformNoteTap.tapOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
-            onView(withText("Tu anotación")).check(matches(isDisplayed()))
+            onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
             // On Android 16 the previous note modal may still own the focus
             // while the Activity window becomes visible again. Opening the
             // editor immediately can confuse Espresso's root picker even
