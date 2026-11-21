@@ -10,15 +10,19 @@ Recursos en `res/values/design.xml`; tema estable `Theme.BibliotecaIA` en `theme
 
 | Token | Valor | Uso |
 |---|---|---|
-| `bia_background` | #000000 | Fondo OLED, barras del sistema |
-| `bia_surface` | #161819 | Tarjetas y paneles |
-| `bia_surface_high` | #242729 | Portada ausente y superficies elevadas |
-| `bia_text` | #E8DFCE | Texto cálido principal |
-| `bia_text_secondary` | #AAA79E | Autor, estados y ayudas |
-| `bia_accent` | #D4B483 | Acción primaria, formato, selección |
-| `bia_outline` | #414343 | Separadores y pistas de progreso |
+| `bia_background` | #080807 | Fondo de superficies de la aplicación; OLED puro se resuelve en el lector |
+| `bia_surface` | #1B1A18 | Tarjetas y paneles |
+| `bia_surface_high` | #28241F | Portada ausente y superficies elevadas |
+| `bia_text` | #F4E8D7 | Texto cálido principal |
+| `bia_text_secondary` | #B8B0A6 | Autor, estados y ayudas |
+| `bia_accent` | #E9C282 | Acción primaria, formato, selección |
+| `bia_outline` | #49443D | Separadores y pistas de progreso |
 
-Interfaz sans-serif del sistema, título de biblioteca y portada ausente con serif del sistema. Título 32sp; tarjeta 16sp; datos secundarios 12sp. Espaciado base 4/8/12/16/20dp. Tarjetas 16dp de radio, acción primaria 18dp; controles táctiles de al menos 48dp. Sin fuentes descargadas, fondos animados ni conexiones de red para portadas.
+Interfaz sans-serif del sistema, título de biblioteca y portada ausente con serif del sistema. Título de biblioteca 27sp; acceso reciente de 14sp; datos secundarios de 10–12sp. Espaciado base 4/8/12/16/20dp. Tarjetas 16dp de radio, acción primaria 18dp; controles táctiles de al menos 48dp. Sin fuentes descargadas, fondos animados ni conexiones de red para portadas.
+
+## Evolución de noviembre de 2026
+
+La biblioteca principal reutiliza **Material Components / Material 3**, sin añadir otro kit visual ni aumentar dependencias. La reanudación se muestra en una franja de 56 dp mínimos con miniportada de 32 × 44 dp; la rejilla tiene prioridad visual, con tarjetas más contenidas y acceso de un toque a la lectura. El modo predeterminado es rejilla si aún no existe preferencia personal de lista. Véase `docs/ux-premium-compact-20261121.md`. Esta mejora no modifica el contenido ni los gestos de lectura.
 
 ## Biblioteca implementada
 
