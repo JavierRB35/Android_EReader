@@ -49,12 +49,18 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: |
+            set -e
             sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.ui.PremiumVisualProofDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
             mkdir -p ui-proof
-            adb pull /sdcard/Android/data/com.javierrb35.bibliotecaia/files/premium-ui-proof/. ui-proof/
+            adb pull /sdcard/Pictures/BibliotecaAI-premium-proof/. ui-proof/
             test -s ui-proof/biblioteca-premium-v035.png
             test -s ui-proof/conocimiento-premium-v035.png
             test -s ui-proof/ajustes-premium-v035.png
+            # Independent release-like launch for visual comparison.
+            adb shell am start -n com.javierrb35.bibliotecaia/.ui.MainActivity
+            sleep 2
+            adb shell screencap -p /sdcard/Download/biblioteca-android-live.png
+            adb pull /sdcard/Download/biblioteca-android-live.png ui-proof/biblioteca-android-live.png
       - name: Publish rendered screenshots and test reports as reviewable artifacts
         if: always()
         uses: actions/upload-artifact@v4

@@ -2,6 +2,9 @@ package com.javierrb35.bibliotecaia.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ContentValues
+import android.os.Environment
+import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.view.View
 import android.view.ViewGroup
@@ -103,15 +106,25 @@ class PremiumVisualProofDeviceTest {
         instrumentation.waitForIdleSync()
         val image = instrumentation.uiAutomation.takeScreenshot()
         assertNotNull("Android screenshot capture is required for visual QA", image)
-        val directory = requireNotNull(context.getExternalFilesDir("premium-ui-proof")) {
-            "Screenshot artifact directory unavailable"
+        // MediaStore keeps diagnostic screenshots accessible to adb after the
+        // instrumentation runner resets the test app's private storage.
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/BibliotecaAI-premium-proof")
         }
-        directory.mkdirs()
-        val output = File(directory, "$name.png")
-        FileOutputStream(output).use { stream ->
-            assertTrue("PNG screenshot export failed", image.compress(Bitmap.CompressFormat.PNG, 100, stream))
+        val uri = requireNotNull(context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)) {
+            "Cannot allocate external media screenshot"
+        }
+        val stream = requireNotNull(context.contentResolver.openOutputStream(uri)) {
+            "Cannot open screenshot for write"
+        }
+        stream.use {
+            assertTrue("PNG screenshot export failed",
+                image.compress(Bitmap.CompressFormat.PNG, 100, it))
         }
         image.recycle()
-        assertTrue("Screenshot is missing or empty", output.length() > 1000L)
     }
 }
