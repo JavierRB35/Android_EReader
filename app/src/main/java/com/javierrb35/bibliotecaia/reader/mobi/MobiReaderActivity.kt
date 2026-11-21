@@ -25,7 +25,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.reader.annotations.AnnotationHitSpan
-import com.javierrb35.bibliotecaia.reader.annotations.MarkedTextTap
+import com.javierrb35.bibliotecaia.reader.annotations.SavedMarkScrollView
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
 import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import com.javierrb35.bibliotecaia.ai.AiChatActivity
@@ -64,7 +64,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private lateinit var bookId: String
     private lateinit var root: LinearLayout
     private lateinit var content: TextView
-    private lateinit var scroll: ScrollView
+    private lateinit var scroll: SavedMarkScrollView
     private lateinit var status: TextView
     private lateinit var previous: Button
     private lateinit var next: Button
@@ -169,7 +169,8 @@ class MobiReaderActivity : AppCompatActivity() {
                     savedMarksWithin(start, end))
             }
         })
-        MarkedTextTap.attach(content, marksAt = { textOffset ->
+        scroll = SavedMarkScrollView(this).apply { addView(content) }
+        scroll.attach(content, marksAt = { textOffset ->
             // Validated absolute range is the same ground truth paintMarks()
             // uses. Do NOT depend on AnnotationHitSpan surviving TextView's
             // selection/transformation lifecycle (regression since v0.1.40).
@@ -183,7 +184,6 @@ class MobiReaderActivity : AppCompatActivity() {
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
         })
-        scroll = ScrollView(this).apply { addView(content) }
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (loaded) {
                 pendingPosition?.cancel()
