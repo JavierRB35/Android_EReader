@@ -15,6 +15,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingRepository
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationSheet
+import com.javierrb35.bibliotecaia.reader.speech.ReaderSpeech
 import kotlinx.coroutines.flow.collect
 import com.javierrb35.bibliotecaia.ui.AnnotationEditor
 import kotlinx.coroutines.CancellationException
@@ -39,6 +40,17 @@ class PdfReaderActivity : AppCompatActivity() {
     private lateinit var pageButton: Button
     private lateinit var note: Button
     private lateinit var ocr: Button
+    private lateinit var listen: Button
+    private val speech = ReaderSpeech()
+    private val speechListener = object : ReaderSpeech.Listener {
+        override fun onSpeaking(active: Boolean) {
+            if (::listen.isInitialized) listen.text = if (active) "Detener" else "Escuchar"
+        }
+        override fun onError(message: String) {
+            Toast.makeText(this@PdfReaderActivity, message, Toast.LENGTH_LONG).show()
+        }
+        override fun onFinished() { speech.stop() }
+    }
     private var service: Messenger? = null
     private var bound = false
     private var page = 0
@@ -112,7 +124,16 @@ class PdfReaderActivity : AppCompatActivity() {
                 }
             )
         }.apply { contentDescription = "Reconocer texto local de la página y seleccionar para estudio" }
-        root.addView(nav); root.addView(note); root.addView(ocr)
+        listen = button("Escuchar") { toggleSpeech() }.apply {
+            contentDescription = "Escuchar la transcripción local OCR de esta página"
+        }
+        val studyActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        note.text = "Nota"
+        ocr.text = "Texto OCR"
+        studyActions.addView(note, LinearLayout.LayoutParams(0, dp(54), 1f))
+        studyActions.addView(ocr, LinearLayout.LayoutParams(0, dp(54), 1.5f))
+        studyActions.addView(listen, LinearLayout.LayoutParams(0, dp(54), 1.3f))
+        root.addView(nav); root.addView(studyActions)
         setContentView(root)
         window.statusBarColor = Color.BLACK; window.navigationBarColor = Color.BLACK
         controls(false)
@@ -203,6 +224,7 @@ class PdfReaderActivity : AppCompatActivity() {
     }
     private fun render(index: Int) {
         if (index !in 0 until count) return
+        speech.stop()
         generation++
         image.showMarks(emptyList())
         ocrSnapshot = null
@@ -214,6 +236,18 @@ class PdfReaderActivity : AppCompatActivity() {
                 data = Bundle().apply { putInt("page", index); putInt("width", (resources.displayMetrics.widthPixels * 1.5f).toInt()) }
             }) ?: failure("El lector no está disponible. Vuelve a abrir el libro.")
         } catch (_: RemoteException) { failure("Se perdió la conexión con el lector PDF.") }
+    }
+
+    private fun toggleSpeech() {
+        if (speech.active()) { speech.stop(); return }
+        val transcript = ocrSnapshot?.text?.takeIf { it.isNotBlank() }
+        if (transcript == null) {
+            Toast.makeText(this,
+                "Selecciona «Texto OCR» para reconocer primero el texto de esta página.",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        speech.toggle(this, "Página " + (page + 1) + ". " + transcript, speechListener)
     }
 
     /** Reconstruct from Room; deleted annotations are excluded by the DAO. */
@@ -247,7 +281,12 @@ class PdfReaderActivity : AppCompatActivity() {
             }.setNegativeButton("Cancelar", null).show()
     }
     override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); super.onSaveInstanceState(outState) }
+    override fun onStop() {
+        speech.stop()
+        super.onStop()
+    }
     override fun onDestroy() {
+        speech.shutdown()
         generation++
         if (bound) { unbindService(connection); bound = false }
         service = null; image.clear(); super.onDestroy()
