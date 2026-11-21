@@ -18,7 +18,7 @@ Recursos en `res/values/design.xml`; tema estable `Theme.BibliotecaIA` en `theme
 | `bia_accent` | #E9C282 | Acción primaria, formato, selección |
 | `bia_outline` | #49443D | Separadores y pistas de progreso |
 
-Interfaz sans-serif del sistema, título de biblioteca y portada ausente con serif del sistema. Título de biblioteca 27sp; acceso reciente de 14sp; datos secundarios de 10–12sp. Espaciado base 4/8/12/16/20dp. Tarjetas 16dp de radio, acción primaria 18dp; controles táctiles de al menos 48dp. Sin fuentes descargadas, fondos animados ni conexiones de red para portadas.
+Interfaz sans-serif del sistema, título de biblioteca y portada ausente con serif del sistema. Título de biblioteca 24sp; acceso reciente de 14sp; datos secundarios de 10–12sp. Espaciado base 4/8/12/16/20dp. Tarjetas 16dp de radio, acción primaria 18dp; controles táctiles de al menos 48dp. Sin fuentes descargadas, fondos animados ni conexiones de red para portadas.
 
 ## Evolución de noviembre de 2026
 
