@@ -45,18 +45,18 @@ class SavedAnnotationModalDeviceTest {
         try {
             lateinit var target: TextView
             scenario.onActivity { activity ->
-                val text = SpannableString(rendered)
-                text.setSpan(UnderlineSpan(), from, from + quote.length,
+                val painted = SpannableString(rendered)
+                painted.setSpan(UnderlineSpan(), from, from + quote.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                text.setSpan(AnnotationHitSpan(note.id), from, from + quote.length,
+                painted.setSpan(AnnotationHitSpan(note.id), from, from + quote.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                text.setSpan(AnnotationHitSpan(underline.id), from, from + quote.length,
+                painted.setSpan(AnnotationHitSpan(underline.id), from, from + quote.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 target = TextView(activity).apply {
                     textSize = 22f
                     setPadding(24, 24, 24, 24)
                     setTextIsSelectable(true)
-                    setText(text, TextView.BufferType.SPANNABLE)
+                    setText(painted, TextView.BufferType.SPANNABLE)
                     setBackgroundColor(0xff1b1a18.toInt())
                 }
                 MarkedTextTap.attach(target, marksAt = { at ->
