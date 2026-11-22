@@ -48,13 +48,4 @@ internal object ReadiumMarkedTap {
         return decoded?.takeIf { it in existingIds }
     }
 
-    /**
-     * Only deliberate taps in the narrow left/right edge bands turn pages in
-     * paginated mode. In vertical scroll mode no tap causes page navigation.
-     */
-    fun pageEdge(x: Float, width: Int, verticalScroll: Boolean, minEdgePx: Float): Boolean {
-        if (verticalScroll || !x.isFinite() || width <= 0) return false
-        val edge = maxOf(minEdgePx, width * .10f)
-        return x <= edge || x >= width - edge
-    }
 }
