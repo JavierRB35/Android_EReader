@@ -27,4 +27,9 @@
         <item name="android:textColorPrimary">@color/bia_text</item>
         <item name="android:textColorSecondary">@color/bia_text_secondary</item>
     </style>
+    <style name="Theme.BibliotecaIA.Splash" parent="Theme.BibliotecaIA">
+        <item name="android:windowBackground">@color/bia_brand_background</item>
+        <item name="android:statusBarColor">@color/bia_brand_background</item>
+        <item name="android:navigationBarColor">@color/bia_brand_background</item>
+    </style>
 </resources>
