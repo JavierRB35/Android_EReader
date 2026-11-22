@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bia_brand_background">#0D1430</color>
+    <color name="bia_brand_accent">#9968FA</color>
+    <color name="bia_brand_white">#F7F8FE</color>
+    <color name="bia_brand_muted">#B9BFD6</color>
+    <string name="splash_brand_main">Biblioteca</string>
+    <string name="splash_brand_ai">AI</string>
+    <string name="splash_subtitle">E-reader con asistente IA</string>
+    <string name="splash_author_initials">CJRB</string>
+    <string name="splash_author_name">Carlos Javier Ruiz Bermúdez</string>
+    <string name="splash_backup_checking">Comprobando copia de seguridad…</string>
+    <string name="splash_backup_no_destination">Copia sin configurar · Ajustes</string>
+    <string name="splash_brand_icon_description">BibliotecaAI: lector digital con asistente IA</string>
+</resources>
