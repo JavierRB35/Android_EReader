@@ -50,5 +50,7 @@ internal class HorizontalSwipeGesture(
         return result
     }
 
+    fun isVerticalLocked(): Boolean = axis == 2
+
     fun cancel() { axis = 3 }
 }
