@@ -2,9 +2,16 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-21 (corrección de toque de anotación en rama de trabajo; portadas premium ya integradas)
+**Última actualización:** 2026-11-22 (navegación vertical por flechas inferiores, pendiente de validación CI y publicación)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## NAVEGACIÓN VERTICAL — CONTROLES DE CAPÍTULO — 22/11/2026
+
+- Rama `fix/vertical-reader-chapter-buttons-20261122`: en EPUB con desplazamiento vertical, flechas inferiores cambian capítulos del orden de lectura en selección nativa y maquetación Readium. Las pulsaciones laterales nunca cambian capítulos; el modo paginado mantiene la navegación tradicional de páginas.
+- Concentración: el menú, progreso y marcador se ocultan sin quitar las flechas inferiores. Se puede entrar desde el menú o tocar texto sin marcar y salir tocando texto sin marcar. Tocar una marca con nota sigue abriendo su modal, sin cambiar el estado del menú.
+- MOBI conserva navegación por bloques (sin capítulos EPUB estructurados) y PDF conserva paginación; se amplía de forma opcional el ScrollView de marcas para el lector nativo EPUB sin alterar MOBI.
+- Verificación prevista: CI JVM/compilación, instrumentación de arranque y comprobación de scroll lateral en Samsung. Estado: **rama de trabajo hasta comprobar CI**.
 
 ## CORRECCIÓN DEL ARGUMENTO — posición, generación IA y borrado — 21/11/2026
 

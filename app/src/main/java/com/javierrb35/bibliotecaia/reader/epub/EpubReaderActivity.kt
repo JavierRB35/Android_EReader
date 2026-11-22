@@ -95,6 +95,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var readerBookTitle: TextView
     private lateinit var footer: LinearLayout
     private lateinit var positionLabel: TextView
+    private lateinit var bookmarkButton: MaterialButton
+    private lateinit var previousChapterButton: MaterialButton
+    private lateinit var nextChapterButton: MaterialButton
+    private var concentration = false
     private lateinit var loading: TextView
     private lateinit var webFrame: FrameLayout
     private lateinit var nativeScroll: SavedMarkScrollView
@@ -252,9 +256,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         return true
                     }
                 })
-                fragment.addInputListener(DirectionalNavigationAdapter(fragment,
-                    minimumHorizontalEdgeSize = 28.dp.toDouble(),
-                    horizontalEdgeThresholdPercent = 0.10))
+                // Dedicated paginated handler above owns all edge taps. Disable
+                // adapter edge navigation (including after changing scroll mode).
+                // Readium retains keyboard navigation.
+                fragment.addInputListener(DirectionalNavigationAdapter(
+                    fragment, tapEdges = emptySet()
+                ))
                 launch {
                     fragment.currentLocator.collect { locator ->
                         // Keep the WebView resource locator even while its
@@ -264,6 +271,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         // manually navigates to another chapter.
                         latest = locator
                         if (!nativeMode) {
+                            updateChapterArrows()
                             refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             pendingSave?.cancel()
@@ -349,6 +357,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         addAction(getString(R.string.epub_contents)) { showContents() }
         addAction(getString(R.string.epub_search)) { search() }
         addAction(getString(R.string.epub_settings)) { settings() }
+        addAction("Concentración") { toggleReadingControls() }
         addAction("Notas") { showAnnotations() }
         speechButton = button("Escuchar") { toggleSpeech() }
         actions.addView(speechButton, LinearLayout.LayoutParams(-2, 42.dp).apply {
@@ -399,10 +408,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setBackgroundColor(getColor(R.color.bia_surface))
             setPadding(12.dp, 8.dp, 12.dp, 8.dp)
         }
-        footer.addView(button("‹") {
-            if (nativeMode) showNativeChapter(nativeIndex - 1) else navigator?.goBackward()
-        }.apply { contentDescription = getString(R.string.epub_previous); textSize = 23f },
-            LinearLayout.LayoutParams(48.dp, 46.dp))
+        previousChapterButton = button("‹") { navigateWithFooter(-1) }.apply {
+            contentDescription = "Capítulo anterior"
+            textSize = 23f
+            minimumHeight = 48.dp
+        }
+        footer.addView(previousChapterButton, LinearLayout.LayoutParams(48.dp, 48.dp))
         positionLabel = TextView(this).apply {
             text = "0 %"
             textSize = 16f
@@ -413,22 +424,26 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             ellipsize = TextUtils.TruncateAt.END
         }
         footer.addView(positionLabel, LinearLayout.LayoutParams(0, 48.dp, 1f))
-        footer.addView(button(getString(R.string.epub_bookmark)) {
+        bookmarkButton = button(getString(R.string.epub_bookmark)) {
             val locator = if (nativeMode) nativeLocator(visibleNativeOffset(), "")
                 else latest?.toJSON()?.toString()
             locator?.let { AnnotationEditor.show(this, bookId, it, "", "BOOKMARK") }
-        }.apply { contentDescription = "Guardar marcador en esta posición" },
-            LinearLayout.LayoutParams(-2, 46.dp).apply { marginEnd = 6.dp })
-        footer.addView(button("›") {
-            if (nativeMode) showNativeChapter(nativeIndex + 1) else navigator?.goForward()
-        }.apply { contentDescription = getString(R.string.epub_next); textSize = 23f },
-            LinearLayout.LayoutParams(48.dp, 46.dp))
+        }.apply { contentDescription = "Guardar marcador en esta posición" }
+        footer.addView(bookmarkButton,
+            LinearLayout.LayoutParams(-2, 48.dp).apply { marginEnd = 6.dp })
+        nextChapterButton = button("›") { navigateWithFooter(1) }.apply {
+            contentDescription = "Capítulo siguiente"
+            textSize = 23f
+            minimumHeight = 48.dp
+        }
+        footer.addView(nextChapterButton, LinearLayout.LayoutParams(48.dp, 48.dp))
         root.addView(View(this).apply {
             setBackgroundColor(getColor(R.color.bia_outline))
         }, LinearLayout.LayoutParams(-1, 1.dp))
         root.addView(footer)
         setContentView(root)
         applyTheme()
+        updateChapterArrows()
     }
 
 
@@ -497,6 +512,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             }
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
+        }, onUnmarkedTap = {
+            // A marked passage always opens its note before this is considered.
+            if (nativeMode) toggleReadingControls()
         })
         nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (nativeMode && nativeChapter != null) {
@@ -608,6 +626,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
         nativeScroll.visibility = if (nativeMode) View.VISIBLE else View.GONE
         nativeToggle.text = if (nativeMode) "Maquetación" else "Selección precisa"
+        updateChapterArrows()
     }
 
     private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null) {
@@ -624,6 +643,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 if (!isActive || generation != nativeGeneration || !nativeMode) return@launch
                 nativeIndex = index
                 nativeChapter = chapter
+                updateChapterArrows()
                 paintNativeMarks()
                 val searchOffset = findQuote?.let {
                     chapter.text.indexOf(it, ignoreCase = true)
@@ -780,10 +800,69 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         setOnClickListener { action() }
     }
 
+    /**
+     * Focus mode hides menus, progress and bookmark without ever removing
+     * the deliberate chapter arrows from the bottom corners.
+     */
     private fun toggleReadingControls() {
-        val visible = controls.visibility != View.VISIBLE
-        controls.visibility = if (visible) View.VISIBLE else View.GONE
-        footer.visibility = if (visible) View.VISIBLE else View.GONE
+        concentration = !concentration
+        controls.visibility = if (concentration) View.GONE else View.VISIBLE
+        // INVISIBLE keeps the weighted middle spacer and arrows at both edges.
+        positionLabel.visibility = if (concentration) View.INVISIBLE else View.VISIBLE
+        bookmarkButton.visibility = if (concentration) View.GONE else View.VISIBLE
+        applyFooterAppearance()
+    }
+
+    private fun applyFooterAppearance() {
+        if (!::footer.isInitialized) return
+        val (background, foreground) = palette()
+        footer.setBackgroundColor(if (concentration) background else getColor(R.color.bia_surface))
+        for (arrow in listOf(previousChapterButton, nextChapterButton)) {
+            arrow.backgroundTintList = ColorStateList.valueOf(
+                if (concentration) background else getColor(R.color.bia_surface_high)
+            )
+            arrow.setTextColor(if (concentration) foreground else getColor(R.color.bia_accent))
+            arrow.strokeWidth = if (concentration) 0 else 1.dp
+        }
+    }
+
+    /** Vertical: chapter-by-chapter. Paginated Readium: keep page-by-page. */
+    private fun navigateWithFooter(direction: Int) {
+        if (nativeMode) {
+            showNativeChapter(nativeIndex + direction)
+        } else if (scroll) {
+            val pub = publication ?: return
+            val urls = pub.readingOrder.map { it.url().toString() }
+            val target = EpubChapterNavigation.adjacentIndex(
+                urls, latest?.href?.toString(), direction
+            ) ?: return
+            navigator?.go(pub.readingOrder[target])
+        } else if (direction < 0) {
+            navigator?.goBackward()
+        } else {
+            navigator?.goForward()
+        }
+    }
+
+    private fun updateChapterArrows() {
+        if (!::previousChapterButton.isInitialized) return
+        val pub = publication
+        val index = when {
+            pub == null -> null
+            nativeMode -> nativeIndex.takeIf { nativeChapter != null }
+            scroll -> EpubChapterNavigation.chapterIndex(
+                pub.readingOrder.map { it.url().toString() },
+                latest?.href?.toString()
+            )
+            else -> null
+        }
+        val paginated = pub != null && !nativeMode && !scroll
+        previousChapterButton.isEnabled = paginated || (index != null && index > 0)
+        nextChapterButton.isEnabled = paginated ||
+            (index != null && index < (pub?.readingOrder?.lastIndex ?: 0))
+        val type = if (nativeMode || scroll) "Capítulo" else "Página"
+        previousChapterButton.contentDescription = "$type anterior"
+        nextChapterButton.contentDescription = "$type siguiente"
     }
 
     private fun palette(): Pair<Int, Int> = when (themeIndex) {
@@ -814,6 +893,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         footer.setBackgroundColor(getColor(R.color.bia_surface))
         positionLabel.setTextColor(getColor(R.color.bia_text))
         window.statusBarColor = background; window.navigationBarColor = Color.BLACK
+        applyFooterAppearance()
         navigator?.submitPreferences(readerPreferences())
     }
 
@@ -841,6 +921,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         preferences.edit().putInt("theme", themeIndex).putFloat("font", fontScale)
             .putBoolean("scroll", scroll).putBoolean("serif", serif).apply()
         applyTheme()
+        updateChapterArrows()
     }
 
     private fun showContents() {
