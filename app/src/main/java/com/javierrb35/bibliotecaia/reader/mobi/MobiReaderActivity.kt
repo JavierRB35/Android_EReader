@@ -69,6 +69,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private lateinit var toolbar: LinearLayout
     private lateinit var noteRow: LinearLayout
     private var concentration = false
+    private var selectionActive = false
     private var text = ""
     private var offset = 0
     private var endOffset = 0
@@ -158,9 +159,10 @@ class MobiReaderActivity : AppCompatActivity() {
             } else AiChatActivity.start(this, bookId, quote, locator(offset + start))
         }, object : DefinitionUi.SelectionLifecycle {
             override fun onSelectionChanged(start: Int, end: Int) {
-                if (start >= 0 && end > start) selectedAbsoluteOffset = offset + start
+                selectionActive = start >= 0 && end > start
+                if (selectionActive) selectedAbsoluteOffset = offset + start
             }
-            override fun onSelectionFinished() = Unit
+            override fun onSelectionFinished() { selectionActive = false }
         }, object : DefinitionUi.SavedMarkHandler {
             override fun hasSavedMark(start: Int, end: Int) =
                 savedMarksWithin(start, end).isNotEmpty()
@@ -193,7 +195,7 @@ class MobiReaderActivity : AppCompatActivity() {
                 if (direction < 0 && offset > 0) showChunk((offset - CHUNK).coerceAtLeast(0))
                 if (direction > 0 && endOffset < text.length) showChunk(endOffset)
             }
-        })
+        }, maySwipe = { !selectionActive })
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (loaded) {
                 pendingPosition?.cancel()
