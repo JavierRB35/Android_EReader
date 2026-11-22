@@ -36,6 +36,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     private var onUnmarkedTap: (() -> Unit)? = null
     private var onMarkedLongPress: ((List<AnnotationEntity>) -> Unit)? = null
     private var onHorizontalSwipe: ((Int) -> Unit)? = null
+    private var maySwipe: (() -> Boolean)? = null
     private val swipe = HorizontalSwipeGesture(
         touchSlop.toFloat(), maxOf(72f * resources.displayMetrics.density,
             resources.displayMetrics.widthPixels * .17f))
@@ -54,7 +55,8 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         onMarks: (List<AnnotationEntity>) -> Unit,
         onUnmarkedTap: (() -> Unit)? = null,
         onMarkedLongPress: ((List<AnnotationEntity>) -> Unit)? = null,
-        onHorizontalSwipe: ((Int) -> Unit)? = null
+        onHorizontalSwipe: ((Int) -> Unit)? = null,
+        maySwipe: (() -> Boolean)? = null
     ) {
         textView = text
         this.marksAt = marksAt
@@ -62,6 +64,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         this.onUnmarkedTap = onUnmarkedTap
         this.onMarkedLongPress = onMarkedLongPress
         this.onHorizontalSwipe = onHorizontalSwipe
+        this.maySwipe = maySwipe
     }
 
     private fun at(x: Float, y: Float): List<AnnotationEntity> {
@@ -155,7 +158,8 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
             }
             MotionEvent.ACTION_MOVE -> {
                 if (horizontalCaptured) return true
-                if (onHorizontalSwipe != null &&
+                if (maySwipe?.invoke() == false) swipe.cancel()
+                if (onHorizontalSwipe != null && maySwipe?.invoke() != false &&
                     swipe.move(event.x, event.y, event.pointerCount)) {
                     // Child TextView/selection receives cancellation, not an
                     // ACTION_UP that could trigger a contextual action.
