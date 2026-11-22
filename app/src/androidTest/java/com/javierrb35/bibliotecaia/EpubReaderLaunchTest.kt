@@ -114,7 +114,7 @@ class EpubReaderLaunchTest {
                 }
                 val decor = activity.window.decorView
                 val focus = find(decor) {
-                    it is android.widget.TextView && it.text == "Concentración"
+                    it is android.widget.TextView && it.text.toString() == "Concentración"
                 }
                 assertNotNull("Reader needs an explicit focus-mode action", focus)
                 focus!!.performClick()
