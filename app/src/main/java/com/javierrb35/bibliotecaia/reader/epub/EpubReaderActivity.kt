@@ -97,6 +97,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var positionLabel: TextView
     private lateinit var bookmarkButton: MaterialButton
     private var concentration = false
+    private var readiumSelectionActive = false
+    private var nativeSelectionActive = false
     private lateinit var loading: TextView
     private lateinit var webFrame: FrameLayout
     private lateinit var nativeScroll: SavedMarkScrollView
@@ -416,9 +418,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             }
         }, object : DefinitionUi.SelectionLifecycle {
             override fun onSelectionChanged(start: Int, end: Int) {
-                if (start >= 0 && end > start) lastNativeSelectionStart = start
+                nativeSelectionActive = start >= 0 && end > start
+                if (nativeSelectionActive) lastNativeSelectionStart = start
             }
-            override fun onSelectionFinished() = Unit
+            override fun onSelectionFinished() { nativeSelectionActive = false }
         }, object : DefinitionUi.SavedMarkHandler {
             override fun hasSavedMark(start: Int, end: Int) =
                 nativeSavedMarksWithin(start, end).isNotEmpty()
@@ -452,7 +455,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             SavedAnnotationSheet.show(this, repository, marked)
         }, onHorizontalSwipe = { direction ->
             if (nativeMode && nativeChapter != null) showNativeChapter(nativeIndex + direction)
-        })
+        }, maySwipe = { !nativeSelectionActive })
         nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (nativeMode && nativeChapter != null) {
                 updateNativeProgress()
@@ -772,7 +775,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         private var captured = false
         private var firstDownX = 0f
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-            if (nativeMode) return super.dispatchTouchEvent(event)
+            if (nativeMode || readiumSelectionActive) {
+                horizontal.cancel()
+                return super.dispatchTouchEvent(event)
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     horizontal.down(event.x, event.y)
@@ -1068,6 +1074,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     /** Readium WebView selection: native Copy/Share/Select All plus study actions. */
     private val selectionCallback = object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+            readiumSelectionActive = true
             DefinitionUi.populateSelectionMenu(menu)
             addSavedTextAction(menu)
             return true
@@ -1209,7 +1216,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             return true
         }
 
-        override fun onDestroyActionMode(mode: ActionMode?) {}
+        override fun onDestroyActionMode(mode: ActionMode?) {
+            readiumSelectionActive = false
+        }
     }
 
     override fun onExternalLinkActivated(url: AbsoluteUrl) { toast("Los enlaces externos están desactivados durante la lectura.") }
