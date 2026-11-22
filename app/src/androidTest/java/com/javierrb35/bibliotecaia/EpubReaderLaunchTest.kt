@@ -99,6 +99,36 @@ class EpubReaderLaunchTest {
                 assertTrue("Default selected-text highlight must not be bright cyan",
                     selectionView.highlightColor == 0x66D4B483)
             }
+            // Real Activity regression: focus may hide the header, but it must
+            // never hide the two chapter controls. Accessibility descriptions
+            // identify the only manual navigation buttons in vertical mode.
+            instrumentation.runOnMainSync {
+                fun find(view: android.view.View, matches: (android.view.View) -> Boolean): android.view.View? {
+                    if (matches(view)) return view
+                    if (view is android.view.ViewGroup) {
+                        for (i in 0 until view.childCount) {
+                            find(view.getChildAt(i), matches)?.let { return it }
+                        }
+                    }
+                    return null
+                }
+                val decor = activity.window.decorView
+                val focus = find(decor) {
+                    it is android.widget.TextView && it.text == "Concentración"
+                }
+                assertNotNull("Reader needs an explicit focus-mode action", focus)
+                focus!!.performClick()
+                val previous = find(decor) { it.contentDescription == "Capítulo anterior" }
+                val next = find(decor) { it.contentDescription == "Capítulo siguiente" }
+                assertTrue("Previous chapter arrow must remain visible in focus mode",
+                    previous?.isShown == true)
+                assertTrue("Next chapter arrow must remain visible in focus mode",
+                    next?.isShown == true)
+                val headerField = EpubReaderActivity::class.java.getDeclaredField("controls")
+                headerField.isAccessible = true
+                assertTrue("Focus mode must hide the header",
+                    (headerField.get(activity) as android.view.View).visibility == android.view.View.GONE)
+            }
             assertTrue("EPUB reader closed during opening", !activity.isFinishing && !activity.isDestroyed)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
