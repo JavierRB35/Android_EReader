@@ -31,6 +31,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     private var textView: TextView? = null
     private var marksAt: ((Int) -> List<AnnotationEntity>)? = null
     private var onMarkTap: ((List<AnnotationEntity>) -> Unit)? = null
+    private var onUnmarkedTap: (() -> Unit)? = null
     private var startX = 0f
     private var startY = 0f
     private var startScrollY = 0
@@ -40,11 +41,13 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     fun attach(
         text: TextView,
         marksAt: (Int) -> List<AnnotationEntity>,
-        onMarks: (List<AnnotationEntity>) -> Unit
+        onMarks: (List<AnnotationEntity>) -> Unit,
+        onUnmarkedTap: (() -> Unit)? = null
     ) {
         textView = text
         this.marksAt = marksAt
         onMarkTap = onMarks
+        this.onUnmarkedTap = onUnmarkedTap
     }
 
     private fun at(x: Float, y: Float): List<AnnotationEntity> {
@@ -125,9 +128,15 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
             abs(event.y - startY) <= touchSlop &&
             abs(scrollY - startScrollY) <= touchSlop / 2
         possibleTap = false
-        if (!eligible || downMarks.isEmpty()) {
+        if (!eligible) {
             downMarks = emptyList()
             return handled
+        }
+        if (downMarks.isEmpty()) {
+            // Only opted-in readers respond to an unmarked short tap. Drags,
+            // text-selection long presses and saved notes are left untouched.
+            onUnmarkedTap?.invoke()
+            return handled || onUnmarkedTap != null
         }
         val upIds = at(event.x, event.y).map { it.id }.toSet()
         val matched = if (upIds.isEmpty()) downMarks
