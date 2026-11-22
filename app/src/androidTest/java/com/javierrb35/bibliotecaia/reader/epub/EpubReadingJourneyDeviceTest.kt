@@ -167,35 +167,10 @@ class EpubReadingJourneyDeviceTest {
                 assertTrue(marked(view.text, quote))
                 assertTrue(MarkedTextTap.idsAt(view.text, start + 2).isEmpty())
             }
-            // Real tap on the underlined native EPUB text must open its
-            // saved-note modal without entering the selection editor.
-            instrumentation.runOnMainSync {
-                val view = reading.findViewById<TextView>(R.id.epub_native_text)
-                val layout = requireNotNull(view.layout)
-                val at = start + 2
-                val line = layout.getLineForOffset(at)
-                val x = view.totalPaddingLeft + layout.getPrimaryHorizontal(at)
-                val y = view.totalPaddingTop +
-                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
-                // Inject through the actual scrolling parent, not directly
-                // into TextView: that bypassed interception on older tests.
-                val parent = view.parent as ScrollView
-                val touchX = x + view.left - parent.scrollX
-                val touchY = y + view.top - parent.scrollY
-                val downAt = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(downAt, downAt,
-                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
-                val up = MotionEvent.obtain(downAt, downAt + 75,
-                    MotionEvent.ACTION_UP, touchX, touchY, 0)
-                try {
-                    parent.dispatchTouchEvent(down)
-                    parent.dispatchTouchEvent(up)
-                } finally {
-                    down.recycle()
-                    up.recycle()
-                }
-            }
-            instrumentation.waitForIdleSync()
+            // New contract: short tap toggles concentration; only a real
+            // platform long press on the stored marked range opens its modal.
+            PlatformNoteTap.holdOnText(instrumentation,
+                reading.findViewById(R.id.epub_native_text), start + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
@@ -238,7 +213,7 @@ class EpubReadingJourneyDeviceTest {
             // Platform-level tap, AFTER closing/reopening the book and switching
             // rendering modes. This goes through the Activity window, not a
             // synthetic dispatchTouchEvent() on the view or its ScrollView.
-            PlatformNoteTap.tapOnText(instrumentation,
+            PlatformNoteTap.holdOnText(instrumentation,
                 reopened.findViewById(R.id.epub_native_text), start + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
