@@ -99,9 +99,8 @@ class EpubReaderLaunchTest {
                 assertTrue("Default selected-text highlight must not be bright cyan",
                     selectionView.highlightColor == 0x66D4B483)
             }
-            // Real Activity regression: focus may hide the header, but it must
-            // never hide the two chapter controls. Accessibility descriptions
-            // identify the only manual navigation buttons in vertical mode.
+            // Focus must hide all controls; page turns require a deliberate
+            // horizontal swipe rather than any on-screen chapter arrow.
             instrumentation.runOnMainSync {
                 fun find(view: android.view.View, matches: (android.view.View) -> Boolean): android.view.View? {
                     if (matches(view)) return view
@@ -120,14 +119,16 @@ class EpubReaderLaunchTest {
                 focus!!.performClick()
                 val previous = find(decor) { it.contentDescription == "Capítulo anterior" }
                 val next = find(decor) { it.contentDescription == "Capítulo siguiente" }
-                assertTrue("Previous chapter arrow must remain visible in focus mode",
-                    previous?.isShown == true)
-                assertTrue("Next chapter arrow must remain visible in focus mode",
-                    next?.isShown == true)
+                assertTrue("Previous chapter arrow must not exist", previous == null)
+                assertTrue("Next chapter arrow must not exist", next == null)
                 val headerField = EpubReaderActivity::class.java.getDeclaredField("controls")
                 headerField.isAccessible = true
                 assertTrue("Focus mode must hide the header",
                     (headerField.get(activity) as android.view.View).visibility == android.view.View.GONE)
+                val footerField = EpubReaderActivity::class.java.getDeclaredField("footer")
+                footerField.isAccessible = true
+                assertTrue("Focus mode must hide all footer controls",
+                    (footerField.get(activity) as android.view.View).visibility == android.view.View.GONE)
             }
             assertTrue("EPUB reader closed during opening", !activity.isFinishing && !activity.isDestroyed)
         } finally {

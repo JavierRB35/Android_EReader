@@ -226,11 +226,13 @@ class PdfOcrStudy(
             }
         )
 
-        // Scriptura parity in the OCR transcript: tapping a painted quote
-        // opens all notes anchored there; long press remains selectable text.
+        // The OCR transcript follows the same gesture contract: only
+        // holding a painted note opens its modal; short taps never do.
         scroll.attach(selection, marksAt = { at ->
             visibleRanges.filter { (_, range) -> at in range }.map { it.first }
         }, onMarks = { selected ->
+            SavedAnnotationSheet.show(activity, repository, selected)
+        }, onMarkedLongPress = { selected ->
             SavedAnnotationSheet.show(activity, repository, selected)
         })
 

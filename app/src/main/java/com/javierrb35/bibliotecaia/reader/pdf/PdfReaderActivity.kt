@@ -6,7 +6,6 @@ import android.content.*
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.os.*
-import android.text.InputType
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -35,9 +34,9 @@ class PdfReaderActivity : AppCompatActivity() {
     private lateinit var bookId: String
     private lateinit var image: PdfPageView
     private lateinit var status: TextView
-    private lateinit var previous: Button
-    private lateinit var next: Button
-    private lateinit var pageButton: Button
+    private lateinit var toolbar: LinearLayout
+    private lateinit var studyActions: LinearLayout
+    private var concentration = false
     private lateinit var note: Button
     private lateinit var ocr: Button
     private lateinit var listen: Button
@@ -82,7 +81,7 @@ class PdfReaderActivity : AppCompatActivity() {
         bookId = intent.getStringExtra("book_id") ?: run { finish(); return }
         pendingRestore = savedInstanceState?.getInt("page", -1) ?: -1
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
-        val toolbar = LinearLayout(this)
+        toolbar = LinearLayout(this)
         toolbar.addView(button("Volver") { finish() })
         toolbar.addView(button("−") { image.changeZoom(0.8f) }.apply { contentDescription = "Reducir página" })
         toolbar.addView(button("+") { image.changeZoom(1.25f) }.apply { contentDescription = "Ampliar página" })
@@ -93,47 +92,30 @@ class PdfReaderActivity : AppCompatActivity() {
         }
         root.addView(status)
         image = PdfPageView(this)
-        image.onMarkedTap { ids ->
+        image.onMarkedLongPress { ids ->
             val selected = ids.mapNotNull { id -> marks.firstOrNull { it.id == id } }
-            SavedAnnotationSheet.show(this, repository, selected)
+            if (selected.isNotEmpty()) SavedAnnotationSheet.show(this, repository, selected)
+        }
+        image.onShortTap { toggleConcentration() }
+        image.onUnmarkedLongPress { openOcrSelection() }
+        image.onHorizontalSwipe { direction ->
+            if (renderedPage == page) render(page + direction)
         }
         root.addView(image, LinearLayout.LayoutParams(-1, 0, 1f))
-        val nav = LinearLayout(this)
-        previous = button("Anterior") { render(page - 1) }
-        next = button("Siguiente") { render(page + 1) }
-        pageButton = button("Página") { goToPage() }
         note = button("Nota") {
             if (renderedPage == page) AnnotationEditor.show(this, bookId, locator(page), "", "NOTE")
         }
-        nav.addView(previous, LinearLayout.LayoutParams(0, dp(56), 1f))
-        nav.addView(pageButton, LinearLayout.LayoutParams(0, dp(56), 1f))
-        nav.addView(next, LinearLayout.LayoutParams(0, dp(56), 1f))
-        ocr = button("Texto OCR · Seleccionar") {
-            if (renderedPage != page) return@button
-            val bitmap = image.currentBitmap() ?: return@button
-            controls(false)
-            val selectedPage = page
-            PdfOcrStudy(this, bookId, repository).open(selectedPage, bitmap, contentHash,
-                status = { message -> if (selectedPage == page) status.text = message },
-                done = { if (!isDestroyed && !isFinishing && selectedPage == page) controls(true) },
-                onSnapshot = { snapshot ->
-                    if (selectedPage == page && renderedPage == page) {
-                        ocrSnapshot = snapshot
-                        refreshHighlights()
-                    }
-                }
-            )
-        }.apply { contentDescription = "Reconocer texto local de la página y seleccionar para estudio" }
+        ocr = button("Texto OCR · Seleccionar") { openOcrSelection() }
         listen = button("Escuchar") { toggleSpeech() }.apply {
             contentDescription = "Escuchar la transcripción local OCR de esta página"
         }
-        val studyActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        studyActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         note.text = "Nota"
         ocr.text = "Texto OCR"
         studyActions.addView(note, LinearLayout.LayoutParams(0, dp(54), 1f))
         studyActions.addView(ocr, LinearLayout.LayoutParams(0, dp(54), 1.5f))
         studyActions.addView(listen, LinearLayout.LayoutParams(0, dp(54), 1.3f))
-        root.addView(nav); root.addView(studyActions)
+        root.addView(studyActions)
         setContentView(root)
         window.statusBarColor = Color.BLACK; window.navigationBarColor = Color.BLACK
         controls(false)
@@ -259,8 +241,7 @@ class PdfReaderActivity : AppCompatActivity() {
     }
 
     private fun controls(ready: Boolean) {
-        previous.isEnabled = ready && page > 0; next.isEnabled = ready && page + 1 < count
-        pageButton.isEnabled = ready; note.isEnabled = ready && renderedPage == page
+        note.isEnabled = ready && renderedPage == page
         ocr.isEnabled = ready && renderedPage == page
     }
     private fun failure(message: String) {
@@ -271,15 +252,32 @@ class PdfReaderActivity : AppCompatActivity() {
         val obj = JSONObject(json ?: "{}")
         if (obj.optString("format") == "PDF") obj.optInt("page", 0) else 0
     }.getOrDefault(0)
-    private fun goToPage() {
-        val input = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; hint = "1–$count" }
-        MaterialAlertDialogBuilder(this).setTitle("Ir a página").setView(input)
-            .setPositiveButton("Ir") { _, _ ->
-                val selected = input.text.toString().toIntOrNull()
-                if (selected != null && selected in 1..count) render(selected - 1)
-                else Toast.makeText(this, "Introduce una página entre 1 y $count.", Toast.LENGTH_SHORT).show()
-            }.setNegativeButton("Cancelar", null).show()
+    private fun toggleConcentration() {
+        concentration = !concentration
+        val visibility = if (concentration) android.view.View.GONE else android.view.View.VISIBLE
+        toolbar.visibility = visibility
+        status.visibility = visibility
+        studyActions.visibility = visibility
     }
+
+    /** PDF has no selectable DOM: the contextual long press opens its OCR text selector. */
+    private fun openOcrSelection() {
+        if (renderedPage != page) return
+        val bitmap = image.currentBitmap() ?: return
+        controls(false)
+        val selectedPage = page
+        PdfOcrStudy(this, bookId, repository).open(selectedPage, bitmap, contentHash,
+            status = { message -> if (selectedPage == page) status.text = message },
+            done = { if (!isDestroyed && !isFinishing && selectedPage == page) controls(true) },
+            onSnapshot = { snapshot ->
+                if (selectedPage == page && renderedPage == page) {
+                    ocrSnapshot = snapshot
+                    refreshHighlights()
+                }
+            }
+        )
+    }
+
     override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); super.onSaveInstanceState(outState) }
     override fun onStop() {
         speech.stop()

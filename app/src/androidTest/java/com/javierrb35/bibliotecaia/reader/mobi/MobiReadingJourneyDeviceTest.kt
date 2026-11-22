@@ -182,28 +182,9 @@ class MobiReadingJourneyDeviceTest {
                 assertTrue(exactMark(displayedText.text, quote))
                 assertTrue(MarkedTextTap.idsAt(displayedText.text, quoteOffset + 2).isEmpty())
             }
-            // Use an actual short tap on the highlighted TextView, not a
-            // direct dialog call. Scriptura opens the complete saved note.
-            instrumentation.runOnMainSync {
-                val layout = requireNotNull(displayedText.layout)
-                val at = quoteOffset + 2
-                val line = layout.getLineForOffset(at)
-                val x = displayedText.totalPaddingLeft + layout.getPrimaryHorizontal(at)
-                val y = displayedText.totalPaddingTop +
-                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
-                val touchX = x + displayedText.left - scroll.scrollX
-                val touchY = y + displayedText.top - scroll.scrollY
-                val down = SystemClock.uptimeMillis()
-                val eventDown = MotionEvent.obtain(down, down,
-                    MotionEvent.ACTION_DOWN, touchX, touchY, 0)
-                val eventUp = MotionEvent.obtain(down, down + 70,
-                    MotionEvent.ACTION_UP, touchX, touchY, 0)
-                // Android sends physical touches through ScrollView first.
-                scroll.dispatchTouchEvent(eventDown)
-                scroll.dispatchTouchEvent(eventUp)
-                eventDown.recycle()
-                eventUp.recycle()
-            }
+            // Only a sustained touch on a painted note opens its modal;
+            // short touches are reserved for concentration.
+            PlatformNoteTap.holdOnText(instrumentation, displayedText, quoteOffset + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
@@ -278,7 +259,7 @@ class MobiReadingJourneyDeviceTest {
             val visibleQuoteAt = reopenedText.text.indexOf(quote)
             assertTrue("Reopened note's quote must be visible in this chunk",
                 visibleQuoteAt >= 0)
-            PlatformNoteTap.tapOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
+            PlatformNoteTap.holdOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).inRoot(isDialog()).perform(click())

@@ -15,7 +15,15 @@ import org.junit.Assert.assertTrue
  * bypass part of that pipeline; they cannot establish a physical tap works.
  */
 internal object PlatformNoteTap {
-    fun tapOnText(instrumentation: Instrumentation, view: TextView, offset: Int) {
+    fun tapOnText(instrumentation: Instrumentation, view: TextView, offset: Int) =
+        touchOnText(instrumentation, view, offset, false)
+
+    fun holdOnText(instrumentation: Instrumentation, view: TextView, offset: Int) =
+        touchOnText(instrumentation, view, offset, true)
+
+    private fun touchOnText(
+        instrumentation: Instrumentation, view: TextView, offset: Int, hold: Boolean
+    ) {
         val point = FloatArray(2)
         instrumentation.runOnMainSync {
             val layout = requireNotNull(view.layout) { "Reader text has no layout" }
@@ -46,7 +54,7 @@ internal object PlatformNoteTap {
         } finally {
             down.recycle()
         }
-        SystemClock.sleep(75)
+        SystemClock.sleep(if (hold) android.view.ViewConfiguration.getLongPressTimeout().toLong() + 240L else 75L)
         val up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(),
             MotionEvent.ACTION_UP, point[0], point[1], 0)
         try {

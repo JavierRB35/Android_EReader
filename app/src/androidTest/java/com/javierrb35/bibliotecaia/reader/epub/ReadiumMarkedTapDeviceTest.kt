@@ -18,7 +18,7 @@ class ReadiumMarkedTapDeviceTest {
         assertNull(ReadiumMarkedTap.verifiedId(null, ids))
     }
 
-    @Test fun shortTapUsesReadiumDecorationGeometryNotAmbiguousText() {
+    @Test fun longPressHitTestUsesReadiumDecorationGeometryNotAmbiguousText() {
         val script = ReadiumMarkedTap.hitTestScript(180f, 430f)
         assertTrue(script.contains("getDecorations('annotations')"))
         assertTrue(script.contains("getBoundingClientRect()"))
@@ -28,16 +28,4 @@ class ReadiumMarkedTapDeviceTest {
         assertEquals("null", ReadiumMarkedTap.hitTestScript(Float.NaN, 10f))
     }
 
-    @Test fun verticalScrollingWinsAndPaginatedEdgesAreNarrow() {
-        // Samsung-like 400px screen; previous Readium adapter used 30% / 120px.
-        val width = 400
-        val min = 28f
-        assertFalse(ReadiumMarkedTap.pageEdge(5f, width, true, min))
-        assertFalse(ReadiumMarkedTap.pageEdge(395f, width, true, min))
-        assertFalse(ReadiumMarkedTap.pageEdge(65f, width, false, min))
-        assertFalse(ReadiumMarkedTap.pageEdge(335f, width, false, min))
-        assertTrue(ReadiumMarkedTap.pageEdge(15f, width, false, min))
-        assertTrue(ReadiumMarkedTap.pageEdge(389f, width, false, min))
-        assertFalse(ReadiumMarkedTap.pageEdge(Float.NaN, width, false, min))
-    }
 }

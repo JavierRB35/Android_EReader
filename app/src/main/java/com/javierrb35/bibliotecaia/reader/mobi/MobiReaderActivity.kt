@@ -66,8 +66,10 @@ class MobiReaderActivity : AppCompatActivity() {
     private lateinit var content: TextView
     private lateinit var scroll: SavedMarkScrollView
     private lateinit var status: TextView
-    private lateinit var previous: Button
-    private lateinit var next: Button
+    private lateinit var toolbar: LinearLayout
+    private lateinit var noteRow: LinearLayout
+    private var concentration = false
+    private var selectionActive = false
     private var text = ""
     private var offset = 0
     private var endOffset = 0
@@ -104,7 +106,7 @@ class MobiReaderActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         bookId = intent.getStringExtra("book_id") ?: run { finish(); return }
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val toolbar = LinearLayout(this)
+        toolbar = LinearLayout(this)
         toolbar.addView(button("Volver") { finish() })
         toolbar.addView(button("Buscar") { search() })
         toolbar.addView(button("Aa") { settings() })
@@ -157,9 +159,10 @@ class MobiReaderActivity : AppCompatActivity() {
             } else AiChatActivity.start(this, bookId, quote, locator(offset + start))
         }, object : DefinitionUi.SelectionLifecycle {
             override fun onSelectionChanged(start: Int, end: Int) {
-                if (start >= 0 && end > start) selectedAbsoluteOffset = offset + start
+                selectionActive = start >= 0 && end > start
+                if (selectionActive) selectedAbsoluteOffset = offset + start
             }
-            override fun onSelectionFinished() = Unit
+            override fun onSelectionFinished() { selectionActive = false }
         }, object : DefinitionUi.SavedMarkHandler {
             override fun hasSavedMark(start: Int, end: Int) =
                 savedMarksWithin(start, end).isNotEmpty()
@@ -183,7 +186,16 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
-        })
+        }, onUnmarkedTap = {
+            toggleConcentration()
+        }, onMarkedLongPress = { saved ->
+            SavedAnnotationSheet.show(this, repository, saved)
+        }, onHorizontalSwipe = { direction ->
+            if (loaded) {
+                if (direction < 0 && offset > 0) showChunk((offset - CHUNK).coerceAtLeast(0))
+                if (direction > 0 && endOffset < text.length) showChunk(endOffset)
+            }
+        }, maySwipe = { !selectionActive })
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (loaded) {
                 pendingPosition?.cancel()
@@ -194,18 +206,15 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val navigation = LinearLayout(this)
-        previous = button("Anterior") { showChunk((offset - CHUNK).coerceAtLeast(0)) }
-        next = button("Siguiente") { showChunk(endOffset) }
-        navigation.addView(previous, LinearLayout.LayoutParams(0, dp(56), 1f))
-        navigation.addView(next, LinearLayout.LayoutParams(0, dp(56), 1f))
-        navigation.addView(button("Nota") {
-            if (loaded) AnnotationEditor.show(this, bookId, locator(visibleOffset()), "", "NOTE")
-        })
-        root.addView(navigation)
+        noteRow = LinearLayout(this).apply {
+            addView(button("Nota") {
+                if (loaded) AnnotationEditor.show(this@MobiReaderActivity,
+                    bookId, locator(visibleOffset()), "", "NOTE")
+            })
+        }
+        root.addView(noteRow)
         setContentView(root)
         applySettings()
-        previous.isEnabled = false; next.isEnabled = false
         lifecycleScope.launch {
             try {
                 val book = AppDatabase.get(this@MobiReaderActivity).bookDao().findById(bookId)
@@ -247,6 +256,14 @@ class MobiReaderActivity : AppCompatActivity() {
         }
     }
 
+    private fun toggleConcentration() {
+        concentration = !concentration
+        val visibility = if (concentration) View.GONE else View.VISIBLE
+        toolbar.visibility = visibility
+        status.visibility = visibility
+        noteRow.visibility = visibility
+    }
+
     private fun toggleSpeech() {
         if (speech.active()) { speech.stop(); return }
         if (!loaded) {
@@ -268,8 +285,6 @@ class MobiReaderActivity : AppCompatActivity() {
         scroll.scrollTo(0, 0)
         paintMarks()
         status.text = "${title} · MOBI texto · ${(offset * 100L / text.length)} %"
-        previous.isEnabled = offset > 0
-        next.isEnabled = endOffset < text.length
         savePosition(offset)
     }
 

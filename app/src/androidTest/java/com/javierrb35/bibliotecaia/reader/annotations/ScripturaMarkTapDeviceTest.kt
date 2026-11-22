@@ -103,10 +103,10 @@ class ScripturaMarkTapDeviceTest {
                     PdfPaintedMark("note", rect, "NOTE"),
                     PdfPaintedMark("underline", rect, "HIGHLIGHT")
                 ))
-                page.onMarkedTap { ids -> hits.add(ids) }
+                page.onMarkedLongPress { ids -> hits.add(ids) }
                 page.draw(Canvas(output)) // populates the same zoom/pan hit matrix
-                touch(page, 65f, 65f)
-                assertEquals(listOf("underline", "note"), hits.single())
+                assertEquals(listOf("underline", "note"), page.markedIdsAt(65f, 65f))
+                assertTrue("Short taps must never open saved PDF notes", hits.isEmpty())
             } finally {
                 output.recycle()
                 bitmap.recycle()

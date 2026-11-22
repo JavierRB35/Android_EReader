@@ -2,9 +2,16 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-22 (navegación vertical por flechas inferiores, pendiente de validación CI y publicación)
+**Última actualización:** 2026-11-22 (nueva directriz: deslizamiento horizontal exclusivo para avanzar, anotaciones por pulsación larga)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## GESTOS DE LECTURA V2 — DESLIZAMIENTO HORIZONTAL EXCLUSIVO — 22/11/2026
+
+- **Directriz posterior que sustituye la anterior de flechas:** en EPUB, MOBI y PDF no hay flechas ni cambio por toque en los bordes. Una pulsación breve en el área de lectura muestra/oculta las herramientas (concentración). Una pulsación prolongada sobre una marca guardada abre su nota en modal; sobre texto sin marca abre selección contextual (EPUB/MOBI) u OCR de selección (PDF).
+- Los gestos de avance/retroceso son solo deslizamientos horizontales intencionados. El detector compartido bloquea el eje vertical desde el principio para evitar saltos por scroll diagonal y descarta multitáctil/desplazamientos pequeños. EPUB nativo y Readium vertical cambian recursos del spine; EPUB paginado usa el cambio horizontal interno de Readium; MOBI cambia bloque de texto; PDF pasa página al 100 % de escala, mientras que con zoom el mismo gesto hace pan sin pasar.
+- Readium 3.0.3 no expone `disablePageTurnsWhileScrolling`; su contenedor cancela los desplazamientos horizontales cuando son navegaciones deliberadas y normaliza la componente X durante scroll vertical para evitar cambios accidentales por diagonales. Se elimina la navegación por bordes y se mantiene selección contextual. Las notas nativas ya pintadas se validan por locator. MOBI y PDF ocultan controles en concentración.
+- Rama de trabajo: `feature/swipe-only-reading-navigation-20261122`. QA: test JVM `HorizontalSwipeGestureTest`, pruebas Android adaptadas de EPUB/MOBI/PDF y arranque. **Estado: pendiente CI y validación táctil en Samsung hasta verificar los enlaces de Actions.**
 
 ## NAVEGACIÓN VERTICAL — CONTROLES DE CAPÍTULO — 22/11/2026
 

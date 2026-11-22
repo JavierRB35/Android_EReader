@@ -169,13 +169,13 @@ class PdfReadingJourneyDeviceTest {
                 differsFromUnmarked(image, zoom = 1.5f))
             instrumentation.runOnMainSync { image.fit() }
 
-            onView(withText("Siguiente")).perform(click())
+            horizontalSwipe(image, -1)
             waitUntil("PDF second page was not rendered or stale first-page annotation remains") {
                 val status = reading.window.decorView
                 val nextPageText = findPageStatus(status)?.contains("2 / 2") == true
                 nextPageText && image.currentBitmap() != null && !differsFromUnmarked(image)
             }
-            onView(withText("Anterior")).perform(click())
+            horizontalSwipe(image, 1)
             waitUntil("Returning to page one lost the original PDF NOTE") {
                 findPageStatus(reading.window.decorView)?.contains("1 / 2") == true &&
                     differsFromUnmarked(image)
@@ -224,6 +224,26 @@ class PdfReadingJourneyDeviceTest {
             }
             File(context.filesDir, "ocr/$id").deleteRecursively()
             original.delete()
+        }
+    }
+
+    /** Real PDF View receives a long, predominantly horizontal single-pointer drag. */
+    private fun horizontalSwipe(view: PdfPageView, direction: Int) {
+        instrumentation.runOnMainSync {
+            val downAt = android.os.SystemClock.uptimeMillis()
+            val y = (view.height / 2f).coerceAtLeast(30f)
+            val distance = view.width * .65f
+            val fromX = if (direction > 0) view.width * .2f else view.width * .8f
+            val toX = if (direction > 0) fromX + distance else fromX - distance
+            fun send(action: Int, at: Long, x: Float) {
+                val event = android.view.MotionEvent.obtain(
+                    downAt, at, action, x, y, 0)
+                try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+            }
+            send(android.view.MotionEvent.ACTION_DOWN, downAt, fromX)
+            send(android.view.MotionEvent.ACTION_MOVE, downAt + 100, (fromX + toX) / 2f)
+            send(android.view.MotionEvent.ACTION_MOVE, downAt + 180, toX)
+            send(android.view.MotionEvent.ACTION_UP, downAt + 210, toX)
         }
     }
 
