@@ -2,9 +2,16 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-22 (nueva directriz: deslizamiento horizontal exclusivo para avanzar, anotaciones por pulsación larga)
+**Última actualización:** 2026-11-22 (marca BibliotecaAI minimalista y splash de 2 segundos; mantiene directriz de deslizamiento y notas)
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## MARCA MINIMALISTA Y SPLASH DE ARRANQUE — 22/11/2026
+
+- Rama `feature/minimal-brand-splash-backup-20261122`. Se introduce icono adaptable nativo de e-reader (no libro abierto), destello IA violeta, splash de dos segundos y firma **CJRB — Carlos Javier Ruiz Bermúdez**.
+- `SplashActivity` inicia en paralelo la rutina SAF de comprobación/actualización del mismo ZIP, sin esperar su finalización para abrir BibliotecaAI. Sin destino autorizado informa «Copia sin configurar» y no simula avance.
+- Se preservan `BackupRoutine` (fingerprint, mutex, verificación, recuperación) y `MainActivity` (refresh en retorno); sin OAuth.
+- Prueba nueva `SplashActivityLaunchTest` añadida a la puerta de arranque Android. Ver `docs/ux-bibliotecaai-brand-splash-20261122.md`. **Compilación CI / test Samsung: pendientes de evidencia.**
 
 ## GESTOS DE LECTURA V2 — DESLIZAMIENTO HORIZONTAL EXCLUSIVO — 22/11/2026
 
