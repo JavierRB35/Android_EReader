@@ -165,8 +165,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     supportFragmentManager.fragmentFactory = EpubNavigatorFactory(opened).createFragmentFactory(
                         initialLocator = initial, initialPreferences = readerPreferences(), listener = this@EpubReaderActivity,
                         configuration = EpubNavigatorFragment.Configuration(
-                            selectionActionModeCallback = selectionCallback,
-                            disablePageTurnsWhileScrolling = true
+                            selectionActionModeCallback = selectionCallback
                         )
                     )
                     val created = supportFragmentManager.fragmentFactory.instantiate(classLoader, EpubNavigatorFragment::class.java.name)
@@ -771,11 +770,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 }
             })
         private var captured = false
+        private var firstDownX = 0f
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             if (nativeMode) return super.dispatchTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     horizontal.down(event.x, event.y)
+                    firstDownX = event.x
                     captured = false
                 }
                 MotionEvent.ACTION_MOVE -> if (scroll &&
@@ -801,6 +802,16 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 }
             }
             detector.onTouchEvent(event)
+            // Readium 3.0.3 lacks disablePageTurnsWhileScrolling. Keep its
+            // vertical scroll, but never let a diagonal scroll masquerade
+            // as a horizontal chapter swipe in the inner WebView.
+            if (scroll && horizontal.isVerticalLocked() &&
+                event.actionMasked in setOf(MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP)) {
+                val vertical = MotionEvent.obtain(event)
+                vertical.offsetLocation(firstDownX - event.x, 0f)
+                return try { super.dispatchTouchEvent(vertical) }
+                    finally { vertical.recycle() }
+            }
             return super.dispatchTouchEvent(event)
         }
     }
