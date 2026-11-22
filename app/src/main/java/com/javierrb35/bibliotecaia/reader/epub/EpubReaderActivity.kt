@@ -784,7 +784,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         captured = true
                         val cancel = MotionEvent.obtain(event)
                         cancel.action = MotionEvent.ACTION_CANCEL
-                        try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                        try {
+                            detector.onTouchEvent(cancel)
+                            super.dispatchTouchEvent(cancel)
+                        } finally { cancel.recycle() }
                     }
                     return true
                 }
