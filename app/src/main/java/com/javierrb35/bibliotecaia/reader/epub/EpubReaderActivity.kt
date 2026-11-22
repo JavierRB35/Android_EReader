@@ -17,7 +17,8 @@ import android.text.style.UnderlineSpan
 import android.text.style.BackgroundColorSpan
 import android.view.MotionEvent
 import android.view.ViewConfiguration
-import kotlin.math.abs
+import android.view.GestureDetector
+import com.javierrb35.bibliotecaia.reader.gestures.HorizontalSwipeGesture
 import android.os.Bundle
 import android.view.ActionMode
 import android.view.Menu
@@ -56,7 +57,6 @@ import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.Color as ReaderColor
 import org.readium.r2.navigator.preferences.FontFamily
 import org.readium.r2.navigator.preferences.Theme
-import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
@@ -96,8 +96,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private lateinit var footer: LinearLayout
     private lateinit var positionLabel: TextView
     private lateinit var bookmarkButton: MaterialButton
-    private lateinit var previousChapterButton: MaterialButton
-    private lateinit var nextChapterButton: MaterialButton
     private var concentration = false
     private lateinit var loading: TextView
     private lateinit var webFrame: FrameLayout
@@ -166,7 +164,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 val fragment = lifecycle.withResumed {
                     supportFragmentManager.fragmentFactory = EpubNavigatorFactory(opened).createFragmentFactory(
                         initialLocator = initial, initialPreferences = readerPreferences(), listener = this@EpubReaderActivity,
-                        configuration = EpubNavigatorFragment.Configuration(selectionActionModeCallback = selectionCallback)
+                        configuration = EpubNavigatorFragment.Configuration(
+                            selectionActionModeCallback = selectionCallback,
+                            disablePageTurnsWhileScrolling = true
+                        )
                     )
                     val created = supportFragmentManager.fragmentFactory.instantiate(classLoader, EpubNavigatorFragment::class.java.name)
                         as EpubNavigatorFragment
@@ -185,7 +186,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             val mark = annotations.firstOrNull {
                                 it.id == event.decoration.id
                             } ?: return false
-                            showSavedTextMark(mark)
+                            // The annotation remains a hit target, but a short
+                            // tap toggles concentration. Notes open on HOLD.
+                            toggleReadingControls()
                             return true
                         }
                     })
@@ -199,69 +202,15 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 } else {
                     showReadingSurface()
                 }
-                // In scroll mode a diagonal vertical gesture must NOT turn a
-                // page. The dedicated edge tap region is also much narrower.
-                // Readium's own decoration event is primary; this secondary
-                // short-tap hit-test improves access to saved marked notes.
+                // Neither side tap nor keyboard arrows turn a page. Readium
+                // handles horizontal swipes in paginated mode; ReadiumTouchFrame
+                // owns axis-locked chapter swipes in vertical scroll mode.
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
-                        if (nativeMode) return false
-                        // Check a saved note BEFORE interpreting a page-edge
-                        // tap as navigation. Previously we returned early at
-                        // the edges, making marked text there impossible to open.
-                        val x = event.point.x
-                        val y = event.point.y
-                        val edge = ReadiumMarkedTap.pageEdge(x,
-                            fragment.publicationView.width, scroll, 28.dp.toFloat())
-                        lifecycleScope.launch {
-                            val liveIds = annotations.filter {
-                                it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
-                            }.map { it.id }.toSet()
-                            val matchId = if (liveIds.isEmpty()) null else runCatching {
-                                ReadiumMarkedTap.verifiedId(
-                                    fragment.evaluateJavascript(ReadiumMarkedTap.hitTestScript(x, y)),
-                                    liveIds
-                                )
-                            }.getOrNull()
-                            // Native TextView offsets are not Readium CFIs.
-                            // For saved native notes, hit-test the ONE verified
-                            // XHTML quote directly without guessing a CFI.
-                            val nativeNotes = ReadiumNativeNoteBridge.notesForHref(
-                                annotations, latest?.href?.toString())
-                            val nativeMatch = if (matchId == null && nativeNotes.isNotEmpty())
-                                runCatching {
-                                    ReadiumMarkedTap.verifiedId(
-                                        fragment.evaluateJavascript(
-                                            ReadiumNativeNoteBridge.hitTestScript(x, y, nativeNotes)),
-                                        nativeNotes.map { it.id }.toSet()
-                                    )
-                                }.getOrNull()
-                            else null
-                            val mark = annotations.firstOrNull {
-                                it.id == (matchId ?: nativeMatch) && it.deletedAt == null
-                            }
-                            if (mark != null && !nativeMode) {
-                                showSavedTextMark(mark)
-                            } else if (edge && !scroll && !nativeMode) {
-                                // This tap was consumed for async hit testing.
-                                // Keep the previous narrow page-turn behavior
-                                // when no saved mark was verified at the edge.
-                                if (x <= fragment.publicationView.width / 2f)
-                                    fragment.goBackward()
-                                else fragment.goForward()
-                            } else if (!nativeMode) {
-                                toggleReadingControls()
-                            }
-                        }
+                        if (!nativeMode) toggleReadingControls()
                         return true
                     }
                 })
-                // Dedicated paginated handler above owns all edge taps. Disable
-                // adapter edge navigation (including after changing scroll mode).
-                // Readium retains keyboard navigation.
-                fragment.addInputListener(DirectionalNavigationAdapter(
-                    fragment, tapEdges = emptySet()
-                ))
                 launch {
                     fragment.currentLocator.collect { locator ->
                         // Keep the WebView resource locator even while its
@@ -271,7 +220,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         // manually navigates to another chapter.
                         latest = locator
                         if (!nativeMode) {
-                            updateChapterArrows()
                             refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             pendingSave?.cancel()
@@ -377,7 +325,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }, LinearLayout.LayoutParams(-1, 1.dp))
         root.addView(controls)
         val frame = FrameLayout(this)
-        webFrame = FrameLayout(this).apply { id = R.id.epub_navigator }
+        webFrame = ReadiumTouchFrame(this).apply { id = R.id.epub_navigator }
         frame.addView(webFrame, FrameLayout.LayoutParams(-1, -1))
         nativeText = TextView(this).apply {
             id = R.id.epub_native_text
@@ -408,12 +356,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setBackgroundColor(getColor(R.color.bia_surface))
             setPadding(12.dp, 8.dp, 12.dp, 8.dp)
         }
-        previousChapterButton = button("‹") { navigateWithFooter(-1) }.apply {
-            contentDescription = "Capítulo anterior"
-            textSize = 23f
-            minimumHeight = 48.dp
-        }
-        footer.addView(previousChapterButton, LinearLayout.LayoutParams(48.dp, 48.dp))
         positionLabel = TextView(this).apply {
             text = "0 %"
             textSize = 16f
@@ -431,19 +373,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }.apply { contentDescription = "Guardar marcador en esta posición" }
         footer.addView(bookmarkButton,
             LinearLayout.LayoutParams(-2, 48.dp).apply { marginEnd = 6.dp })
-        nextChapterButton = button("›") { navigateWithFooter(1) }.apply {
-            contentDescription = "Capítulo siguiente"
-            textSize = 23f
-            minimumHeight = 48.dp
-        }
-        footer.addView(nextChapterButton, LinearLayout.LayoutParams(48.dp, 48.dp))
         root.addView(View(this).apply {
             setBackgroundColor(getColor(R.color.bia_outline))
         }, LinearLayout.LayoutParams(-1, 1.dp))
         root.addView(footer)
         setContentView(root)
         applyTheme()
-        updateChapterArrows()
     }
 
 
@@ -513,8 +448,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }, onMarks = { overlapping ->
             SavedAnnotationSheet.show(this, repository, overlapping)
         }, onUnmarkedTap = {
-            // A marked passage always opens its note before this is considered.
             if (nativeMode) toggleReadingControls()
+        }, onMarkedLongPress = { marked ->
+            SavedAnnotationSheet.show(this, repository, marked)
+        }, onHorizontalSwipe = { direction ->
+            if (nativeMode && nativeChapter != null) showNativeChapter(nativeIndex + direction)
         })
         nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
             if (nativeMode && nativeChapter != null) {
@@ -626,7 +564,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         webFrame.visibility = if (nativeMode) View.GONE else View.VISIBLE
         nativeScroll.visibility = if (nativeMode) View.VISIBLE else View.GONE
         nativeToggle.text = if (nativeMode) "Maquetación" else "Selección precisa"
-        updateChapterArrows()
     }
 
     private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null) {
@@ -643,7 +580,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 if (!isActive || generation != nativeGeneration || !nativeMode) return@launch
                 nativeIndex = index
                 nativeChapter = chapter
-                updateChapterArrows()
                 paintNativeMarks()
                 val searchOffset = findQuote?.let {
                     chapter.text.indexOf(it, ignoreCase = true)
@@ -800,69 +736,105 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         setOnClickListener { action() }
     }
 
-    /**
-     * Focus mode hides menus, progress and bookmark without ever removing
-     * the deliberate chapter arrows from the bottom corners.
-     */
+    /** UI visibility is independent of how pages are turned. */
     private fun toggleReadingControls() {
         concentration = !concentration
         controls.visibility = if (concentration) View.GONE else View.VISIBLE
-        // INVISIBLE keeps the weighted middle spacer and arrows at both edges.
-        positionLabel.visibility = if (concentration) View.INVISIBLE else View.VISIBLE
-        bookmarkButton.visibility = if (concentration) View.GONE else View.VISIBLE
-        applyFooterAppearance()
+        footer.visibility = if (concentration) View.GONE else View.VISIBLE
     }
 
-    private fun applyFooterAppearance() {
-        if (!::footer.isInitialized) return
-        val (background, foreground) = palette()
-        footer.setBackgroundColor(if (concentration) background else getColor(R.color.bia_surface))
-        for (arrow in listOf(previousChapterButton, nextChapterButton)) {
-            arrow.backgroundTintList = ColorStateList.valueOf(
-                if (concentration) background else getColor(R.color.bia_surface_high)
-            )
-            arrow.setTextColor(if (concentration) foreground else getColor(R.color.bia_accent))
-            arrow.strokeWidth = if (concentration) 0 else 1.dp
+    private fun navigateByHorizontalSwipe(direction: Int) {
+        if (direction !in -1..1 || direction == 0 || nativeMode || !scroll) return
+        val pub = publication ?: return
+        val target = EpubChapterNavigation.adjacentIndex(
+            pub.readingOrder.map { it.url().toString() },
+            latest?.href?.toString(), direction
+        ) ?: return
+        navigator?.go(pub.readingOrder[target])
+    }
+
+    /**
+     * Dispatch-level observation sees WebView gestures without consuming
+     * native text selection. Scroll-mode swipes use a strict directional lock
+     * after disabling Readium's less selective chapter turns.
+     */
+    private inner class ReadiumTouchFrame(context: Context) : FrameLayout(context) {
+        private val horizontal = HorizontalSwipeGesture(
+            ViewConfiguration.get(context).scaledTouchSlop.toFloat(),
+            maxOf(72f * resources.displayMetrics.density, resources.displayMetrics.widthPixels * .17f)
+        )
+        private val detector = GestureDetector(context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent) = true
+                override fun onLongPress(e: MotionEvent) {
+                    if (!nativeMode) showReadiumMarkedLongPress(e.x, e.y)
+                }
+            })
+        private var captured = false
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            if (nativeMode) return super.dispatchTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    horizontal.down(event.x, event.y)
+                    captured = false
+                }
+                MotionEvent.ACTION_MOVE -> if (scroll &&
+                    (captured || horizontal.move(event.x, event.y, event.pointerCount))) {
+                    if (!captured) {
+                        captured = true
+                        val cancel = MotionEvent.obtain(event)
+                        cancel.action = MotionEvent.ACTION_CANCEL
+                        try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP,
+                MotionEvent.ACTION_CANCEL -> horizontal.cancel()
+                MotionEvent.ACTION_UP -> if (scroll && captured) {
+                    val turn = horizontal.up(event.x, event.y, event.pointerCount)
+                    captured = false
+                    if (turn != 0) navigateByHorizontalSwipe(turn)
+                    return true
+                }
+            }
+            detector.onTouchEvent(event)
+            return super.dispatchTouchEvent(event)
         }
     }
 
-    /** Vertical: chapter-by-chapter. Paginated Readium: keep page-by-page. */
-    private fun navigateWithFooter(direction: Int) {
-        if (nativeMode) {
-            showNativeChapter(nativeIndex + direction)
-        } else if (scroll) {
-            val pub = publication ?: return
-            val urls = pub.readingOrder.map { it.url().toString() }
-            val target = EpubChapterNavigation.adjacentIndex(
-                urls, latest?.href?.toString(), direction
-            ) ?: return
-            navigator?.go(pub.readingOrder[target])
-        } else if (direction < 0) {
-            navigator?.goBackward()
-        } else {
-            navigator?.goForward()
+    private fun showReadiumMarkedLongPress(x: Float, y: Float) {
+        val fragment = navigator ?: return
+        val marked = annotations.filter {
+            it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
         }
-    }
-
-    private fun updateChapterArrows() {
-        if (!::previousChapterButton.isInitialized) return
-        val pub = publication
-        val index = when {
-            pub == null -> null
-            nativeMode -> nativeIndex.takeIf { nativeChapter != null }
-            scroll -> EpubChapterNavigation.chapterIndex(
-                pub.readingOrder.map { it.url().toString() },
-                latest?.href?.toString()
-            )
-            else -> null
+        if (marked.isEmpty()) return // Unmarked text keeps WebView selection.
+        val origin = IntArray(2)
+        val target = IntArray(2)
+        webFrame.getLocationOnScreen(origin)
+        fragment.publicationView.getLocationOnScreen(target)
+        val hitX = x + origin[0] - target[0]
+        val hitY = y + origin[1] - target[1]
+        lifecycleScope.launch {
+            val candidates = marked.map { it.id }.toSet()
+            val actualId = runCatching {
+                ReadiumMarkedTap.verifiedId(
+                    fragment.evaluateJavascript(ReadiumMarkedTap.hitTestScript(hitX, hitY)),
+                    candidates
+                )
+            }.getOrNull()
+            val nativeNotes = ReadiumNativeNoteBridge.notesForHref(
+                marked, latest?.href?.toString())
+            val nativeId = if (actualId == null && nativeNotes.isNotEmpty())
+                runCatching {
+                    ReadiumMarkedTap.verifiedId(
+                        fragment.evaluateJavascript(
+                            ReadiumNativeNoteBridge.hitTestScript(hitX, hitY, nativeNotes)),
+                        nativeNotes.map { it.id }.toSet()
+                    )
+                }.getOrNull() else null
+            val matched = marked.firstOrNull { it.id == (actualId ?: nativeId) }
+            if (matched != null && !nativeMode && !isFinishing) showSavedTextMark(matched)
         }
-        val paginated = pub != null && !nativeMode && !scroll
-        previousChapterButton.isEnabled = paginated || (index != null && index > 0)
-        nextChapterButton.isEnabled = paginated ||
-            (index != null && index < (pub?.readingOrder?.lastIndex ?: 0))
-        val type = if (nativeMode || scroll) "Capítulo" else "Página"
-        previousChapterButton.contentDescription = "$type anterior"
-        nextChapterButton.contentDescription = "$type siguiente"
     }
 
     private fun palette(): Pair<Int, Int> = when (themeIndex) {
@@ -893,7 +865,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         footer.setBackgroundColor(getColor(R.color.bia_surface))
         positionLabel.setTextColor(getColor(R.color.bia_text))
         window.statusBarColor = background; window.navigationBarColor = Color.BLACK
-        applyFooterAppearance()
         navigator?.submitPreferences(readerPreferences())
     }
 
@@ -921,7 +892,6 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         preferences.edit().putInt("theme", themeIndex).putFloat("font", fontScale)
             .putBoolean("scroll", scroll).putBoolean("serif", serif).apply()
         applyTheme()
-        updateChapterArrows()
     }
 
     private fun showContents() {
