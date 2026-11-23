@@ -27,6 +27,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.ReadingStatus
+import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -104,6 +105,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnSynopsis).setOnClickListener { openSynopsisAction() }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
+        findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
@@ -368,6 +370,42 @@ class BookDetailActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Only the private, imported copy is deleted. The BookEntity, its annotations,
+     * reading positions, organization and any document outside the app survive.
+     */
+    private fun confirmRemoveLocalCopy() {
+        val current = book ?: return
+        if (current.localPath.isBlank() || !java.io.File(current.localPath).isFile) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.detail_remove_local_title)
+            .setMessage(getString(R.string.detail_remove_local_confirm, current.title))
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(R.string.detail_remove_local_button) { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val latest = requireNotNull(db.bookDao().findById(current.id))
+                            LocalBookCopyRemover.delete(filesDir, latest)
+                            check(db.bookDao().clearLocalPath(latest.id, latest.localPath) == 1) {
+                                "La ficha ha cambiado durante la eliminación."
+                            }
+                        }
+                        load(current.id)
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_remove_local_done, Toast.LENGTH_LONG).show()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        load(current.id)
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_remove_local_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
     private fun load(bookId: String) {
         lifecycleScope.launch {
             val loaded = db.bookDao().findById(bookId)
@@ -416,6 +454,9 @@ class BookDetailActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnLink).visibility =
             if (fileAvailable) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.btnRemoveLocalCopy).visibility =
+            if (fileAvailable) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btnReadBook).isEnabled = fileAvailable
         findViewById<TextView>(R.id.btnFavorite).apply {
             setText(if (b.favorite) R.string.detail_favorite_selected else R.string.detail_favorite_short)
             contentDescription = getString(if (b.favorite) R.string.btn_unfavorite else R.string.btn_favorite)
