@@ -46,7 +46,13 @@ El desempate de una marca temporal exacta es determinista.
 - No se envían ebooks ni secretos en los JSON. Los localizadores pueden contener
   información de lectura y el archivo **no está cifrado**. Elegir ubicación
   privada y no compartir los documentos públicamente.
-- El ZIP de copia completa es un mecanismo de recuperación diferente.\n  **Cuando hay pares vinculados se desactiva su sobrescritura automática al\n  entrar en la biblioteca**, para evitar que un dispositivo antiguo sobrescriba\n  el ZIP más reciente. La exportación manual en Ajustes sigue disponible, pero\n  **todavía no cuenta con una conciliación multi-dispositivo segura**: no usarla\n  para turnarse entre dispositivos hasta implementar la fase de protección de ZIP.\n  La restauración completa sigue siendo manual. Antes de ampliar la sincronización a todos los metadatos es obligatorio
+- El ZIP de copia completa es un mecanismo de recuperación diferente.
+  **Cuando hay pares vinculados se desactiva su sobrescritura automática al
+  entrar en la biblioteca**, para evitar que un dispositivo antiguo sobrescriba
+  el ZIP más reciente. La exportación manual en Ajustes sigue disponible, pero
+  **todavía no cuenta con una conciliación multi-dispositivo segura**: no usarla
+  para turnarse entre dispositivos hasta implementar la fase de protección de ZIP.
+  La restauración completa sigue siendo manual. Antes de ampliar la sincronización a todos los metadatos es obligatorio
   impedir que un dispositivo sobrescriba un ZIP compartido nuevo con una copia
   antigua y definir la política de conflictos de anotaciones.
 - El soporte de documentos SAF de Drive depende de su proveedor, disponibilidad
