@@ -96,8 +96,17 @@ class BookImporter(
             }
 
             // 2. Duplicados por hash (§8.6.4)
-            bookDao.findByHash(copy.hash)?.let {
-                throw ImportError.Duplicate(it.title)
+            bookDao.findByHash(copy.hash)?.let { existing ->
+                if (com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(existing)) {
+                    throw ImportError.Duplicate(existing.title)
+                }
+                val linked = com.javierrb35.bibliotecaia.backup.OriginalLinker(context.filesDir)
+                    .link(tmp, listOf(existing))
+                    ?: throw ImportError.Reading(fileName, IllegalStateException("No se pudo recuperar el original de la ficha existente."))
+                placedFile = File(linked.localPath)
+                bookDao.update(linked)
+                tmp.delete()
+                return@withContext linked
             }
 
             // 3. Metadatos (§8.6.5)

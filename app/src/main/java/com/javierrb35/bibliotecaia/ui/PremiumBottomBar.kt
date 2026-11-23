@@ -26,7 +26,10 @@ internal object PremiumBottomBar {
         }
         root.findViewById<View>(R.id.navRead).setOnClickListener {
             activity.lifecycleScope.launch {
-                val recent = AppDatabase.get(activity).bookDao().lastRead()
+                val recent = AppDatabase.get(activity).backupDao().booksAll()
+                    .filter { it.lastOpenedAt != null &&
+                        com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(it) }
+                    .maxByOrNull { it.lastOpenedAt ?: 0L }
                 if (recent == null) {
                     Toast.makeText(activity, R.string.no_recent_book, Toast.LENGTH_LONG).show()
                 } else {

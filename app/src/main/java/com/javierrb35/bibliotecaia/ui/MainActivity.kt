@@ -23,6 +23,7 @@ import com.google.android.material.chip.ChipGroup
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
+import com.javierrb35.bibliotecaia.backup.CentralCatalogue
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.importer.BookImporter
@@ -51,7 +52,7 @@ class MainActivity : AppCompatActivity() {
     private val statusFlow = MutableStateFlow("ALL")
     private val favoriteOnlyFlow = MutableStateFlow(false)
     private val collectionFlow = MutableStateFlow("")
-    private val centralFlow = MutableStateFlow(false)
+    private val centralFlow = MutableStateFlow(false to null as Set<String>?)
     private val centralPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -64,13 +65,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setCentralMode(central: Boolean) {
-        centralFlow.value = central
+        centralFlow.value = central to BackupRoutine.centralHashes(applicationContext)
         findViewById<TextView>(R.id.btnCentralLibrary).setText(
             if (central) R.string.central_device else R.string.central_complete)
+        findViewById<TextView>(R.id.txtTitle).text =
+            if (central) getString(R.string.central_complete)
+            else intent.getStringExtra(EXTRA_COLLECTION_NAME)?.let {
+                getString(R.string.collection_view_title, it)
+            } ?: getString(R.string.central_device_title)
     }
 
     private fun openCentral() {
-        if (centralFlow.value) { setCentralMode(false); return }
+        if (centralFlow.value.first) { setCentralMode(false); return }
         if (BackupRoutine.centralUri(applicationContext) == null) {
             centralPicker.launch(arrayOf("application/zip", "application/octet-stream"))
             return
@@ -144,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnCentralLibrary).setOnClickListener { openCentral() }
         setCentralMode(savedInstanceState?.getBoolean("central_mode") == true)
+        findViewById<View>(R.id.btnMissingOriginals).setOnClickListener { showMissingOriginals() }
         observeCatalog()
         consumeImportIntent(intent)
     }
@@ -167,6 +174,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        setCentralMode(centralFlow.value.first)
+        lifecycleScope.launch {
+            if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null) {
+                try {
+                    BackupRoutine.refreshCentral(applicationContext, db, BuildConfig.VERSION_NAME)
+                    if (centralFlow.value.first) setCentralMode(true)
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* Keep the last verified catalogue offline. */ }
+            }
+            refreshMissingOriginals()
+        }
         lifecycleScope.launch {
             // Pull peer positions before any automatic ZIP backup attempt.
             // Do not treat a failed peer read as evidence that the remote is current.
@@ -212,7 +230,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean("central_mode", centralFlow.value)
+        outState.putBoolean("central_mode", centralFlow.value.first)
         outState.putString(STATE_QUERY, findViewById<EditText>(R.id.txtSearch).text?.toString())
         outState.putInt(STATE_SHELF, findViewById<ChipGroup>(R.id.chipShelves).checkedChipId)
         super.onSaveInstanceState(outState)
@@ -234,14 +252,11 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow, centralFlow) { q, s, f, c, central ->
                     db.bookDao().search(q, s, if (f) 1 else 0, c) to central
-                }.flatMapLatest { (flow, central) ->
-                    flow.map { all ->
-                        if (central) all else all.filter {
-                            it.localPath.isNotBlank() && java.io.File(it.localPath).isFile
-                        }
-                    }
+                }.flatMapLatest { (flow, mode) ->
+                    flow.map { all -> CentralCatalogue.visible(all, mode.first, mode.second) }
                 }.collect { books ->
                     adapter.submit(books)
+                    refreshMissingOriginals()
                     findViewById<TextView>(R.id.txtBookCount).text =
                         resources.getQuantityString(R.plurals.bia_ux_book_count, books.size, books.size)
                     val filters = queryFlow.value.isNotEmpty() ||
@@ -265,6 +280,27 @@ class MainActivity : AppCompatActivity() {
                     recycler.visibility = if (books.isEmpty()) View.GONE else View.VISIBLE
                 }
             }
+        }
+    }
+
+    private suspend fun refreshMissingOriginals() {
+        val missing = CentralCatalogue.missing(db.backupDao().booksAll(),
+            BackupRoutine.centralHashes(applicationContext))
+        findViewById<View>(R.id.btnMissingOriginals).visibility =
+            if (missing.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun showMissingOriginals() {
+        lifecycleScope.launch {
+            val missing = CentralCatalogue.missing(db.backupDao().booksAll(),
+                BackupRoutine.centralHashes(applicationContext))
+            if (missing.isEmpty()) { refreshMissingOriginals(); return@launch }
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.central_missing_title)
+                .setItems(missing.map { it.title }.toTypedArray()) { _, index ->
+                    BookDetailActivity.start(this@MainActivity, missing[index].id)
+                }
+                .setNegativeButton(R.string.dialog_cancel, null).show()
         }
     }
 

@@ -24,8 +24,8 @@ class CompleteBackupManager(
     private val database: AppDatabase,
     private val appVersion: String
 ) {
-    data class ExportResult(val books: Int, val originalBytes: Long)
-    data class ImportResult(val report: RestoreReport, val originals: Int, val originalBytes: Long)
+    data class ExportResult(val books: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet())
+    data class ImportResult(val report: RestoreReport, val originals: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet())
 
     /**
      * Replace the same SAF document after fully constructing the ZIP locally.
@@ -122,7 +122,7 @@ class CompleteBackupManager(
                     }
                     throw e
                 }
-                ExportResult(books.size, bytes)
+                ExportResult(books.size, bytes, books.map { it.contentHash }.toSet())
             } catch (e: Exception) {
                 // Preparation failures occur before any write. Release only the
                 // rollback snapshot that this attempt created; retain failed-write recovery.
@@ -312,7 +312,7 @@ class CompleteBackupManager(
             val report = BackupManager(database, appVersion)
                 .restoreJson(content.json, finalPaths)
             committed = true
-            ImportResult(report, finalPaths.size, content.bytes)
+            ImportResult(report, finalPaths.size, content.bytes, fromArchive.map { it.contentHash }.toSet())
         } finally {
             if (!committed) {
                 // Only remove files created by this attempt, never preexisting originals.

@@ -190,6 +190,9 @@
     <string name="detail_file_missing">Archivo no disponible en este dispositivo</string>
     <string name="detail_remove_local_button">Eliminar del dispositivo</string>
     <string name="central_complete">Biblioteca completa</string>
+    <string name="central_device_title">En este dispositivo</string>
+    <string name="central_missing_title">Recuperar archivos ausentes</string>
+    <string name="central_original_missing">Ficha conservada. Original no disponible o aún sin verificar.</string>
     <string name="central_device">Volver a los libros del dispositivo</string>
     <string name="central_download">Descargar en este dispositivo</string>
     <string name="central_downloaded">Libro descargado.</string>
