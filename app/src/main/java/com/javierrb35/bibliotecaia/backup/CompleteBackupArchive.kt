@@ -77,7 +77,7 @@ object CompleteBackupArchive {
     }
 
     /** Extract only declared originals into a private staging directory. */
-    fun read(input: InputStream, stageDir: File): Contents {
+    fun read(input: InputStream, stageDir: File, wantedHashes: Set<String>? = null): Contents {
         require(stageDir.isDirectory) { "No existe el espacio temporal de restauración." }
         var json: String? = null
         var expected: Map<String, BookEntity>? = null
@@ -122,7 +122,9 @@ object CompleteBackupArchive {
                     }
                     val digest = MessageDigest.getInstance("SHA-256")
                     var size = 0L
-                    target.outputStream().use { sink ->
+                    val keep = wantedHashes == null || book.contentHash in wantedHashes
+                    val output = if (keep) target.outputStream() else null
+                    output.use { sink ->
                         while (true) {
                             val n = zip.read(buffer)
                             if (n < 0) break
@@ -132,19 +134,19 @@ object CompleteBackupArchive {
                             require(size <= MAX_BOOK_BYTES && total <= MAX_TOTAL_BYTES &&
                                 size <= book.sizeBytes) { "La copia contiene un archivo sobredimensionado." }
                             digest.update(buffer, 0, n)
-                            sink.write(buffer, 0, n)
+                            sink?.write(buffer, 0, n)
                         }
                     }
                     require(size == book.sizeBytes && hex(digest.digest()) == book.contentHash) {
                         "La copia contiene un libro incompleto o modificado."
                     }
-                    staged[entry.name] = target
+                    if (keep) staged[entry.name] = target
                 }
                 zip.closeEntry()
             }
         }
         val metadata = json ?: throw IllegalArgumentException("No es una copia completa de Biblioteca IA.")
-        require(expected!!.keys == staged.keys) {
+        require(expected!!.keys == seen - METADATA) {
             "Faltan originales: el archivo no es una copia completa."
         }
         return Contents(metadata, staged, total)

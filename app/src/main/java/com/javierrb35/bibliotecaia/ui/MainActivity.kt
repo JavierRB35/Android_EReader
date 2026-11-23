@@ -32,6 +32,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -50,6 +51,44 @@ class MainActivity : AppCompatActivity() {
     private val statusFlow = MutableStateFlow("ALL")
     private val favoriteOnlyFlow = MutableStateFlow(false)
     private val collectionFlow = MutableStateFlow("")
+    private val centralFlow = MutableStateFlow(false)
+    private val centralPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) lifecycleScope.launch {
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                BackupRoutine.connectCentral(applicationContext, db, BuildConfig.VERSION_NAME, uri)
+                setCentralMode(true)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { Toast.makeText(this@MainActivity, e.message ?: "No se pudo abrir la biblioteca central.", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    private fun setCentralMode(central: Boolean) {
+        centralFlow.value = central
+        findViewById<TextView>(R.id.btnCentralLibrary).setText(
+            if (central) R.string.central_device else R.string.central_complete)
+    }
+
+    private fun openCentral() {
+        if (centralFlow.value) { setCentralMode(false); return }
+        if (BackupRoutine.centralUri(applicationContext) == null) {
+            centralPicker.launch(arrayOf("application/zip", "application/octet-stream"))
+            return
+        }
+        lifecycleScope.launch {
+            val button = findViewById<View>(R.id.btnCentralLibrary)
+            button.isEnabled = false
+            try {
+                BackupRoutine.refreshCentral(applicationContext, db, BuildConfig.VERSION_NAME)
+                setCentralMode(true)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                Toast.makeText(this@MainActivity, e.message ?: "Biblioteca central no disponible.", Toast.LENGTH_LONG).show()
+                // Cached metadata remains searchable offline; download still requires access.
+                setCentralMode(true)
+            } finally { button.isEnabled = true }
+        }
+    }
 
     private val importLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -103,6 +142,8 @@ class MainActivity : AppCompatActivity() {
         PremiumBottomBar.bind(this, findViewById(R.id.mainNavigation), R.id.navLibrary) {
             openImportPicker()
         }
+        findViewById<View>(R.id.btnCentralLibrary).setOnClickListener { openCentral() }
+        setCentralMode(savedInstanceState?.getBoolean("central_mode") == true)
         observeCatalog()
         consumeImportIntent(intent)
     }
@@ -136,7 +177,9 @@ class MainActivity : AppCompatActivity() {
             if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
             }
-            val latest = db.bookDao().lastRead()
+            val latest = db.backupDao().booksAll().filter {
+                it.lastOpenedAt != null && it.localPath.isNotBlank() && java.io.File(it.localPath).isFile
+            }.maxByOrNull { it.lastOpenedAt ?: 0L }
             val card = findViewById<View>(R.id.recentBookCard)
             // Collection pages stay focused on their own content.
             if (latest == null || collectionFlow.value.isNotEmpty()) {
@@ -169,6 +212,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("central_mode", centralFlow.value)
         outState.putString(STATE_QUERY, findViewById<EditText>(R.id.txtSearch).text?.toString())
         outState.putInt(STATE_SHELF, findViewById<ChipGroup>(R.id.chipShelves).checkedChipId)
         super.onSaveInstanceState(outState)
@@ -188,9 +232,15 @@ class MainActivity : AppCompatActivity() {
     private fun observeCatalog() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow) { q, s, f, c ->
-                    db.bookDao().search(q, s, if (f) 1 else 0, c)
-                }.flatMapLatest { it }.collect { books ->
+                combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow, centralFlow) { q, s, f, c, central ->
+                    db.bookDao().search(q, s, if (f) 1 else 0, c) to central
+                }.flatMapLatest { (flow, central) ->
+                    flow.map { all ->
+                        if (central) all else all.filter {
+                            it.localPath.isNotBlank() && java.io.File(it.localPath).isFile
+                        }
+                    }
+                }.collect { books ->
                     adapter.submit(books)
                     findViewById<TextView>(R.id.txtBookCount).text =
                         resources.getQuantityString(R.plurals.bia_ux_book_count, books.size, books.size)

@@ -148,6 +148,15 @@
             android:textSize="11sp"
             android:textColor="@color/bia_text_secondary" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDownloadCentral"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/central_download"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+
         <Button
             android:id="@+id/btnLink"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
