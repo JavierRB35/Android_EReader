@@ -176,22 +176,23 @@ class EpubAnnotationMarksDeviceTest {
             val anotherUnderline = repo.addAnnotation(bookId, otherPlace, quote, "", "HIGHLIGHT")
             val otherQuote = repo.addAnnotation(bookId, exact, "Otro fragmento", "", "HIGHLIGHT")
             val independentNote = repo.addAnnotation(bookId, exact, quote, "Otra reflexión", "NOTE")
+            val underlineWithOwnNote = repo.addAnnotation(bookId, exact, quote, "Una segunda nota", "HIGHLIGHT")
             val bookmark = repo.addAnnotation(bookId, exact, "", "", "BOOKMARK")
 
-            assertEquals(6, repo.observeAnnotations(bookId).first().size)
+            assertEquals(7, repo.observeAnnotations(bookId).first().size)
             repo.setDeleted(note, true)
             val active = repo.observeAnnotations(bookId).first()
-            assertEquals(setOf(anotherUnderline, otherQuote, independentNote, bookmark),
+            assertEquals(setOf(anotherUnderline, otherQuote, independentNote, underlineWithOwnNote, bookmark),
                 active.map { it.id }.toSet())
             assertTrue(db.readingDao().annotation(note)?.deletedAt != null)
             assertTrue(db.readingDao().annotation(companionUnderline)?.deletedAt != null)
-            assertEquals(setOf(anotherUnderline, otherQuote, independentNote),
+            assertEquals(setOf(anotherUnderline, otherQuote, independentNote, underlineWithOwnNote),
                 EpubAnnotationMarks.forReadium(active).map { it.id }.toSet())
 
             // Restore the note from the trash: its own visual mark comes back.
             // Previously independent underlines are not resurrected by accident.
             repo.setDeleted(note, false)
-            assertEquals(setOf(note, anotherUnderline, otherQuote, independentNote, bookmark),
+            assertEquals(setOf(note, anotherUnderline, otherQuote, independentNote, underlineWithOwnNote, bookmark),
                 repo.observeAnnotations(bookId).first().map { it.id }.toSet())
             assertTrue(db.readingDao().annotation(companionUnderline)?.deletedAt != null)
         } finally {
