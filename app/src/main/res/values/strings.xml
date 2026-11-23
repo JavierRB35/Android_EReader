@@ -188,6 +188,11 @@
     <string name="ai_sources">Fuentes:</string>
     <string name="detail_ai">Consultar IA</string>
     <string name="detail_file_missing">Archivo no disponible en este dispositivo</string>
+    <string name="detail_remove_local_button">Eliminar del dispositivo</string>
+    <string name="detail_remove_local_title">¿Eliminar la copia de este dispositivo?</string>
+    <string name="detail_remove_local_confirm">Se eliminará solo el archivo local de «%1$s». Su ficha, notas, subrayados y progreso se conservarán. No se borrará nada de Drive ni de otros orígenes.\n\nAsegúrate de conservar el original fuera de este dispositivo. Para hacer una copia de seguridad completa después, tendrás que volver a vincularlo.</string>
+    <string name="detail_remove_local_done">Copia local eliminada. Puedes volver a vincular el libro cuando quieras.</string>
+    <string name="detail_remove_local_failed">No se pudo eliminar la copia local del libro.</string>
     <string name="detail_link">Vincular archivo original (Drive u otro origen)…</string>
     <string name="detail_link_ok">Original vinculado: ya puedes leerlo.</string>
     <string name="detail_link_nomatch">El archivo seleccionado no corresponde a este libro (hash distinto).</string>
