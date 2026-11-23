@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia.ui
 import android.content.Intent
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
@@ -22,10 +23,10 @@ class SettingsBackupJourneyDeviceTest {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         ) as SettingsActivity
         try {
-            onView(withText("Crear copia ahora")).check(matches(isDisplayed()))
-            onView(withText("Elegir ubicación del archivo")).check(matches(isDisplayed()))
-            onView(withText("Restaurar desde un archivo")).check(matches(isDisplayed()))
-            onView(withText("Elegir ubicación del archivo")).perform(click())
+            onView(withText("Crear copia ahora")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Elegir ubicación del archivo")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Restaurar desde un archivo")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Elegir ubicación del archivo")).perform(scrollTo(), click())
             onView(withText("Crear archivo en una ubicación")).check(matches(isDisplayed()))
             onView(withText("Elegir un archivo ya existente")).check(matches(isDisplayed()))
         } finally {
