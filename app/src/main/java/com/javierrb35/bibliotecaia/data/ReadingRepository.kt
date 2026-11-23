@@ -60,11 +60,28 @@ class ReadingRepository(
         }
     }
 
+    /**
+     * Move a note to the trash together with any independently saved underline
+     * on precisely the same selection. The NOTE itself also paints a mark, so
+     * all reader surfaces update through their existing Room observers.
+     *
+     * Matching on book + complete locator + quote prevents deleting identical
+     * wording elsewhere. Soft deletion preserves recovery and backup history.
+     */
     suspend fun setDeleted(id: String, deleted: Boolean) {
         db.withTransaction {
             val old = requireNotNull(dao.annotation(id))
+            if ((old.deletedAt != null) == deleted) return@withTransaction
             val now = maxOf(System.currentTimeMillis(), old.updatedAt + 1)
             dao.updateAnnotation(old.copy(deletedAt = if (deleted) now else null, updatedAt = now))
+
+            if (deleted && old.kind == "NOTE" && old.bookId != null &&
+                !old.locator.isNullOrBlank() && old.quote.isNotBlank()) {
+                dao.activeHighlightsAt(old.bookId, old.locator, old.quote).forEach { underline ->
+                    val removedAt = maxOf(now, underline.updatedAt + 1)
+                    dao.updateAnnotation(underline.copy(deletedAt = removedAt, updatedAt = removedAt))
+                }
+            }
         }
     }
 
