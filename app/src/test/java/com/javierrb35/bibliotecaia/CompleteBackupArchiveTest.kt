@@ -79,6 +79,23 @@ class CompleteBackupArchiveTest {
         assertEquals(.6f, snapshot.positions.single().progress, 0f)
     }
 
+    @Test fun selectiveReadVerifiesAllButStagesOnlyRequestedOriginal() {
+        val first = book("central-a", "central-a.epub", "original A".toByteArray())
+        val second = book("central-b", "central-b.pdf", "original B".toByteArray())
+        val bytes = write(listOf(first, second))
+        val catalogue = CompleteBackupArchive.read(ByteArrayInputStream(bytes),
+            dir.newFolder("catalogue"), emptySet())
+        assertEquals(2, BackupCodec.fromJson(catalogue.json).books.size)
+        assertTrue(catalogue.staged.isEmpty())
+        val downloaded = CompleteBackupArchive.read(ByteArrayInputStream(bytes),
+            dir.newFolder("selective"), setOf(second.contentHash))
+        assertEquals(setOf(CompleteBackupArchive.entryName(second.id)), downloaded.staged.keys)
+        assertArrayEquals(File(second.localPath).readBytes(), downloaded.staged.values.single().readBytes())
+        val rebuilt = write(listOf(first, second.copy(localPath = downloaded.staged.values.single().absolutePath)))
+        assertEquals(2, CompleteBackupArchive.read(ByteArrayInputStream(rebuilt),
+            dir.newFolder("rebuilt")).bookCount)
+    }
+
     @Test fun missingOriginalFailsClosedInsteadOfProducingMetadataOnlyBackup() {
         val book = book("missing", "missing.epub", "libro".toByteArray())
         File(book.localPath).delete()

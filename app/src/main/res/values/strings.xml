@@ -189,9 +189,14 @@
     <string name="detail_ai">Consultar IA</string>
     <string name="detail_file_missing">Archivo no disponible en este dispositivo</string>
     <string name="detail_remove_local_button">Eliminar del dispositivo</string>
+    <string name="central_complete">Biblioteca completa</string>
+    <string name="central_device">Volver a los libros del dispositivo</string>
+    <string name="central_download">Descargar en este dispositivo</string>
+    <string name="central_downloaded">Libro descargado.</string>
+    <string name="central_not_downloaded">No descargado</string>
     <string name="detail_remove_local_title">¿Eliminar la copia de este dispositivo?</string>
-    <string name="detail_remove_local_confirm">Se eliminará solo el archivo local de «%1$s». Su ficha, notas, subrayados y progreso se conservarán. No se borrará nada de Drive ni de otros orígenes.\n\nAsegúrate de conservar el original fuera de este dispositivo. Para hacer una copia de seguridad completa después, tendrás que volver a vincularlo.</string>
-    <string name="detail_remove_local_done">Copia local eliminada. Puedes volver a vincular el libro cuando quieras.</string>
+    <string name="detail_remove_local_confirm">Se comprobará que «%1$s» está guardado íntegramente en la biblioteca central antes de retirar su archivo local. Conservarás sus notas, subrayados y progreso y podrás volver a descargarlo.</string>
+    <string name="detail_remove_local_done">Copia local eliminada. Puedes descargar el libro desde Biblioteca completa.</string>
     <string name="detail_remove_local_failed">No se pudo eliminar la copia local del libro.</string>
     <string name="detail_link">Vincular archivo original (Drive u otro origen)…</string>
     <string name="detail_link_ok">Original vinculado: ya puedes leerlo.</string>

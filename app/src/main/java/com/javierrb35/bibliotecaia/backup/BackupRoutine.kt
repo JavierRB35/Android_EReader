@@ -27,6 +27,7 @@ object BackupRoutine {
     private const val FINGERPRINT = "fingerprint"
     private const val LAST_SUCCESS = "last_success"
     private const val LAST_ERROR = "last_error"
+    private const val CENTRAL_READ_URI = "central_read_uri"
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -56,6 +57,74 @@ object BackupRoutine {
                     .getString("uri", null) != null,
         )
     }
+
+    /** A separately connected archive is read-only; the configured backup remains
+     * the single writer. Never make a new device overwrite a shared ZIP. */
+    fun centralUri(context: Context): Uri? {
+        val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(CENTRAL_READ_URI, null)?.let(Uri::parse)
+        return uri?.takeIf { chosen ->
+            context.contentResolver.persistedUriPermissions.any { it.uri == chosen && it.isReadPermission }
+        } ?: status(context).uri
+    }
+
+    suspend fun connectCentral(context: Context, database: AppDatabase, version: String, uri: Uri) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                CompleteBackupManager(context.applicationContext, database, version)
+                    .restoreFrom(uri, emptySet())
+                check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                    .putString(CENTRAL_READ_URI, uri.toString()).commit())
+            }
+        }
+
+    suspend fun refreshCentral(context: Context, database: AppDatabase, version: String) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
+                CompleteBackupManager(context.applicationContext, database, version)
+                    .restoreFrom(uri, emptySet())
+            }
+        }
+
+    suspend fun downloadBook(context: Context, database: AppDatabase, version: String, hash: String) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
+                CompleteBackupManager(context.applicationContext, database, version)
+                    .restoreFrom(uri, setOf(hash))
+            }
+        }
+
+    suspend fun evictBook(context: Context, database: AppDatabase, version: String, id: String) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
+                val book = database.bookDao().findById(id) ?: error("No se encuentra el libro.")
+                val manager = CompleteBackupManager(context.applicationContext, database, version)
+                // On the writer, save current metadata/notes and every original first.
+                if (status(context).uri == uri &&
+                    com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.status(context).peerCount == 0) {
+                    manager.exportTo(uri, replaceExisting = true)
+                }
+                // Verify the entire archive and the requested hash without extracting
+                // any originals. A missing, inaccessible or corrupt archive blocks eviction.
+                val stage = File(context.cacheDir, "central-check-" + java.util.UUID.randomUUID())
+                check(stage.mkdirs())
+                try {
+                    val result = context.contentResolver.openInputStream(uri)?.use {
+                        CompleteBackupArchive.read(it, stage, emptySet())
+                    } ?: error("No se puede leer la biblioteca central.")
+                    require(BackupCodec.fromJson(result.json).books.any {
+                        it.contentHash == book.contentHash && it.sizeBytes == book.sizeBytes
+                    }) { "El original aún no está guardado en la biblioteca central." }
+                } finally { stage.deleteRecursively() }
+                val latest = database.bookDao().findById(id) ?: error("No se encuentra el libro.")
+                require(latest.localPath == book.localPath && latest.contentHash == book.contentHash)
+                com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover.delete(context.filesDir, latest)
+                check(database.bookDao().clearLocalPath(id, latest.localPath) == 1)
+            }
+        }
 
     /** Called only from the library entry screen or after importing an original. */
     fun refreshOnLibraryOpen(context: Context, version: String) {

@@ -27,7 +27,8 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.ReadingStatus
-import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
+import com.javierrb35.bibliotecaia.backup.BackupRoutine
+import com.javierrb35.bibliotecaia.BuildConfig
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +107,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
+        findViewById<View>(R.id.btnDownloadCentral).setOnClickListener { downloadCentral() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
@@ -385,25 +387,38 @@ class BookDetailActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            val latest = requireNotNull(db.bookDao().findById(current.id))
-                            LocalBookCopyRemover.delete(filesDir, latest)
-                            check(db.bookDao().clearLocalPath(latest.id, latest.localPath) == 1) {
-                                "La ficha ha cambiado durante la eliminación."
-                            }
+                            BackupRoutine.evictBook(applicationContext, db, BuildConfig.VERSION_NAME, current.id)
                         }
-                        load(current.id)
                         Toast.makeText(this@BookDetailActivity,
                             R.string.detail_remove_local_done, Toast.LENGTH_LONG).show()
+                        finish()
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
                         load(current.id)
                         Toast.makeText(this@BookDetailActivity,
-                            R.string.detail_remove_local_failed, Toast.LENGTH_LONG).show()
+                            getString(R.string.detail_remove_local_failed) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
                     }
                 }
             }
             .show()
+    }
+
+    private fun downloadCentral() {
+        val current = book ?: return
+        val button = findViewById<View>(R.id.btnDownloadCentral)
+        button.isEnabled = false
+        lifecycleScope.launch {
+            try {
+                BackupRoutine.downloadBook(applicationContext, db, BuildConfig.VERSION_NAME, current.contentHash)
+                load(current.id)
+                Toast.makeText(this@BookDetailActivity, R.string.central_downloaded, Toast.LENGTH_SHORT).show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Toast.makeText(this@BookDetailActivity, e.message ?: "No se pudo descargar.", Toast.LENGTH_LONG).show()
+            } finally { button.isEnabled = true }
+        }
     }
 
     private fun load(bookId: String) {
@@ -447,13 +462,16 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.txtDetailFile).apply {
             text = if (fileAvailable)
                 getString(R.string.detail_file_compact, b.fileName)
-            else getString(R.string.detail_file_missing)
+            else getString(if (BackupRoutine.centralUri(applicationContext) != null) R.string.central_not_downloaded else R.string.detail_file_missing)
             contentDescription = if (fileAvailable)
                 getString(R.string.detail_file_compact, b.fileName)
             else getString(R.string.detail_file_missing)
         }
+        val centralConnected = BackupRoutine.centralUri(applicationContext) != null
+        findViewById<View>(R.id.btnDownloadCentral).visibility =
+            if (!fileAvailable && centralConnected) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnLink).visibility =
-            if (fileAvailable) View.GONE else View.VISIBLE
+            if (fileAvailable || centralConnected) View.GONE else View.VISIBLE
         findViewById<View>(R.id.btnRemoveLocalCopy).visibility =
             if (fileAvailable) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnReadBook).isEnabled = fileAvailable

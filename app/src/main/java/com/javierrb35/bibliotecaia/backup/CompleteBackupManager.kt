@@ -57,20 +57,51 @@ class CompleteBackupManager(
                 "La biblioteca cambió durante la preparación. Repite la copia."
             }
             val archive = File.createTempFile("biblioteca-completa-", ".zip", context.cacheDir)
+            val stage = File(context.cacheDir, "central-export-" + UUID.randomUUID())
+            var writeStarted = false
             try {
-                // Never touch the selected SAF document until every original is verified.
-                for (book in books) {
-                    val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
-                    val source = File(book.localPath).canonicalFile
-                    require(source.parentFile == requiredDir && source.name == book.fileName) {
-                        "No se puede leer el original interno: " + book.title.take(80)
+                check(stage.mkdirs()) { "No se puede preparar la biblioteca central." }
+                val missing = books.filter { book ->
+                    book.localPath.isBlank() || !File(book.localPath).isFile
+                }.map { it.contentHash }.toSet()
+                // Read the exact previous snapshot which will be preserved for rollback.
+                // Never replace a central catalogue with only a subset of its books.
+                if (replaceExisting) safeguardPreviousCopy(uri)
+                val previous = if (replaceExisting) recoveryFile.inputStream().use {
+                    CompleteBackupArchive.read(it, stage, missing)
+                } else null
+                val priorBooks = previous?.let { BackupCodec.fromJson(it.json).books }.orEmpty()
+                require(priorBooks.all { prior -> books.any { it.contentHash == prior.contentHash } }) {
+                    "Hay libros centrales que aún no están en este catálogo. Abre Biblioteca completa antes de guardar."
+                }
+                val byHash = priorBooks.associateBy { it.contentHash }
+                val sources = books.map { book ->
+                    if (book.contentHash in missing) {
+                        val remote = byHash[book.contentHash]
+                            ?: throw IOException("No se encuentra el original central: " + book.title.take(80))
+                        val staged = previous?.staged?.get(CompleteBackupArchive.entryName(remote.id))
+                            ?: throw IOException("No se pudo recuperar el original central.")
+                        book.copy(localPath = staged.absolutePath)
+                    } else {
+                        val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
+                        val source = File(book.localPath).canonicalFile
+                        require(source.parentFile == requiredDir && source.name == book.fileName) {
+                            "No se puede leer el original interno: " + book.title.take(80)
+                        }
+                        book
                     }
                 }
                 val bytes = archive.outputStream().use { output ->
-                    CompleteBackupArchive.write(output, json, books)
+                    CompleteBackupArchive.write(output, json, sources)
                 }
-                if (replaceExisting) safeguardPreviousCopy(uri)
+                if (replaceExisting) {
+                    val currentHash = context.contentResolver.openInputStream(uri)?.use(::sha256)
+                    require(currentHash == sha256(recoveryFile.inputStream())) {
+                        "La biblioteca central ha cambiado durante la preparación. No se sobrescribirá."
+                    }
+                }
                 try {
+                    writeStarted = true
                     overwriteAndVerify(uri, archive)
                     if (replaceExisting) clearRecovery()
                 } catch (e: Exception) {
@@ -92,6 +123,9 @@ class CompleteBackupManager(
                 }
                 ExportResult(books.size, bytes)
             } catch (e: Exception) {
+                // Preparation failures occur before any write. Release only the
+                // rollback snapshot that this attempt created; retain failed-write recovery.
+                if (replaceExisting && hasPendingRecovery() && !writeStarted) clearRecovery()
                 // A newly CREATED SAF document is safe to delete if its first write
                 // fails. Never delete a pre-existing backup selected for replacement.
                 if (!replaceExisting) {
@@ -100,6 +134,7 @@ class CompleteBackupManager(
                 throw e
             } finally {
                 archive.delete()
+                stage.deleteRecursively()
             }
         }
 
@@ -193,7 +228,7 @@ class CompleteBackupManager(
         recoverPreviousCopyInternal(Uri.parse(text))
     }
 
-    suspend fun restoreFrom(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun restoreFrom(uri: Uri, wantedHashes: Set<String>? = null): ImportResult = withContext(Dispatchers.IO) {
         val stage = File(context.cacheDir, "restore-books-" + UUID.randomUUID()).apply {
             check(mkdirs()) { "No se puede preparar la restauración." }
         }
@@ -201,15 +236,19 @@ class CompleteBackupManager(
         var committed = false
         try {
             val content = context.contentResolver.openInputStream(uri)?.use { input ->
-                CompleteBackupArchive.read(input, stage)
+                CompleteBackupArchive.read(input, stage, wantedHashes)
             } ?: throw IllegalArgumentException("No se puede leer el archivo de copia.")
             coroutineContext.ensureActive()
             val fromArchive = BackupCodec.fromJson(content.json).books
+            require(wantedHashes == null || fromArchive.map { it.contentHash }.containsAll(wantedHashes)) {
+                "El libro no está en esta biblioteca central."
+            }
             val existingByHash = database.backupDao().booksAll().associateBy { it.contentHash }
             val finalPaths = linkedMapOf<String, String>()
             val booksBase = File(context.filesDir, "books").canonicalFile
 
             for (incoming in fromArchive) {
+                if (wantedHashes != null && incoming.contentHash !in wantedHashes) continue
                 coroutineContext.ensureActive()
                 val local = existingByHash[incoming.contentHash] ?: incoming
                 val already = File(local.localPath)

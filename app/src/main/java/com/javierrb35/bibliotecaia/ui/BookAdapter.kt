@@ -55,7 +55,8 @@ class BookAdapter(private val onClick: (BookEntity) -> Unit) : RecyclerView.Adap
         holder.boundId = book.id
         holder.title.text = book.title
         holder.authors.text = book.authors ?: ""
-        holder.format.text = if (book.favorite) "${book.format.name}  ★" else book.format.name
+        holder.format.text = (if (book.favorite) "${book.format.name}  ★" else book.format.name) +
+            if (book.localPath.isBlank() || !java.io.File(book.localPath).isFile) " · " + context.getString(R.string.central_not_downloaded) else ""
         val percent = (book.progress.coerceIn(0f, 1f) * 100).roundToInt()
         holder.progress.setProgressCompat(percent, false)
         holder.progress.visibility = if (percent > 0) View.VISIBLE else View.GONE
