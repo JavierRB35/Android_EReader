@@ -63,9 +63,9 @@ object BackupRoutine {
     fun centralUri(context: Context): Uri? {
         val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(CENTRAL_READ_URI, null)?.let(Uri::parse)
-        return uri?.takeIf { chosen ->
+        return status(context).uri ?: uri?.takeIf { chosen ->
             context.contentResolver.persistedUriPermissions.any { it.uri == chosen && it.isReadPermission }
-        } ?: status(context).uri
+        }
     }
 
     suspend fun connectCentral(context: Context, database: AppDatabase, version: String, uri: Uri) =
@@ -162,6 +162,10 @@ object BackupRoutine {
             try {
                 check(!manager.hasPendingRecovery()) {
                     "Existe una copia anterior pendiente de recuperación. Recupérala desde Ajustes."
+                }
+                val readOnly = prefs.getString(CENTRAL_READ_URI, null)?.let(Uri::parse)
+                require(readOnly != uri || current.uri == uri) {
+                    "Esta biblioteca está conectada en modo lectura. No se sobrescribirá desde otro dispositivo."
                 }
                 val signature = libraryFingerprint(app, database, version)
                 if (!force && chosenUri == null &&

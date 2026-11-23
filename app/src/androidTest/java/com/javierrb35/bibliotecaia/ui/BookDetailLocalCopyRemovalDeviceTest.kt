@@ -27,7 +27,7 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class BookDetailLocalCopyRemovalDeviceTest {
-    @Test fun removeLocalCopyLeavesBookAndReadingProgressAndOffersRelink() {
+    @Test fun removeLocalCopyWithoutVerifiedCentralArchiveKeepsOriginal() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val db = AppDatabase.get(context)
@@ -62,19 +62,15 @@ class BookDetailLocalCopyRemovalDeviceTest {
             onView(withId(R.id.btnRemoveLocalCopy)).check(matches(isDisplayed())).perform(click())
             onView(withText(R.string.detail_remove_local_button))
                 .inRoot(isDialog()).perform(click())
-            runBlocking {
-                repeat(60) {
-                    if (db.bookDao().findById(id)?.localPath?.isBlank() == true) return@runBlocking
-                    delay(100)
-                }
-            }
+            instrumentation.waitForIdleSync()
+            runBlocking { delay(500) }
             val retained = runBlocking { db.bookDao().findById(id) }
             assertNotNull("The library entry must remain", retained)
-            assertTrue("The physical local file must be gone", !original.exists())
-            assertEquals("", retained!!.localPath)
+            assertTrue("The unbacked original must not be deleted", original.exists())
+            assertEquals(original.absolutePath, retained!!.localPath)
             assertTrue(retained.favorite)
             assertEquals(0.45f, retained.progress, 0.001f)
-            onView(withId(R.id.btnLink)).check(matches(isDisplayed()))
+            onView(withId(R.id.btnRemoveLocalCopy)).check(matches(isDisplayed()))
             assertFalse(activity.isFinishing)
         } finally {
             instrumentation.runOnMainSync { activity.finish() }

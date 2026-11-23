@@ -32,6 +32,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -234,8 +235,8 @@ class MainActivity : AppCompatActivity() {
                 combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow, centralFlow) { q, s, f, c, central ->
                     db.bookDao().search(q, s, if (f) 1 else 0, c) to central
                 }.flatMapLatest { (flow, central) ->
-                    kotlinx.coroutines.flow.combine(flow, kotlinx.coroutines.flow.flowOf(central)) { all, showAll ->
-                        if (showAll) all else all.filter {
+                    flow.map { all ->
+                        if (central) all else all.filter {
                             it.localPath.isNotBlank() && java.io.File(it.localPath).isFile
                         }
                     }

@@ -67,6 +67,23 @@ class SingleFileBackupInstrumentedTest {
             assertFalse(manager.hasPendingRecovery())
             assertEquals(1, testDir.listFiles()?.count { it.extension == "zip" })
 
+            // Simulate eviction after the central archive was verified.
+            val firstHash = hash(original1)
+            assertTrue(original1.delete())
+            assertEquals(1, db.bookDao().clearLocalPath(id1, original1.absolutePath))
+            assertEquals(2, manager.exportTo(uri, replaceExisting = true).books)
+            assertFalse(original1.exists())
+            val metadataOnlyDb = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            try {
+                val secondDevice = CompleteBackupManager(context, metadataOnlyDb, "0.1.0")
+                assertEquals(0, secondDevice.restoreFrom(uri, emptySet()).originals)
+                assertEquals(2, metadataOnlyDb.backupDao().booksAll().size)
+                assertTrue(metadataOnlyDb.backupDao().booksAll().all { it.localPath.isBlank() })
+                assertEquals(1, secondDevice.restoreFrom(uri, setOf(firstHash)).originals)
+                val downloaded = metadataOnlyDb.bookDao().findById(id1)!!
+                assertEquals(firstHash, hash(File(downloaded.localPath)))
+                assertTrue(metadataOnlyDb.bookDao().findById(id2)!!.localPath.isBlank())
+            } finally { metadataOnlyDb.close() }
             val stage = File(testDir, "stage-" + UUID.randomUUID()).apply { mkdirs() }
             try {
                 val contents = target.inputStream().use { CompleteBackupArchive.read(it, stage) }

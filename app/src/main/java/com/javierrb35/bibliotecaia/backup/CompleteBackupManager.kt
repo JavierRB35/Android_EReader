@@ -77,8 +77,9 @@ class CompleteBackupManager(
                 val byHash = priorBooks.associateBy { it.contentHash }
                 val sources = books.map { book ->
                     if (book.contentHash in missing) {
-                        val remote = byHash[book.contentHash]
-                            ?: throw IOException("No se encuentra el original central: " + book.title.take(80))
+                        val remote = requireNotNull(byHash[book.contentHash]) {
+                            "No se encuentra el original central: " + book.title.take(80)
+                        }
                         val staged = previous?.staged?.get(CompleteBackupArchive.entryName(remote.id))
                             ?: throw IOException("No se pudo recuperar el original central.")
                         book.copy(localPath = staged.absolutePath)

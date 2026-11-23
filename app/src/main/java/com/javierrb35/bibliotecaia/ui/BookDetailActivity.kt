@@ -416,6 +416,7 @@ class BookDetailActivity : AppCompatActivity() {
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
+                findViewById<View>(R.id.btnLink).visibility = View.VISIBLE
                 Toast.makeText(this@BookDetailActivity, e.message ?: "No se pudo descargar.", Toast.LENGTH_LONG).show()
             } finally { button.isEnabled = true }
         }
@@ -458,7 +459,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnCycleStatus).contentDescription =
             getString(R.string.detail_status_content, status)
 
-        val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).exists()
+        val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).isFile
         findViewById<TextView>(R.id.txtDetailFile).apply {
             text = if (fileAvailable)
                 getString(R.string.detail_file_compact, b.fileName)
