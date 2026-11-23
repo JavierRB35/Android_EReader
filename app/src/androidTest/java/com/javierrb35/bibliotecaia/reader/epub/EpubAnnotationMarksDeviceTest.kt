@@ -156,4 +156,46 @@ class EpubAnnotationMarksDeviceTest {
         }
     }
 
+
+    @Test fun deletingNoteAlsoRemovesOnlyTheUnderlineOnItsExactSavedSelection() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val bookId = "annotation-delete-regression"
+            db.bookDao().insert(BookEntity(
+                id = bookId, title = "Prueba borrado", authors = null,
+                format = BookFormat.EPUB, fileName = "test.epub", localPath = "",
+                contentHash = "edition-delete", sizeBytes = 128, addedAt = 1
+            ))
+            val repo = ReadingRepository(db)
+            val quote = "Las palabras escogidas"
+            val exact = readiumLocator("chapter1.xhtml", quote)
+            val otherPlace = readiumLocator("chapter2.xhtml", quote)
+            val note = repo.addAnnotation(bookId, exact, quote, "Reflexión", "NOTE")
+            val companionUnderline = repo.addAnnotation(bookId, exact, quote, "", "HIGHLIGHT")
+            val anotherUnderline = repo.addAnnotation(bookId, otherPlace, quote, "", "HIGHLIGHT")
+            val otherQuote = repo.addAnnotation(bookId, exact, "Otro fragmento", "", "HIGHLIGHT")
+            val independentNote = repo.addAnnotation(bookId, exact, quote, "Otra reflexión", "NOTE")
+            val bookmark = repo.addAnnotation(bookId, exact, "", "", "BOOKMARK")
+
+            assertEquals(6, repo.observeAnnotations(bookId).first().size)
+            repo.setDeleted(note, true)
+            val active = repo.observeAnnotations(bookId).first()
+            assertEquals(setOf(anotherUnderline, otherQuote, independentNote, bookmark),
+                active.map { it.id }.toSet())
+            assertTrue(db.readingDao().annotation(note)?.deletedAt != null)
+            assertTrue(db.readingDao().annotation(companionUnderline)?.deletedAt != null)
+            assertEquals(setOf(anotherUnderline, otherQuote, independentNote),
+                EpubAnnotationMarks.forReadium(active).map { it.id }.toSet())
+
+            // Restore the note from the trash: its own visual mark comes back.
+            // Previously independent underlines are not resurrected by accident.
+            repo.setDeleted(note, false)
+            assertEquals(setOf(note, anotherUnderline, otherQuote, independentNote, bookmark),
+                repo.observeAnnotations(bookId).first().map { it.id }.toSet())
+            assertTrue(db.readingDao().annotation(companionUnderline)?.deletedAt != null)
+        } finally {
+            db.close()
+        }
+    }
 }
