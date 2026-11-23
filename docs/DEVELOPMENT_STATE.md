@@ -8,7 +8,7 @@
 
 ## BORRADO DE NOTAS Y SUS MARCADOS — 23/11/2026
 
-- Rama `fix/note-deletion-clears-highlight-20261123`. Cuando se elimina una `NOTE` con selección de texto, `ReadingRepository.setDeleted` envía a la papelera **en una sola transacción Room** esa nota y cualquier `HIGHLIGHT` independiente que corresponda al **mismo libro, locator exacto y cita exacta**. No elimina subrayados de otros lugares que tengan idénticas palabras ni marcadores, ni toca los libros originales.
+- Rama `fix/note-deletion-clears-highlight-20261123`. Cuando se elimina una `NOTE` con selección de texto, `ReadingRepository.setDeleted` envía a la papelera **en una sola transacción Room** esa nota y cualquier subrayado simple (`HIGHLIGHT` sin texto de nota propio) que corresponda al **mismo libro, locator exacto y cita exacta**. No elimina subrayados de otros lugares que tengan idénticas palabras ni marcadores, ni toca los libros originales.
 - EPUB (Readium y TextView), MOBI y PDF/OCR ya observan en tiempo real las anotaciones activas: desaparecen nota y subrayado al cambiar la lista emitida por Room. La anotación y el subrayado asociados permanecen en la papelera con su historial para backup; restaurar la nota vuelve a dibujar su propia marca, pero no reactiva automáticamente un subrayado independiente.
 - Prueba Android de regresión ampliada en `EpubAnnotationMarksDeviceTest`: borrado selectivo con notas y marcados superpuestos, preservación de otro locator y cita, lectura de Room, y restauración. **Estado al registrar: código escrito en rama; CI y test en dispositivo pendientes de resultado.** No afirmar QA en teléfono hasta disponer de evidencia.
 
