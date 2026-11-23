@@ -23,6 +23,7 @@ import com.google.android.material.chip.ChipGroup
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
+import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.importer.BookImporter
 import com.javierrb35.bibliotecaia.importer.ImportError
@@ -125,8 +126,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
         lifecycleScope.launch {
+            // Pull peer positions before any automatic ZIP backup attempt.
+            // Do not treat a failed peer read as evidence that the remote is current.
+            val remoteChecked = ReadingPositionSafSync.refresh(applicationContext, db)
+            // A shared ZIP remains a single-writer backup, NOT a sync channel.
+            // With peer devices configured, do not silently overwrite it with
+            // a possibly stale full library; keep manual backup in Settings.
+            if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
+                BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+            }
             val latest = db.bookDao().lastRead()
             val card = findViewById<View>(R.id.recentBookCard)
             // Collection pages stay focused on their own content.
@@ -250,7 +259,10 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.import_success, book.title),
                     Toast.LENGTH_LONG
                 ).show()
-                BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+                val remoteChecked = ReadingPositionSafSync.refresh(applicationContext, db)
+                if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
+                    BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ImportError) {

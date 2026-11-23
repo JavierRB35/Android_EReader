@@ -25,6 +25,7 @@ import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
+import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
@@ -46,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var backupError: TextView
     private lateinit var backupRecovery: MaterialButton
     private lateinit var backupPrimary: MaterialButton
+    private lateinit var positionSyncStatus: TextView
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -84,6 +86,57 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private val createPositionSyncFile = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data = result.data
+            val uri = data?.data
+            if (uri != null && persistSyncPermission(uri, data.flags, write = true)) {
+                lifecycleScope.launch {
+                    try {
+                        ReadingPositionSafSync.setOwn(applicationContext, db, uri)
+                        refreshPositionSyncStatus()
+                        Toast.makeText(this@SettingsActivity,
+                            "Archivo de lectura del dispositivo configurado.", Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@SettingsActivity,
+                            e.message ?: "No se pudo preparar la sincronización.",
+                            Toast.LENGTH_LONG).show()
+                        refreshPositionSyncStatus()
+                    }
+                }
+            }
+        }
+    }
+
+    private val addPositionSyncPeer = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val data = result.data
+            val uri = data?.data
+            if (uri != null && persistSyncPermission(uri, data.flags, write = false)) {
+                lifecycleScope.launch {
+                    try {
+                        ReadingPositionSafSync.addPeer(applicationContext, uri)
+                        val ok = ReadingPositionSafSync.refresh(applicationContext, db)
+                        refreshPositionSyncStatus()
+                        Toast.makeText(this@SettingsActivity,
+                            if (ok) "Dispositivo vinculado y posiciones comprobadas."
+                            else "Vinculado, pero la sincronización necesita revisión.",
+                            Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@SettingsActivity,
+                            e.message ?: "No se pudo vincular el archivo.",
+                            Toast.LENGTH_LONG).show()
+                        refreshPositionSyncStatus()
+                    }
+                }
+            }
+        }
+    }
+
     private val importBackup = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) confirmRestore(uri) }
@@ -107,10 +160,65 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
+        section(layout, "Sincronización entre dispositivos")
+        val syncCard = card(layout)
+        hint(syncCard, "Una vez por dispositivo: crea su archivo JSON en Drive. " +
+            "Después vincula en este dispositivo, como lectura, los archivos creados " +
+            "en tus otros dispositivos. Cada dispositivo escribe solo el suyo. " +
+            "No se requiere cuenta ni OAuth en BibliotecaAI.")
+        positionSyncStatus = hint(syncCard, "")
+        action(syncCard, "Crear archivo de este dispositivo") {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE,
+                    ReadingPositionSafSync.suggestedName(this@SettingsActivity))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+            createPositionSyncFile.launch(intent)
+        }
+        action(syncCard, "Vincular archivo de otro dispositivo") {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+            addPositionSyncPeer.launch(intent)
+        }
+        action(syncCard, "Sincronizar posiciones ahora") {
+            lifecycleScope.launch {
+                val success = ReadingPositionSafSync.refresh(applicationContext, db)
+                refreshPositionSyncStatus()
+                Toast.makeText(this@SettingsActivity,
+                    if (success) "Posiciones sincronizadas."
+                    else "No se pudo sincronizar. Consulta el estado.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+        action(syncCard, "Desvincular archivos de otros dispositivos") {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setMessage("Se olvidarán los archivos de los otros dispositivos. " +
+                    "No se borrará ningún archivo de Drive ni ningún dato local.")
+                .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                    ReadingPositionSafSync.unlinkPeers(this)
+                    refreshPositionSyncStatus()
+                }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .show()
+        }
+        refreshPositionSyncStatus()
+
         section(layout, getString(R.string.settings_backup))
 
         val backupCard = card(layout)
         hint(backupCard, getString(R.string.settings_backup_intro))
+        hint(backupCard, "Atención: el ZIP completo sigue siendo una copia de recuperación, " +
+            "no un archivo colaborativo. Si usas varios dispositivos, no sustituyas " +
+            "el ZIP compartido desde un dispositivo desactualizado. La " +
+            "sincronización segura inicial comprende solo posiciones de lectura.")
         backupStatus = hint(backupCard, "")
         backupError = hint(backupCard, "")
 
@@ -154,6 +262,38 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::backupStatus.isInitialized) refreshBackupStatus()
+        if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
+    }
+
+    private fun refreshPositionSyncStatus() {
+        if (!::positionSyncStatus.isInitialized) return
+        val sync = ReadingPositionSafSync.status(this)
+        positionSyncStatus.text = buildString {
+            append(if (sync.ownConfigured) "Archivo propio configurado" else
+                "Sin archivo propio. Crea uno para activar la sincronización")
+            append(" · Otros dispositivos: ").append(sync.peerCount)
+            if (sync.lastSuccess > 0) {
+                append("\nÚltima comprobación: ")
+                append(DateFormat.getDateTimeInstance().format(Date(sync.lastSuccess)))
+            }
+            if (sync.lastError.isNotBlank()) {
+                append("\nError: ").append(sync.lastError)
+            }
+        }
+    }
+
+    private fun persistSyncPermission(uri: Uri, flags: Int, write: Boolean): Boolean {
+        return try {
+            val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val mask = if (write) read or Intent.FLAG_GRANT_WRITE_URI_PERMISSION else read
+            require((flags and mask) == mask) { "Permisos SAF insuficientes." }
+            contentResolver.takePersistableUriPermission(uri, mask)
+            true
+        } catch (_: Exception) {
+            Toast.makeText(this, "No se pudo conservar el permiso del archivo.",
+                Toast.LENGTH_LONG).show()
+            false
+        }
     }
 
     private fun refreshBackupStatus() {
