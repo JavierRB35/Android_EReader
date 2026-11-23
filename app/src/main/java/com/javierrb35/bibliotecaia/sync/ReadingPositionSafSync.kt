@@ -7,7 +7,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingPositionEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -34,7 +34,18 @@ object ReadingPositionSafSync {
     private const val LAST_ERROR = "last_error"
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var pendingPublish: Job? = null
+    private val publicationRequests = Channel<Context>(Channel.CONFLATED)
+
+    init {
+        scope.launch {
+            for (context in publicationRequests) {
+                delay(3000)
+                // Conflated channel ensures newer movements remain queued even
+                // if an earlier SAF write is already in progress.
+                publish(context, AppDatabase.get(context))
+            }
+        }
+    }
 
     data class Status(val ownConfigured: Boolean, val peerCount: Int,
                       val lastSuccess: Long, val lastError: String)
@@ -157,14 +168,25 @@ object ReadingPositionSafSync {
                     check(documents.map { it.deviceId }.distinct().size == documents.size) {
                         "Hay dos archivos vinculados para el mismo dispositivo."
                     }
-                    val latest = ReadingPositionFileCodec.newest(documents.flatMap { it.positions })
+                    val localBooks = database.backupDao().booksAll().associateBy { it.id }
+                    val localRecords = database.backupDao().positionsAll().mapNotNull { position ->
+                        val book = localBooks[position.bookId] ?: return@mapNotNull null
+                        ReadingPositionRecord(book.contentHash, position.locator, position.progress,
+                            position.updatedAt, id)
+                    }
+                    val latest = ReadingPositionFileCodec.newest(
+                        documents.flatMap { it.positions } + localRecords)
                     database.withTransaction {
                         val books = database.backupDao().booksAll().associateBy { it.contentHash }
                         for ((hash, incoming) in latest) {
                             val book = books[hash] ?: continue
                             val existing = database.backupDao().positionFor(book.id)
                             // A user moving backwards is valid; never compare progress itself.
-                            if (existing == null || incoming.updatedAt > existing.updatedAt) {
+                            if (existing == null || incoming.updatedAt > existing.updatedAt ||
+                                (incoming.updatedAt == existing.updatedAt &&
+                                    incoming.deviceId > id &&
+                                    (incoming.locator != existing.locator ||
+                                        incoming.progress != existing.progress))) {
                                 database.backupDao().insertPositionReplace(
                                     ReadingPositionEntity(book.id, incoming.locator,
                                         incoming.progress, incoming.updatedAt))
@@ -190,15 +212,7 @@ object ReadingPositionSafSync {
     fun requestPublish(context: Context) {
         val app = context.applicationContext
         if (own(app) == null) return
-        pendingPublish?.cancel()
-        pendingPublish = scope.launch {
-            delay(3000)
-            try {
-                publish(app, AppDatabase.get(app))
-            } catch (e: Exception) {
-                error(app, e)
-            }
-        }
+        publicationRequests.trySend(app)
     }
 
     suspend fun publish(context: Context, database: AppDatabase): Boolean =
