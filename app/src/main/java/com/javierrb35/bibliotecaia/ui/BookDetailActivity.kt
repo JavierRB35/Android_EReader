@@ -28,6 +28,7 @@ import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.ReadingStatus
 import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
+import com.javierrb35.bibliotecaia.importer.LibraryBookRemover
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +107,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
+        findViewById<View>(R.id.btnDeleteBook).setOnClickListener { confirmDeleteBook() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
@@ -400,6 +402,37 @@ class BookDetailActivity : AppCompatActivity() {
                         load(current.id)
                         Toast.makeText(this@BookDetailActivity,
                             R.string.detail_remove_local_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun confirmDeleteBook() {
+        val current = book ?: return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.detail_delete_book_title)
+            .setMessage(getString(R.string.detail_delete_book_confirm, current.title))
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(R.string.detail_delete_book_button) { _, _ ->
+                val button = findViewById<View>(R.id.btnDeleteBook)
+                button.isEnabled = false
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            LibraryBookRemover.delete(db, filesDir, current.id)
+                        }
+                        book = null
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_delete_book_done, Toast.LENGTH_SHORT).show()
+                        finish()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        button.isEnabled = true
+                        load(current.id)
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_delete_book_failed, Toast.LENGTH_LONG).show()
                     }
                 }
             }

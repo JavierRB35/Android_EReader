@@ -171,6 +171,17 @@
             android:textColor="@color/bia_text_secondary"
             android:visibility="gone" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDeleteBook"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:minHeight="48dp"
+            android:text="@string/detail_delete_book_button"
+            android:textAllCaps="false"
+            android:textColor="@color/bia_text_secondary" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
