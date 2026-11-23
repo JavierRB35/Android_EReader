@@ -2,10 +2,15 @@ package com.javierrb35.bibliotecaia.data
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import java.util.UUID
 
-class ReadingRepository(private val db: AppDatabase) {
-    constructor(context: Context) : this(AppDatabase.get(context.applicationContext))
+class ReadingRepository(
+    private val db: AppDatabase,
+    private val appContext: Context? = null
+) {
+    constructor(context: Context) : this(AppDatabase.get(context.applicationContext),
+        context.applicationContext)
     private val dao = db.readingDao()
 
     suspend fun position(bookId: String) = dao.position(bookId)
@@ -15,14 +20,19 @@ class ReadingRepository(private val db: AppDatabase) {
         require(locator.length <= 65536 && locator.isNotBlank())
         require(progress.isFinite())
         val bounded = progress.coerceIn(0f, 1f)
+        var changed = false
         db.withTransaction {
             requireNotNull(db.bookDao().findById(bookId))
             val previous = dao.position(bookId)
             if (previous?.locator == locator && previous.progress == bounded) return@withTransaction
-            val now = System.currentTimeMillis()
+            // A real movement after restoring a peer position must be newer.
+            // Re-saving the same location never refreshes its timestamp.
+            val now = maxOf(System.currentTimeMillis(), (previous?.updatedAt ?: 0L) + 1L)
             dao.savePosition(ReadingPositionEntity(bookId, locator, bounded, now))
             dao.updateBookProgress(bookId, bounded, now)
+            changed = true
         }
+        if (changed) appContext?.let(ReadingPositionSafSync::requestPublish)
     }
 
     suspend fun addAnnotation(bookId: String?, locator: String?, quote: String, body: String,
