@@ -61,6 +61,10 @@ interface BookDao {
     @Update
     suspend fun update(book: BookEntity)
 
+    /** Clear only the removed file reference, without overwriting book metadata. */
+    @Query("UPDATE books SET localPath = '' WHERE id = :bookId AND localPath = :expectedPath")
+    suspend fun clearLocalPath(bookId: String, expectedPath: String): Int
+
     @Query("SELECT COUNT(*) FROM books")
     suspend fun count(): Int
 
