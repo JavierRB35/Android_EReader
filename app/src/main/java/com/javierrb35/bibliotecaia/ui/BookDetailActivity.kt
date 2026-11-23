@@ -460,19 +460,21 @@ class BookDetailActivity : AppCompatActivity() {
             getString(R.string.detail_status_content, status)
 
         val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).isFile
+        val centralHashes = BackupRoutine.centralHashes(applicationContext)
+        val inCentral = centralHashes?.contains(b.contentHash) == true
+        val centralUnknown = centralHashes == null && BackupRoutine.centralUri(applicationContext) != null
         findViewById<TextView>(R.id.txtDetailFile).apply {
             text = if (fileAvailable)
                 getString(R.string.detail_file_compact, b.fileName)
-            else getString(if (BackupRoutine.centralUri(applicationContext) != null) R.string.central_not_downloaded else R.string.detail_file_missing)
+            else getString(if (inCentral) R.string.central_not_downloaded else R.string.central_original_missing)
             contentDescription = if (fileAvailable)
                 getString(R.string.detail_file_compact, b.fileName)
-            else getString(R.string.detail_file_missing)
+            else text
         }
-        val centralConnected = BackupRoutine.centralUri(applicationContext) != null
         findViewById<View>(R.id.btnDownloadCentral).visibility =
-            if (!fileAvailable && centralConnected) View.VISIBLE else View.GONE
+            if (!fileAvailable && (inCentral || centralUnknown)) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnLink).visibility =
-            if (fileAvailable || centralConnected) View.GONE else View.VISIBLE
+            if (!fileAvailable && !inCentral) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnRemoveLocalCopy).visibility =
             if (fileAvailable) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnReadBook).isEnabled = fileAvailable

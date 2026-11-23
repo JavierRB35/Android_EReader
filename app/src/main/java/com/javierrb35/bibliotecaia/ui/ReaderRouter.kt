@@ -18,6 +18,10 @@ object ReaderRouter {
                 Toast.makeText(activity, "No se encuentra el libro de origen", Toast.LENGTH_LONG).show()
                 return@launch
             }
+            if (!com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(book)) {
+                BookDetailActivity.start(activity, book.id)
+                return@launch
+            }
             when (book.format) {
                 BookFormat.EPUB -> EpubReaderActivity.start(activity, bookId, locator)
                 BookFormat.PDF -> PdfReaderActivity.start(activity, bookId, locator)

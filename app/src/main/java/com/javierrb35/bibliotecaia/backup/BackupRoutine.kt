@@ -68,13 +68,29 @@ object BackupRoutine {
         }
     }
 
+    /** Null means the current archive has not yet been verified on this device.
+     * Do not confuse a stale Room catalogue with verified central originals. */
+    fun centralHashes(context: Context): Set<String>? {
+        val uri = centralUri(context) ?: return null
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getString("central_index_uri", null) != uri.toString()) return null
+        return prefs.getStringSet("central_index_hashes", null)?.toSet()
+    }
+
+    private fun rememberCentral(context: Context, uri: Uri, hashes: Set<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("central_index_uri", uri.toString())
+            .putStringSet("central_index_hashes", hashes.toSet()).apply()
+    }
+
     suspend fun connectCentral(context: Context, database: AppDatabase, version: String, uri: Uri) =
         withContext(Dispatchers.IO) {
             lock.withLock {
-                CompleteBackupManager(context.applicationContext, database, version)
+                val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, emptySet())
                 check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                     .putString(CENTRAL_READ_URI, uri.toString()).commit())
+                rememberCentral(context, uri, result.catalogueHashes)
             }
         }
 
@@ -82,8 +98,9 @@ object BackupRoutine {
         withContext(Dispatchers.IO) {
             lock.withLock {
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
-                CompleteBackupManager(context.applicationContext, database, version)
+                val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, emptySet())
+                rememberCentral(context, uri, result.catalogueHashes)
             }
         }
 
@@ -91,8 +108,10 @@ object BackupRoutine {
         withContext(Dispatchers.IO) {
             lock.withLock {
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
-                CompleteBackupManager(context.applicationContext, database, version)
+                val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, setOf(hash))
+                rememberCentral(context, uri, result.catalogueHashes)
+                result
             }
         }
 
@@ -115,7 +134,9 @@ object BackupRoutine {
                     val result = context.contentResolver.openInputStream(uri)?.use {
                         CompleteBackupArchive.read(it, stage, emptySet())
                     } ?: error("No se puede leer la biblioteca central.")
-                    require(BackupCodec.fromJson(result.json).books.any {
+                    val centralBooks = BackupCodec.fromJson(result.json).books
+                    rememberCentral(context, uri, centralBooks.map { it.contentHash }.toSet())
+                    require(centralBooks.any {
                         it.contentHash == book.contentHash && it.sizeBytes == book.sizeBytes
                     }) { "El original aún no está guardado en la biblioteca central." }
                 } finally { stage.deleteRecursively() }
@@ -173,7 +194,8 @@ object BackupRoutine {
                     prefs.getLong(LAST_SUCCESS, 0L) > 0L
                 ) return@withLock Result.UNCHANGED
 
-                manager.exportTo(uri, replaceExisting = replaceExisting)
+                val exported = manager.exportTo(uri, replaceExisting = replaceExisting)
+                rememberCentral(app, uri, exported.catalogueHashes)
                 // Re-read the fingerprint AFTER saving. A change arriving during
                 // the export must be saved on the next launch, not silently omitted.
                 val after = libraryFingerprint(app, database, version)
