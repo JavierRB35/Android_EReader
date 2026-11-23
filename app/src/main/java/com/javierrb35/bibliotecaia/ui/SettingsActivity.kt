@@ -215,6 +215,10 @@ class SettingsActivity : AppCompatActivity() {
 
         val backupCard = card(layout)
         hint(backupCard, getString(R.string.settings_backup_intro))
+        hint(backupCard, "Atención: el ZIP completo sigue siendo una copia de recuperación, " +
+            "no un archivo colaborativo. Si usas varios dispositivos, no sustituyas " +
+            "el ZIP compartido desde un dispositivo desactualizado. La " +
+            "sincronización segura inicial comprende solo posiciones de lectura.")
         backupStatus = hint(backupCard, "")
         backupError = hint(backupCard, "")
 
