@@ -23,6 +23,11 @@ interface ReadingDao {
     @Query("SELECT * FROM annotations WHERE id = :id")
     suspend fun annotation(id: String): AnnotationEntity?
 
+    /** Exact persisted text anchor only: never remove a matching quote elsewhere in a book. */
+    @Query("SELECT * FROM annotations WHERE bookId = :bookId AND locator = :locator " +
+        "AND quote = :quote AND kind = 'HIGHLIGHT' AND deletedAt IS NULL")
+    suspend fun activeHighlightsAt(bookId: String, locator: String, quote: String): List<AnnotationEntity>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAnnotation(note: AnnotationEntity)
 
