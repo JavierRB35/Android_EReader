@@ -51,6 +51,18 @@ class SettingsActivity : AppCompatActivity() {
             com.javierrb35.bibliotecaia.sync.SharedLibrary.connect(applicationContext, db, uri)
         }
     }
+    private val sharedFileOwn = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri)
+        }
+    }
+    private val sharedFilePeer = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.addFilePeer(applicationContext, db, uri)
+        }
+    }
     private val sharedMigration = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) sharedAction {
             com.javierrb35.bibliotecaia.sync.SharedLibrary.migrateZip(applicationContext, db, uri)
@@ -193,6 +205,17 @@ class SettingsActivity : AppCompatActivity() {
         hint(sharedCard, "Elige la misma carpeta en cada dispositivo. Debe permitir listar, crear y leer archivos mediante Android. El ZIP anterior se conserva como copia independiente. No todos los proveedores ofrecen acceso a carpetas.")
         sharedStatus = hint(sharedCard, com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext))
         action(sharedCard, "Conectar carpeta central") { sharedFolder.launch(null) }
+        hint(sharedCard, "Si Drive no ofrece seleccionar carpetas, crea un contenedor propio en cada dispositivo y vincula el de los demás. Cada dispositivo escribe únicamente su archivo. La copia ZIP de recuperación es independiente.")
+        action(sharedCard, "Crear contenedor de este dispositivo") {
+            if (!com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedFileOwn.launch("BibliotecaIA-central-" + com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
+            else Toast.makeText(this, "Ya hay una biblioteca configurada.", Toast.LENGTH_LONG).show()
+        }
+        action(sharedCard, "Vincular contenedor de otro dispositivo") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.fileMode(applicationContext))
+                sharedFilePeer.launch(arrayOf("application/zip", "application/octet-stream"))
+            else Toast.makeText(this, "Crea primero tu contenedor propio.", Toast.LENGTH_LONG).show()
+        }
         action(sharedCard, "Migrar copia ZIP existente") {
             if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
                 sharedMigration.launch(arrayOf("application/zip", "application/octet-stream"))

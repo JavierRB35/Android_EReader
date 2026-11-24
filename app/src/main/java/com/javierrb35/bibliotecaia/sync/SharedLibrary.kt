@@ -40,11 +40,43 @@ object SharedLibrary {
     fun hashes(context: Context): Set<String> = prefs(context).getStringSet("hashes", emptySet()).orEmpty().toSet()
     fun status(context: Context): String = prefs(context).getString("status", "Sin carpeta central configurada.").orEmpty()
 
-    private fun store(context: Context, tree: Uri = requireNotNull(uri(context))): SharedDocumentStore {
+    private fun folderStore(context: Context, tree: Uri): SharedDocumentStore {
         require(context.contentResolver.persistedUriPermissions.any {
             it.uri == tree && it.isReadPermission && it.isWritePermission
         }) { "La carpeta central no tiene permiso persistente de lectura y escritura." }
         return SharedDocumentStore(context, tree)
+    }
+    private fun filePeers(context: Context): List<Uri> =
+        prefs(context).getStringSet("file_peers", emptySet()).orEmpty().map(Uri::parse)
+    private fun store(context: Context): SharedStore {
+        val selected = requireNotNull(uri(context)) { "Conecta una biblioteca central." }
+        return if (prefs(context).getString("mode", "folder") == "files")
+            SharedFileStore(context, selected, filePeers(context), ReadingPositionSafSync.deviceId(context))
+        else folderStore(context, selected)
+    }
+    fun fileMode(context: Context): Boolean = configured(context) && prefs(context).getString("mode", "folder") == "files"
+    suspend fun connectFile(context: Context, db: AppDatabase, own: Uri) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(!configured(context)) { "Ya existe una biblioteca central configurada." }
+            SharedFileStore(context, own, emptyList(), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
+            check(prefs(context).edit().putString("tree", own.toString()).putString("mode", "files").commit())
+        }
+        schedule(context)
+        sync(context, db)
+    }
+    suspend fun addFilePeer(context: Context, db: AppDatabase, peer: Uri) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(fileMode(context)) { "Crea primero el contenedor propio." }
+            val own = requireNotNull(uri(context))
+            require(peer != own)
+            val peers = (filePeers(context) + peer).distinct()
+            require(peers.size <= 10)
+            SharedFileStore(context, own, listOf(peer), ReadingPositionSafSync.deviceId(context)).use {
+                require(it.readErrors.isEmpty()) { it.readErrors.joinToString(" · ") }
+            }
+            check(prefs(context).edit().putStringSet("file_peers", peers.map(Uri::toString).toSet()).commit())
+        }
+        sync(context, db)
     }
     private fun publishStatus(context: Context, hashes: Set<String>, errors: List<String>) {
         val message = if (errors.isEmpty()) "Biblioteca comprobada: " + hashes.size + " originales."
@@ -57,8 +89,9 @@ object SharedLibrary {
             require(uri(context) == null || uri(context) == tree) {
                 "La biblioteca ya tiene una carpeta configurada. No se cambiará sin migración explícita."
             }
-            store(context, tree).probe()
-            check(prefs(context).edit().putString("tree", tree.toString()).commit())
+            require(!fileMode(context)) { "Ya hay un contenedor de archivos configurado." }
+            folderStore(context, tree).use { it.probe() }
+            check(prefs(context).edit().putString("tree", tree.toString()).putString("mode", "folder").commit())
         }
         schedule(context)
         sync(context, db)
@@ -102,7 +135,7 @@ object SharedLibrary {
         val items = files.groupBy { it.name }.filterValues { it.size == 1 }.mapValues { it.value.single() }
         val states = mutableListOf<String>()
         val found = mutableListOf<Receipt>()
-        val errors = mutableListOf<String>()
+        val errors = store.readErrors.toMutableList()
         val perDevice = files.mapNotNull { item ->
             stateName.matchEntire(item.name)?.takeIf { it.groupValues[2].toLongOrNull() != null }?.let { it to item }
         }.groupBy { it.first.groupValues[1] }
@@ -171,7 +204,7 @@ object SharedLibrary {
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val result = syncStore(store(context), db, ReadingPositionSafSync.deviceId(context))
+            val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context)) }
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }
@@ -198,11 +231,12 @@ object SharedLibrary {
             }
             // A failed upload does not block the other books or reading state.
             publish(owner, store, db, known.values.flatten())
+            store.commit()
             return StoreResult(available, errors)
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = store(context)
+            store(context).use { store ->
             val inv = inventory(store)
             val stage = File(context.cacheDir, "shared-migrate-" + UUID.randomUUID())
             check(stage.mkdirs())
@@ -222,9 +256,11 @@ object SharedLibrary {
                 }
                 BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(content.json, synchronize = true)
                 publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
+                store.commit()
                 publishStatus(context, available, inv.errors)
                 Result(available.size, inv.errors)
             } finally { stage.deleteRecursively() }
+            }
         }
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
@@ -241,7 +277,7 @@ object SharedLibrary {
     }
     suspend fun download(context: Context, db: AppDatabase, hash: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = store(context)
+            store(context).use { store ->
             val inv = inventory(store)
             val manager = BackupManager(db, BuildConfig.VERSION_NAME)
             for (json in inv.states) {
@@ -259,6 +295,7 @@ object SharedLibrary {
                     ?: error("No se puede colocar el original en el dispositivo.")
                 db.bookDao().update(linked)
             } finally { file.delete() }
+            }
         }
     }
     suspend fun evict(context: Context, db: AppDatabase, id: String) {
@@ -266,7 +303,7 @@ object SharedLibrary {
         require(result.errors.isEmpty()) { "Sincronización incompleta; no se retirará el original." }
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                val store = store(context)
+                store(context).use { store ->
                 val inv = inventory(store)
                 val book = db.bookDao().findById(id) ?: error("Libro no encontrado.")
                 require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
@@ -276,6 +313,7 @@ object SharedLibrary {
                 }) { "No se pudo comprobar el original central. Se conserva el archivo local." }
                 LocalBookCopyRemover.delete(context.filesDir, book)
                 check(db.bookDao().clearLocalPath(id, book.localPath) == 1)
+                }
             }
         }
     }
@@ -286,13 +324,12 @@ object SharedLibrary {
 
     suspend fun stageOriginal(context: Context, book: BookEntity, file: File) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = store(context)
-            verifiedCopy(store, inventory(store), book, file)
+            store(context).use { store -> verifiedCopy(store, inventory(store), book, file) }
         }
     }
     suspend fun pull(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val inv = inventory(store(context))
+            val inv = store(context).use { inventory(it) }
             val errors = inv.errors.toMutableList()
             val manager = BackupManager(db, BuildConfig.VERSION_NAME)
             for (json in inv.states) {

@@ -12,7 +12,10 @@ import java.util.UUID
 
 /** No shared mutable file. Each publication has a new name; incomplete files
  * are never advertised by a verified receipt. No remote delete or overwrite. */
-internal interface SharedStore {
+internal interface SharedStore : java.io.Closeable {
+    val readErrors: List<String> get() = emptyList()
+    fun commit() {}
+    override fun close() {}
     fun list(): List<SharedDocumentStore.Item>
     fun open(item: SharedDocumentStore.Item): InputStream
     fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item
