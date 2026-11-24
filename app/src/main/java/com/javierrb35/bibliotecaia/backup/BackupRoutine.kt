@@ -38,8 +38,9 @@ object BackupRoutine {
         val lastSuccess: Long,
         val lastError: String,
         val recoveryPending: Boolean,
+        val missingTitles: List<String> = emptyList(),
     )
-    enum class Result { SAVED, UNCHANGED }
+    enum class Result { SAVED, UNCHANGED, PARTIAL }
 
     fun status(context: Context): Status {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -54,6 +55,7 @@ object BackupRoutine {
             uri = uri,
             lastSuccess = prefs.getLong(LAST_SUCCESS, 0),
             lastError = prefs.getString(LAST_ERROR, "").orEmpty(),
+            missingTitles = prefs.getStringSet("missing_original_titles", emptySet()).orEmpty().sorted(),
             recoveryPending = File(context.filesDir, "previous-complete-backup.zip").isFile &&
                 context.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
                     .getString("uri", null) != null,
@@ -150,7 +152,7 @@ object BackupRoutine {
                     val result = context.contentResolver.openInputStream(uri)?.use {
                         CompleteBackupArchive.read(it, stage, emptySet())
                     } ?: error("No se puede leer la biblioteca central.")
-                    val centralBooks = BackupCodec.fromJson(result.json).books
+                    val centralBooks = BackupCodec.fromJson(result.json).books.filter { it.contentHash !in result.missingHashes }
                     rememberCentral(context, uri, centralBooks.map { it.contentHash }.toSet())
                     require(centralBooks.any {
                         it.contentHash == book.contentHash && it.sizeBytes == book.sizeBytes
@@ -240,10 +242,11 @@ object BackupRoutine {
                         if (after == signature) signature else "")
                     .putLong(LAST_SUCCESS, System.currentTimeMillis())
                     .putString(LAST_ERROR, "")
+                    .putStringSet("missing_original_titles", exported.missingTitles.toSet())
                     .commit()) {
                     "La copia se verificó, pero no se pudo guardar su configuración."
                 }
-                Result.SAVED
+                if (exported.missingTitles.isEmpty()) Result.SAVED else Result.PARTIAL
             } catch (error: Exception) {
                 // A failed attempt must not change an already configured target.
                 prefs.edit().putString(

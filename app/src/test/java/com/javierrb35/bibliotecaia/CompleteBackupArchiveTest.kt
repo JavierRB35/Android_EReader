@@ -102,6 +102,18 @@ class CompleteBackupArchiveTest {
         assertThrows(IllegalArgumentException::class.java) { write(listOf(book)) }
     }
 
+    @Test fun explicitlyMissingOriginalPreservesNotesWithoutPretendingToHaveFile() {
+        val missing = book("missing-notes", "missing-notes.epub", "libro perdido".toByteArray())
+        val good = book("good", "good.pdf", "libro disponible".toByteArray())
+        val metadata = CompleteBackupArchive.withMissingOriginals(json(listOf(missing, good)), setOf(missing.contentHash))
+        val bytes = write(listOf(good), metadata)
+        val result = CompleteBackupArchive.read(ByteArrayInputStream(bytes), dir.newFolder("partial"))
+        assertEquals(setOf(missing.contentHash), result.missingHashes)
+        assertEquals(setOf(CompleteBackupArchive.entryName(good.id)), result.staged.keys)
+        assertEquals(2, BackupCodec.fromJson(result.json).books.size)
+        assertEquals(missing.id, BackupCodec.fromJson(result.json).annotations.single().bookId)
+    }
+
     @Test fun changedOriginalWithSameLengthFailsSha256Check() {
         val book = book("tampered", "tampered.epub", "abcdef".toByteArray())
         File(book.localPath).writeText("ghijkl")

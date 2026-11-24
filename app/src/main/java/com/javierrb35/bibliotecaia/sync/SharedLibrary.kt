@@ -341,7 +341,7 @@ object SharedLibrary {
                 val known = inv.receipts.toMutableMap()
                 val available = inv.availableHashes().toMutableSet()
                 for (book in snapshot.books) {
-                    if (book.contentHash !in available) {
+                    if (book.contentHash !in available && book.contentHash !in content.missingHashes) {
                         val file = content.staged.getValue(CompleteBackupArchive.entryName(book.id))
                         known[book.contentHash] = known[book.contentHash].orEmpty() + upload(store, book, file)
                         available.add(book.contentHash)
@@ -420,16 +420,20 @@ object SharedLibrary {
             store(context).use { store -> verifiedCopy(store, inventory(store), book, file) }
         }
     }
-    suspend fun stageOriginals(context: Context, books: List<BookEntity>, directory: File): Map<String, File> =
+    suspend fun stageOriginals(context: Context, books: List<BookEntity>, directory: File,
+                               skipUnavailable: Boolean = false): Map<String, File> =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 store(context).use { store ->
                     val inv = inventory(store)
-                    books.associate { book ->
+                    books.mapNotNull { book ->
+                        // A provider failure is not proof of absence. Only skip a book
+                        // when inventory was read without errors and no receipt exists.
+                        if (skipUnavailable && !inv.available(book.contentHash) && inv.errors.isEmpty()) return@mapNotNull null
                         val target = File.createTempFile("central-original-", ".bin", directory)
                         verifiedCopy(store, inv, book, target)
                         book.contentHash to target
-                    }
+                    }.toMap()
                 }
             }
         }

@@ -24,8 +24,10 @@ class CompleteBackupManager(
     private val database: AppDatabase,
     private val appVersion: String
 ) {
-    data class ExportResult(val books: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet())
-    data class ImportResult(val report: RestoreReport, val originals: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet())
+    data class ExportResult(val books: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet(),
+                            val missingTitles: List<String> = emptyList())
+    data class ImportResult(val report: RestoreReport, val originals: Int, val originalBytes: Long, val catalogueHashes: Set<String> = emptySet(),
+                            val missingTitles: List<String> = emptyList())
 
     /**
      * Replace the same SAF document after fully constructing the ZIP locally.
@@ -70,25 +72,28 @@ class CompleteBackupManager(
                 val previous = if (replaceExisting) recoveryFile.inputStream().use {
                     CompleteBackupArchive.read(it, stage, missing)
                 } else null
-                val priorBooks = previous?.let { BackupCodec.fromJson(it.json).books }.orEmpty()
+                val priorBooks = previous?.let { prior ->
+                    BackupCodec.fromJson(prior.json).books.filter { it.contentHash !in prior.missingHashes }
+                }.orEmpty()
                 require(priorBooks.all { prior -> books.any { it.contentHash == prior.contentHash } }) {
                     "Hay libros centrales que aún no están en este catálogo. Abre Biblioteca completa antes de guardar."
                 }
                 val byHash = priorBooks.associateBy { it.contentHash }
                 val fromShared = books.filter { it.contentHash in missing && it.contentHash !in byHash }
-                val sharedFiles = if (fromShared.isEmpty()) emptyMap() else {
-                    require(com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
-                        "No se encuentra el original central: " + fromShared.first().title.take(80)
-                    }
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginals(context, fromShared, stage)
+                val sharedFiles = if (fromShared.isEmpty() ||
+                    !com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) emptyMap() else {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginals(context, fromShared, stage, skipUnavailable = true)
                 }
-                val sources = books.map { book ->
+                val unavailable = mutableListOf<BookEntity>()
+                val sources = books.mapNotNull { book ->
                     if (book.contentHash in missing) {
                         val remote = byHash[book.contentHash]
                         val staged = remote?.let { previous?.staged?.get(CompleteBackupArchive.entryName(it.id)) }
                         val source = staged ?: sharedFiles[book.contentHash]
-                            ?: throw IOException("No se pudo recuperar el original central: " + book.title.take(80))
-                        book.copy(localPath = source.absolutePath)
+                        if (source == null) {
+                            unavailable.add(book)
+                            null
+                        } else book.copy(localPath = source.absolutePath)
                     } else {
                         val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
                         val source = File(book.localPath).canonicalFile
@@ -99,7 +104,9 @@ class CompleteBackupManager(
                     }
                 }
                 val bytes = archive.outputStream().use { output ->
-                    CompleteBackupArchive.write(output, json, sources)
+                    val backupJson = if (unavailable.isEmpty()) json else
+                        CompleteBackupArchive.withMissingOriginals(json, unavailable.map { it.contentHash }.toSet())
+                    CompleteBackupArchive.write(output, backupJson, sources)
                 }
                 if (replaceExisting) {
                     val currentHash = context.contentResolver.openInputStream(uri)?.use(::sha256)
@@ -128,7 +135,7 @@ class CompleteBackupManager(
                     }
                     throw e
                 }
-                ExportResult(books.size, bytes, books.map { it.contentHash }.toSet())
+                ExportResult(sources.size, bytes, sources.map { it.contentHash }.toSet(), unavailable.map { it.title })
             } catch (e: Exception) {
                 // Preparation failures occur before any write. Release only the
                 // rollback snapshot that this attempt created; retain failed-write recovery.
@@ -178,6 +185,9 @@ class CompleteBackupManager(
             // No write to the selected backup has happened yet.
             if (recoveryPreferences.getString("uri", null) != uri.toString()) {
                 recoveryFile.delete()
+            }
+            if (e is SecurityException || e is IOException || e.message.orEmpty().contains("io_error", ignoreCase = true)) {
+                throw IOException("No se puede leer la copia anterior desde el proveedor. Comprueba Drive y la conexión, o elige un archivo NUEVO de respaldo. No se ha sobrescrito la copia anterior.", e)
             }
             throw e
         } finally {
@@ -247,14 +257,15 @@ class CompleteBackupManager(
             } ?: throw IllegalArgumentException("No se puede leer el archivo de copia.")
             coroutineContext.ensureActive()
             val fromArchive = BackupCodec.fromJson(content.json).books
-            require(wantedHashes == null || fromArchive.map { it.contentHash }.containsAll(wantedHashes)) {
+            val included = fromArchive.filter { it.contentHash !in content.missingHashes }
+            require(wantedHashes == null || included.map { it.contentHash }.containsAll(wantedHashes)) {
                 "El libro no está en esta biblioteca central."
             }
             val existingByHash = database.backupDao().booksAll().associateBy { it.contentHash }
             val finalPaths = linkedMapOf<String, String>()
             val booksBase = File(context.filesDir, "books").canonicalFile
 
-            for (incoming in fromArchive) {
+            for (incoming in included) {
                 if (wantedHashes != null && incoming.contentHash !in wantedHashes) continue
                 coroutineContext.ensureActive()
                 val local = existingByHash[incoming.contentHash] ?: incoming
@@ -318,7 +329,8 @@ class CompleteBackupManager(
             val report = BackupManager(database, appVersion)
                 .restoreJson(content.json, finalPaths)
             committed = true
-            ImportResult(report, finalPaths.size, content.bytes, fromArchive.map { it.contentHash }.toSet())
+            ImportResult(report, finalPaths.size, content.bytes, included.map { it.contentHash }.toSet(),
+                fromArchive.filter { it.contentHash in content.missingHashes }.map { it.title })
         } finally {
             if (!committed) {
                 // Only remove files created by this attempt, never preexisting originals.
