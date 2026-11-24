@@ -221,6 +221,7 @@ object BackupRoutine {
                 val signature = libraryFingerprint(app, database, version)
                 if (!force && chosenUri == null &&
                     signature == prefs.getString(FINGERPRINT, null) &&
+                    current.missingTitles.isEmpty() &&
                     prefs.getLong(LAST_SUCCESS, 0L) > 0L
                 ) return@withLock Result.UNCHANGED
 

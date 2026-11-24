@@ -72,10 +72,9 @@ class CompleteBackupManager(
                 val previous = if (replaceExisting) recoveryFile.inputStream().use {
                     CompleteBackupArchive.read(it, stage, missing)
                 } else null
-                val priorBooks = previous?.let { prior ->
-                    BackupCodec.fromJson(prior.json).books.filter { it.contentHash !in prior.missingHashes }
-                }.orEmpty()
-                require(priorBooks.all { prior -> books.any { it.contentHash == prior.contentHash } }) {
+                val priorMetadata = previous?.let { BackupCodec.fromJson(it.json).books }.orEmpty()
+                val priorBooks = priorMetadata.filter { it.contentHash !in previous?.missingHashes.orEmpty() }
+                require(priorMetadata.all { prior -> books.any { it.contentHash == prior.contentHash } }) {
                     "Hay libros centrales que aún no están en este catálogo. Abre Biblioteca completa antes de guardar."
                 }
                 val byHash = priorBooks.associateBy { it.contentHash }

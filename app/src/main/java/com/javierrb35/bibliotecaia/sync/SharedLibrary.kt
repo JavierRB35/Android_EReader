@@ -429,7 +429,7 @@ object SharedLibrary {
                     books.mapNotNull { book ->
                         // A provider failure is not proof of absence. Only skip a book
                         // when inventory was read without errors and no receipt exists.
-                        if (skipUnavailable && !inv.available(book.contentHash) && inv.errors.isEmpty()) return@mapNotNull null
+                        if (skipUnavailable && inv.receipts[book.contentHash].isNullOrEmpty() && inv.errors.isEmpty()) return@mapNotNull null
                         val target = File.createTempFile("central-original-", ".bin", directory)
                         verifiedCopy(store, inv, book, target)
                         book.contentHash to target

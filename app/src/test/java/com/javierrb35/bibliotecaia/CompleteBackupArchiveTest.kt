@@ -187,6 +187,19 @@ class CompleteBackupArchiveTest {
         }
     }
 
+    @Test fun sharedLibraryZipGetsActionableError() {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("bia-owner.txt"))
+            zip.write("a".repeat(32).toByteArray())
+            zip.closeEntry()
+        }
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupArchive.read(ByteArrayInputStream(output.toByteArray()), dir.newFolder("not-backup"))
+        }
+        assertTrue(error.message.orEmpty().contains("biblioteca compartida"))
+    }
+
     @Test fun emptyLibraryProducesValidPortableArchive() {
         val bytes = write(emptyList())
         val unpacked = CompleteBackupArchive.read(

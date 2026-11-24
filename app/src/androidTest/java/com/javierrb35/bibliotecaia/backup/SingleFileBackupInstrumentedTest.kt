@@ -46,15 +46,31 @@ class SingleFileBackupInstrumentedTest {
             val before = target.readBytes()
             assertTrue(before.isNotEmpty())
 
-            // Broken second original: the existing ZIP MUST NOT be touched.
+            // An absent second original must preserve the first and all metadata.
+            // The resulting archive is explicitly partial, not a complete claim.
             db.bookDao().insert(BookEntity(id2, "Dos", null, BookFormat.PDF,
                 original2.name, original2.absolutePath, "0".repeat(64),
                 3L, System.currentTimeMillis()))
+            val partial = manager.exportTo(uri, replaceExisting = true)
+            assertEquals(1, partial.books)
+            assertEquals(listOf("Dos"), partial.missingTitles)
+            val partialDb = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            try {
+                val restored = CompleteBackupManager(context, partialDb, "0.1.0").restoreFrom(uri)
+                assertEquals(1, restored.originals)
+                assertEquals(listOf("Dos"), restored.missingTitles)
+                assertEquals(2, partialDb.backupDao().booksAll().size)
+                assertTrue(partialDb.bookDao().findById(id2)!!.localPath.isBlank())
+                assertEquals(hash(original1), hash(File(partialDb.bookDao().findById(id1)!!.localPath)))
+            } finally { partialDb.close() }
+            val partialBytes = target.readBytes()
+            // A present but corrupt file is not a declared absence; preserve ZIP.
+            original2.writeText("BAD")
             try {
                 manager.exportTo(uri, replaceExisting = true)
-                fail("Missing original should abort before truncating the old ZIP")
+                fail("Corrupt original should abort before truncating the old ZIP")
             } catch (_: IllegalArgumentException) {
-                assertArrayEquals(before, target.readBytes())
+                assertArrayEquals(partialBytes, target.readBytes())
             }
 
             original2.writeText("PDF de prueba propio")
