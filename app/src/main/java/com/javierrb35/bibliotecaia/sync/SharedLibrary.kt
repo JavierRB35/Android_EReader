@@ -64,7 +64,7 @@ object SharedLibrary {
         sync(context, db)
     }
 
-    private fun readBounded(store: SharedDocumentStore, item: SharedDocumentStore.Item): ByteArray =
+    private fun readBounded(store: SharedStore, item: SharedDocumentStore.Item): ByteArray =
         store.open(item).use { input ->
             val out = java.io.ByteArrayOutputStream()
             val buf = ByteArray(32 * 1024)
@@ -97,14 +97,14 @@ object SharedLibrary {
         }
         fun availableHashes(): Set<String> = receipts.keys.filter(::available).toSet()
     }
-    private fun inventory(store: SharedDocumentStore): Inventory {
+    private fun inventory(store: SharedStore): Inventory {
         val files = store.list()
         val items = files.groupBy { it.name }.filterValues { it.size == 1 }.mapValues { it.value.single() }
         val states = mutableListOf<String>()
         val found = mutableListOf<Receipt>()
         val errors = mutableListOf<String>()
         val perDevice = files.mapNotNull { item ->
-            stateName.matchEntire(item.name)?.let { it to item }
+            stateName.matchEntire(item.name)?.takeIf { it.groupValues[2].toLongOrNull() != null }?.let { it to item }
         }.groupBy { it.first.groupValues[1] }
         // Only the latest valid publication per device is needed. Previous
         // immutable publications remain available for recovery, not re-merged.
@@ -130,7 +130,7 @@ object SharedLibrary {
         return Inventory(found.distinct().groupBy { it.hash }, items, states, errors)
     }
 
-    private fun upload(store: SharedDocumentStore, book: BookEntity, file: File): Receipt {
+    private fun upload(store: SharedStore, book: BookEntity, file: File): Receipt {
         require(file.isFile && file.length() == book.sizeBytes &&
             OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash) {
             "Original local no válido: " + book.title.take(80)
@@ -139,7 +139,7 @@ object SharedLibrary {
         file.inputStream().use { store.create(name, "application/octet-stream", it, book.contentHash, book.sizeBytes) }
         return Receipt(book.contentHash, name, book.sizeBytes)
     }
-    private suspend fun publish(context: Context, store: SharedDocumentStore, db: AppDatabase, receipts: Collection<Receipt>) {
+    private suspend fun publish(owner: String, store: SharedStore, db: AppDatabase, receipts: Collection<Receipt>) {
         val raw = BackupCodec.fromJson(BackupManager(db, BuildConfig.VERSION_NAME).exportJson(0))
         val canonical = raw.copy(books = raw.books.sortedBy { it.id }, categories = raw.categories.sortedBy { it.id },
             tags = raw.tags.sortedBy { it.id }, collections = raw.collections.sortedBy { it.id },
@@ -158,9 +158,8 @@ object SharedLibrary {
             .put("originals", array).toString().toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_STATE)
         val hash = SharedDocumentStore.hash(bytes)
-        val owner = ReadingPositionSafSync.deviceId(context)
         val own = store.list().mapNotNull { item ->
-            stateName.matchEntire(item.name)?.takeIf { it.groupValues[1] == owner }?.let { it to item }
+            stateName.matchEntire(item.name)?.takeIf { it.groupValues[1] == owner && it.groupValues[2].toLongOrNull() != null }?.let { it to item }
         }.maxByOrNull { it.first.groupValues[2].toLong() }
         if (own != null && own.first.groupValues[3] == hash &&
             runCatching { store.verify(own.second, hash, bytes.size.toLong()) }.getOrDefault(false)) return
@@ -169,9 +168,15 @@ object SharedLibrary {
         store.create("bia-state-" + owner + "-" + seq + "-" + hash + "-" + UUID.randomUUID() + ".json",
             "application/json", bytes.inputStream(), hash, bytes.size.toLong())
     }
+    internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = store(context)
+            val result = syncStore(store(context), db, ReadingPositionSafSync.deviceId(context))
+            publishStatus(context, result.hashes, result.errors)
+            Result(result.hashes.size, result.errors)
+        }
+    }
+    internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String): StoreResult {
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
             val manager = BackupManager(db, BuildConfig.VERSION_NAME)
@@ -192,10 +197,8 @@ object SharedLibrary {
                 catch (e: Exception) { errors.add(book.title.take(80) + ": " + (e.message ?: "no se pudo subir")) }
             }
             // A failed upload does not block the other books or reading state.
-            publish(context, store, db, known.values.flatten())
-            publishStatus(context, available, errors)
-            Result(available.size, errors)
-        }
+            publish(owner, store, db, known.values.flatten())
+            return StoreResult(available, errors)
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -218,13 +221,13 @@ object SharedLibrary {
                     }
                 }
                 BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(content.json, synchronize = true)
-                publish(context, store, db, known.values.flatten())
+                publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
                 publishStatus(context, available, inv.errors)
                 Result(available.size, inv.errors)
             } finally { stage.deleteRecursively() }
         }
     }
-    private fun verifiedCopy(store: SharedDocumentStore, inv: Inventory, book: BookEntity, target: File) {
+    private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {
             val item = inv.items[receipt.name] ?: continue
             try {
@@ -278,6 +281,9 @@ object SharedLibrary {
     }
     /** Independent portable ZIP export can recover non-downloaded originals
      * from the shared folder without changing the local download state. */
+    internal fun stageFromStore(store: SharedStore, book: BookEntity, file: File) =
+        verifiedCopy(store, inventory(store), book, file)
+
     suspend fun stageOriginal(context: Context, book: BookEntity, file: File) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val store = store(context)

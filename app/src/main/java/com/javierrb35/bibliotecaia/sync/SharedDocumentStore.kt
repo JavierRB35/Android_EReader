@@ -12,12 +12,36 @@ import java.util.UUID
 
 /** No shared mutable file. Each publication has a new name; incomplete files
  * are never advertised by a verified receipt. No remote delete or overwrite. */
-internal class SharedDocumentStore(context: Context, private val tree: Uri) {
+internal interface SharedStore {
+    fun list(): List<SharedDocumentStore.Item>
+    fun open(item: SharedDocumentStore.Item): InputStream
+    fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item
+    fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean =
+        open(item).use { SharedDocumentStore.digest(it, size) } == (hash to size)
+    fun extract(item: SharedDocumentStore.Item, file: File, hash: String, size: Long) {
+        open(item).use { source ->
+            file.outputStream().use { sink ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val count = source.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= size)
+                    sink.write(buffer, 0, count)
+                }
+            }
+        }
+        require(file.inputStream().use { SharedDocumentStore.digest(it, size) } == (hash to size))
+    }
+}
+
+internal class SharedDocumentStore(context: Context, private val tree: Uri) : SharedStore {
     private val resolver = context.contentResolver
     private val root = DocumentsContract.buildDocumentUriUsingTree(tree,
         DocumentsContract.getTreeDocumentId(tree))
     data class Item(val name: String, val uri: Uri, val size: Long)
-    fun list(): List<Item> {
+    override fun list(): List<Item> {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,
             DocumentsContract.getTreeDocumentId(tree))
         val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE)
@@ -29,9 +53,9 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) {
             }
         } ?: throw IOException("El proveedor no permite listar esta carpeta.")
     }
-    fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
+    override fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
         ?: throw IOException("No se puede leer " + item.name)
-    fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
+    override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
         val uri = DocumentsContract.createDocument(resolver, root, mime, name)
             ?: throw IOException("El proveedor no permite crear documentos.")
         // Never truncate any existing document. This URI is newly created.
@@ -46,9 +70,9 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) {
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
     }
-    fun verify(item: Item, hash: String, size: Long): Boolean =
+    override fun verify(item: Item, hash: String, size: Long): Boolean =
         open(item).use { digest(it, size) } == (hash to size)
-    fun extract(item: Item, file: File, hash: String, size: Long) {
+    override fun extract(item: Item, file: File, hash: String, size: Long) {
         val md = MessageDigest.getInstance("SHA-256")
         var count = 0L
         open(item).use { input ->

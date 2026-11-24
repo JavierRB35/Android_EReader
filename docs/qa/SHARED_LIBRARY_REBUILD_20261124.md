@@ -11,3 +11,5 @@ Base: 9442160e69b0493436b38127e68d966e37b8a049. Incidencia #72. Sin OAuth ni ser
 
 ## Aceptación pendiente
 A/B: importaciones simultáneas, búsqueda, descarga individual, notas/ediciones/bajas, posición hacia delante y atrás, proceso cerrado antes de publicar, desconexión, recuperación, ZIP previo intacto y backup nuevo completo. Verificar también proveedor sin permiso de carpeta y carpeta con datos parciales.
+
+Prueba instrumental SharedLibraryJourneyTest: dos Room independientes, transporte de prueba inyectado en el mismo algoritmo de producción, importación A/B, descarga selectiva, retroceso, baja de nota, expulsión simulada, recuperación y archivo parcial sin recibo. No equivale a una prueba de Drive ni de Android SAF real.
