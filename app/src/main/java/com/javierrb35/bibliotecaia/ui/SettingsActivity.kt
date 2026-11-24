@@ -64,7 +64,7 @@ class SettingsActivity : AppCompatActivity() {
     private val sharedFileOwn = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) sharedAction {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri, newDocument = true)
         }
     }
     private val sharedFileExisting = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -134,7 +134,17 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun createOwnLibrary() = chooseSharedConnection {
         val model = Build.MODEL.replace(Regex("[^a-zA-Z0-9_-]+"), "-").trim('-').take(28).ifBlank { "Android" }
-        sharedFileOwn.launch("BibliotecaIA-" + model + "-" + ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
+        val suffix = if (SharedLibrary.configured(applicationContext))
+            "-" + java.util.UUID.randomUUID().toString().take(8) else ""
+        sharedFileOwn.launch("BibliotecaIA-" + model + "-" +
+            ReadingPositionSafSync.deviceId(applicationContext).take(8) + suffix + ".zip")
+    }
+    private fun repairOwnLibrary() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Reparar biblioteca sin perder datos")
+            .setMessage("El archivo guardado no coincide con la identidad de este dispositivo. Crea un archivo nuevo en la misma carpeta de Drive. El anterior no se borrará ni se sobrescribirá; si es válido se conservará como fuente de lectura. Después vincula el nuevo archivo en el otro dispositivo.")
+            .setPositiveButton("Crear archivo nuevo") { _, _ -> createOwnLibrary() }
+            .setNegativeButton(android.R.string.cancel, null).show()
     }
     private fun openOwnLibrary() = chooseSharedConnection {
         sharedFileExisting.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -225,21 +235,23 @@ class SettingsActivity : AppCompatActivity() {
         val files = SharedLibrary.fileMode(app)
         val linked = SharedLibrary.peerCount(app)
         val access = SharedLibrary.hasAccess(app)
+        val repair = SharedLibrary.needsRepair(app)
         sharedPrimary.text = when {
             !configured -> "Configurar biblioteca"
-            !access -> "Reparar conexión"
+            repair || !access -> "Reparar conexión"
             files && linked == 0 -> "Añadir otro dispositivo"
             else -> "Sincronizar ahora"
         }
         sharedPrimary.isEnabled = !sharedBusy
-        sharedLink.visibility = if (configured && files && linked > 0 && access) View.VISIBLE else View.GONE
+        sharedLink.visibility = if (configured && files && linked > 0 && access && !repair) View.VISIBLE else View.GONE
         sharedLink.isEnabled = !sharedBusy
-        sharedSync.visibility = if (configured && files && linked == 0 && access) View.VISIBLE else View.GONE
+        sharedSync.visibility = if (configured && files && linked == 0 && access && !repair) View.VISIBLE else View.GONE
         sharedSync.isEnabled = !sharedBusy
         sharedOptions.isEnabled = !sharedBusy
         sharedOptions.visibility = if (configured || SharedLibrary.previousConnections(app).isNotEmpty()) View.VISIBLE else View.GONE
         sharedGuide.text = when {
             !configured -> "Guarda los libros en Drive y continúa leyendo desde otro dispositivo. Sin crear una cuenta nueva."
+            repair -> "El archivo no coincide con la identidad de este dispositivo. Repara la conexión; no elimines ningún ZIP."
             !access -> "Falta acceso al archivo o carpeta. Repara la conexión sin borrar los datos."
             files && linked == 0 -> "Archivo de este dispositivo preparado. Añade el otro móvil o tablet para compartir libros y posiciones."
             files -> "Dispositivos vinculados: $linked. Comprueba que también han vinculado el archivo de este dispositivo."
@@ -394,6 +406,7 @@ class SettingsActivity : AppCompatActivity() {
         sharedGuide = hint(sharedCard, "")
         sharedPrimary = action(sharedCard, "Configurar biblioteca", primary = true) {
             when {
+                SharedLibrary.needsRepair(applicationContext) -> repairOwnLibrary()
                 !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> showSetup()
                 SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> linkDevice()
                 else -> sharedAction { SharedLibrary.sync(applicationContext, db) }

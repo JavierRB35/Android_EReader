@@ -34,12 +34,17 @@ private class SafContainerAccess(context: Context) : SharedContainerAccess {
     override fun output(uri: Uri) = resolver.openOutputStream(uri, "wt")
         ?: throw IOException("No se puede escribir el contenedor propio.")
 }
+internal class SharedOwnerMismatch(val expected: String, val actual: String) :
+    IllegalArgumentException("La identidad del archivo no coincide con la de este dispositivo (" +
+        expected.take(8) + " / " + actual.take(8) + "). No se sobrescribirá.")
+
 internal class SharedFileStore(
     cacheDir: File, filesDir: File, private val access: SharedContainerAccess,
-    private val own: Uri, peers: List<Uri>, private val owner: String
+    private val own: Uri, peers: List<Uri>, private val owner: String,
+    private val requireEmpty: Boolean = false
 ) : SharedStore {
-    constructor(context: Context, own: Uri, peers: List<Uri>, owner: String) :
-        this(context.cacheDir, context.filesDir, SafContainerAccess(context), own, peers, owner)
+    constructor(context: Context, own: Uri, peers: List<Uri>, owner: String, requireEmpty: Boolean = false) :
+        this(context.cacheDir, context.filesDir, SafContainerAccess(context), own, peers, owner, requireEmpty)
     companion object {
         private const val OWNER = "bia-owner.txt"
         private const val MAX = 4L * 1024 * 1024 * 1024
@@ -57,6 +62,8 @@ internal class SharedFileStore(
     private val staged = linkedMapOf<String, Source>()
     private val archives = mutableListOf<ZipFile>()
     private val errors = mutableListOf<String>()
+    private val accepted = mutableListOf<Uri>()
+    val acceptedPeers: List<Uri> get() = accepted.toList()
     override val readErrors: List<String> get() = errors.toList()
     private var ownZip: ZipFile? = null
     private var initialized = false
@@ -66,7 +73,13 @@ internal class SharedFileStore(
             require(ID.matches(owner))
             access.requireGrant(own, true)
             copyUri(own, old)
-            recoverIfNeeded()
+            // CREATE_DOCUMENT must not silently reuse a populated archive.
+            // An alias or cached document returned by a provider is not a new file.
+            if (requireEmpty) {
+                require(old.length() == 0L && !pending.exists()) {
+                    "El proveedor ha devuelto un archivo existente. Elige un nombre nuevo; no se sobrescribirá."
+                }
+            } else recoverIfNeeded()
             if (old.length() > 0) {
                 ownZip = load(old, owner)
                 initialized = true
@@ -85,6 +98,7 @@ internal class SharedFileStore(
                         validate(zip)
                         seenOwners.add(id)
                         register(zip)
+                        accepted.add(peer)
                     } catch (e: Exception) { zip.close(); throw e }
                 } catch (e: Exception) { errors.add("Contenedor de otro dispositivo: " + (e.message ?: "inaccesible")) }
             }
@@ -150,7 +164,8 @@ internal class SharedFileStore(
         val zip = ZipFile(file)
         try {
             validate(zip)
-            require(ownerOf(zip) == expectedOwner) { "El archivo pertenece a otro dispositivo. No se sobrescribirá." }
+            val actual = ownerOf(zip)
+            if (actual != expectedOwner) throw SharedOwnerMismatch(expectedOwner, actual)
             register(zip)
             return zip
         } catch (e: Exception) { zip.close(); throw e }
