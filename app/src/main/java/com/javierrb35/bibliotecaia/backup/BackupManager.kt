@@ -158,7 +158,10 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                     "La copia contiene progreso de lectura no válido."
                 }
                 val existing = dao.positionFor(bookId)
-                if (existing == null || incoming.updatedAt > existing.updatedAt) {
+                if (existing == null || incoming.updatedAt > existing.updatedAt ||
+                    (synchronize && incoming.updatedAt == existing.updatedAt &&
+                        (incoming.locator > existing.locator ||
+                            (incoming.locator == existing.locator && incoming.progress > existing.progress)))) {
                     dao.insertPositionReplace(incoming.copy(bookId = bookId))
                     dao.updateBookProgressAfterRestore(bookId, incoming.progress)
                     positionsUpdated++

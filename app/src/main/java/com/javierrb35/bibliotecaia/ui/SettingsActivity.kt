@@ -63,6 +63,7 @@ class SettingsActivity : AppCompatActivity() {
             try { operation() }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)
                 Toast.makeText(this@SettingsActivity, e.message ?: "No se pudo sincronizar la carpeta.", Toast.LENGTH_LONG).show()
             } finally {
                 sharedBusy = false
@@ -302,6 +303,8 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::sharedStatus.isInitialized)
+            sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
     }

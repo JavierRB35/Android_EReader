@@ -16,7 +16,7 @@ object ReaderRouter {
             val db = AppDatabase.get(activity)
             try {
                 if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(activity.applicationContext, db)
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(activity.applicationContext, db)
                 } else {
                     com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.refresh(activity.applicationContext, db)
                 }

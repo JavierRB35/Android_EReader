@@ -89,6 +89,29 @@ class BackupRestoreInstrumentedTest {
         }
     }
 
+    @Test fun syncUpdatesNotesAndTombstonesAndBackwardPositionsWithoutReplacingLocalPath() = withDb { db ->
+        runBlocking {
+            val original = book("local-book", "/real/offline/book.epub")
+            db.bookDao().insert(original)
+            val manager = BackupManager(db, "0.1.0")
+            val initial = snapshot()
+            manager.restoreJson(BackupCodec.toJson(initial, "0.1.0", 1), synchronize = true)
+            val edited = initial.copy(
+                annotations = listOf(initial.annotations.single().copy(body = "Editado", updatedAt = 30)),
+                positions = listOf(ReadingPositionEntity("remote-book", "chapter:1", .25f, 31)))
+            manager.restoreJson(BackupCodec.toJson(edited, "0.1.0", 2), synchronize = true)
+            assertEquals("Editado", db.backupDao().annotationsAll().single().body)
+            assertEquals(.25f, db.backupDao().positionsAll().single().progress, 0f)
+            val removed = edited.copy(annotations = listOf(edited.annotations.single().copy(
+                updatedAt = 40, deletedAt = 40)))
+            manager.restoreJson(BackupCodec.toJson(removed, "0.1.0", 3), synchronize = true)
+            manager.restoreJson(BackupCodec.toJson(initial, "0.1.0", 1), synchronize = true)
+            assertEquals(40L, db.backupDao().annotationsAll().single().deletedAt)
+            assertEquals(.25f, db.backupDao().positionsAll().single().progress, 0f)
+            assertEquals(original.localPath, db.bookDao().findById("local-book")!!.localPath)
+        }
+    }
+
     @Test fun brokenReferenceRollsBackEntireRestore() = withDb { db ->
         runBlocking {
             val incomplete = snapshot().copy(
