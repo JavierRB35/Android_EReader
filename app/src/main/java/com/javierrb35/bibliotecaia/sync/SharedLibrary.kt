@@ -344,8 +344,14 @@ object SharedLibrary {
         prefs(context).edit().putString("status", "Pendiente de sincronizar: " + (error.message ?: "error")).apply()
         changes.value += 1
     }
+    private val requestLock = Any()
+    internal fun revision(context: Context): Long = prefs(context).getLong("requested_revision", 0L)
     fun schedule(context: Context) {
         if (!configured(context)) return
+        synchronized(requestLock) {
+            val next = revision(context) + 1L
+            prefs(context).edit().putLong("requested_revision", next).apply()
+        }
         val work = WorkManager.getInstance(context.applicationContext)
         work.enqueueUniqueWork("shared-library-now", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(3, TimeUnit.SECONDS).build())
@@ -358,8 +364,10 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
     override suspend fun doWork(): Result {
         if (!SharedLibrary.configured(applicationContext)) return Result.success()
         return try {
+            val revision = SharedLibrary.revision(applicationContext)
             val result = SharedLibrary.sync(applicationContext, AppDatabase.get(applicationContext))
-            if (result.errors.isEmpty()) Result.success() else Result.retry()
+            if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext))
+                Result.success() else Result.retry()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             SharedLibrary.recordFailure(applicationContext, e)

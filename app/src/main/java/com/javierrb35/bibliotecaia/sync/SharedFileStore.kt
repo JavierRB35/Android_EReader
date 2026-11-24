@@ -17,10 +17,29 @@ import java.util.zip.ZipOutputStream
  * A sync writes its own container at most once, after staging and validation.
  * The portable backup ZIP is a separate file/format. No remote deletion.
  */
+internal interface SharedContainerAccess {
+    fun requireGrant(uri: Uri, write: Boolean)
+    fun input(uri: Uri): InputStream
+    fun output(uri: Uri): java.io.OutputStream
+}
+private class SafContainerAccess(context: Context) : SharedContainerAccess {
+    private val resolver = context.contentResolver
+    override fun requireGrant(uri: Uri, write: Boolean) {
+        require(resolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
+        }) { "Falta permiso persistente para el contenedor." }
+    }
+    override fun input(uri: Uri) = resolver.openInputStream(uri)
+        ?: throw IOException("Contenedor inaccesible.")
+    override fun output(uri: Uri) = resolver.openOutputStream(uri, "wt")
+        ?: throw IOException("No se puede escribir el contenedor propio.")
+}
 internal class SharedFileStore(
-    private val context: Context, private val own: Uri,
-    peers: List<Uri>, private val owner: String
+    cacheDir: File, filesDir: File, private val access: SharedContainerAccess,
+    private val own: Uri, peers: List<Uri>, private val owner: String
 ) : SharedStore {
+    constructor(context: Context, own: Uri, peers: List<Uri>, owner: String) :
+        this(context.cacheDir, context.filesDir, SafContainerAccess(context), own, peers, owner)
     companion object {
         private const val OWNER = "bia-owner.txt"
         private const val MAX = 4L * 1024 * 1024 * 1024
@@ -28,9 +47,8 @@ internal class SharedFileStore(
         private val NAME = Regex("bia-(book-[a-f0-9]{64}-[a-f0-9-]{36}\\.bin|state-[a-f0-9]{32}-[0-9]{1,19}-[a-f0-9]{64}-[a-f0-9-]{36}\\.json)")
         private val ID = Regex("[a-f0-9]{32}")
     }
-    private val resolver = context.contentResolver
-    private val temp = File(context.cacheDir, "bia-container-" + UUID.randomUUID()).apply { check(mkdirs()) }
-    private val recovery = File(context.filesDir, "bia-container-recovery-" +
+    private val temp = File(cacheDir, "bia-container-" + UUID.randomUUID()).apply { check(mkdirs()) }
+    private val recovery = File(filesDir, "bia-container-recovery-" +
         SharedDocumentStore.hash(own.toString().toByteArray()).take(24))
     private val old = File(temp, "own.zip")
     private val rollback = File(recovery, "previous.zip")
@@ -46,7 +64,7 @@ internal class SharedFileStore(
     init {
         try {
             require(ID.matches(owner))
-            requireGrant(own, true)
+            access.requireGrant(own, true)
             copyUri(own, old)
             recoverIfNeeded()
             if (old.length() > 0) {
@@ -57,7 +75,7 @@ internal class SharedFileStore(
             for (peer in peers.distinct()) {
                 try {
                     require(peer != own)
-                    requireGrant(peer, false)
+                    access.requireGrant(peer, false)
                     val file = File(temp, "peer-" + UUID.randomUUID() + ".zip")
                     copyUri(peer, file)
                     val zip = ZipFile(file)
@@ -72,12 +90,7 @@ internal class SharedFileStore(
             }
         } catch (e: Exception) { close(); throw e }
     }
-    private fun requireGrant(uri: Uri, write: Boolean) {
-        require(resolver.persistedUriPermissions.any {
-            it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
-        }) { "Falta permiso persistente para el contenedor." }
-    }
-    private fun copyBounded(input: InputStream, target: File, max: Long) {
+     private fun copyBounded(input: InputStream, target: File, max: Long) {
         input.use { source ->
             target.outputStream().use { out ->
                 val buffer = ByteArray(64 * 1024)
@@ -93,13 +106,18 @@ internal class SharedFileStore(
         }
     }
     private fun copyUri(uri: Uri, target: File) {
-        copyBounded(resolver.openInputStream(uri) ?: throw IOException("Contenedor inaccesible."), target, MAX)
+        copyBounded(access.input(uri), target, MAX)
     }
     private fun identity(file: File) = file.inputStream().use { SharedDocumentStore.digest(it, MAX).first }
     private fun ownerOf(zip: ZipFile): String {
         val entry = zip.getEntry(OWNER) ?: error("No es un contenedor de biblioteca compartida.")
         require(entry.size == 32L)
-        val id = zip.getInputStream(entry).use { it.readBytes().toString(Charsets.UTF_8) }
+        val id = zip.getInputStream(entry).use { stream ->
+            val bytes = ByteArray(32)
+            java.io.DataInputStream(stream).readFully(bytes)
+            require(stream.read() == -1)
+            bytes.toString(Charsets.UTF_8)
+        }
         require(ID.matches(id))
         return id
     }
@@ -152,7 +170,7 @@ internal class SharedFileStore(
         return item
     }
     private fun writeUri(file: File) {
-        val out = resolver.openOutputStream(own, "wt") ?: throw IOException("No se puede escribir el contenedor propio.")
+        val out = access.output(own)
         out.use { sink -> file.inputStream().use { it.copyTo(sink, 64 * 1024) }; sink.flush() }
     }
     private fun clearRecovery() {
@@ -185,10 +203,15 @@ internal class SharedFileStore(
             zip.write(owner.toByteArray(Charsets.UTF_8))
             zip.closeEntry()
             ownZip?.let { original ->
-                val entries = original.entries()
-                while (entries.hasMoreElements()) {
-                    val e = entries.nextElement()
-                    if (e.name == OWNER) continue
+                val entries = original.entries().toList()
+                // Only compact our own metadata history. Original objects remain
+                // immutable and all previous original receipts stay in the new state.
+                val oldStates = entries.filter { it.name.startsWith("bia-state-" + owner + "-") }
+                    .sortedByDescending { it.name.removePrefix("bia-state-" + owner + "-").substringBefore("-").toLongOrNull() ?: 0L }
+                val retained = oldStates.take(2).map { it.name }.toSet()
+                val compact = staged.keys.any { it.startsWith("bia-state-" + owner + "-") }
+                for (e in entries) {
+                    if (e.name == OWNER || (compact && e in oldStates && e.name !in retained)) continue
                     zip.putNextEntry(ZipEntry(e.name))
                     original.getInputStream(e).use { it.copyTo(zip, 64 * 1024) }
                     zip.closeEntry()
