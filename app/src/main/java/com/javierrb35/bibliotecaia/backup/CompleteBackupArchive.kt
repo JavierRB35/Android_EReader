@@ -23,15 +23,37 @@ object CompleteBackupArchive {
     private val HASH = Regex("[a-f0-9]{64}")
     private val SEGMENT = Regex("[A-Za-z0-9_-]{1,128}")
 
-    data class Contents(val json: String, val staged: Map<String, File>, val bytes: Long) {
+    data class Contents(val json: String, val staged: Map<String, File>, val bytes: Long,
+                        val missingHashes: Set<String> = emptySet()) {
         val bookCount: Int get() = staged.size
+    }
+
+    // Missing originals are explicit, not silently tolerated ZIP corruption.
+    fun withMissingOriginals(json: String, missingHashes: Set<String>): String {
+        val root = JSONObject(json)
+        root.getJSONObject("manifest").put("missingOriginals", org.json.JSONArray(missingHashes.sorted()))
+        return root.toString()
+    }
+
+    private fun missingOriginals(json: String, books: List<BookEntity>): Set<String> {
+        val manifest = JSONObject(json).getJSONObject("manifest")
+        if (!manifest.has("missingOriginals")) return emptySet()
+        val array = manifest.getJSONArray("missingOriginals")
+        require(array.length() <= books.size)
+        val hashes = (0 until array.length()).map { array.getString(it) }
+        require(hashes.distinct().size == hashes.size && books.map { it.contentHash }.containsAll(hashes)) {
+            "La lista de originales ausentes no coincide con el catálogo."
+        }
+        return hashes.toSet()
     }
 
     fun write(output: OutputStream, json: String, books: List<BookEntity>): Long {
         validateCompleteMetadata(json)
         val snapshot = BackupCodec.fromJson(json)
-        require(snapshot.books.map { it.id to it.contentHash }.toSet() ==
-            books.map { it.id to it.contentHash }.toSet() && snapshot.books.size == books.size) {
+        val missing = missingOriginals(json, snapshot.books)
+        val included = snapshot.books.filter { it.contentHash !in missing }
+        require(included.map { it.id to it.contentHash }.toSet() ==
+            books.map { it.id to it.contentHash }.toSet() && included.size == books.size) {
             "La biblioteca cambió durante la preparación de la copia."
         }
         require(books.size <= MAX_BOOKS) { "Demasiados libros para una sola copia." }
@@ -81,6 +103,7 @@ object CompleteBackupArchive {
         require(stageDir.isDirectory) { "No existe el espacio temporal de restauración." }
         var json: String? = null
         var expected: Map<String, BookEntity>? = null
+        var missing: Set<String> = emptySet()
         val staged = linkedMapOf<String, File>()
         var total = 0L
         val buffer = ByteArray(64 * 1024)
@@ -92,8 +115,11 @@ object CompleteBackupArchive {
                     "La copia contiene entradas duplicadas o inválidas."
                 }
                 if (json == null) {
+                    require(entry.name != "bia-owner.txt") {
+                        "Has seleccionado un archivo de biblioteca compartida, no una copia de seguridad. Usa Biblioteca compartida en Ajustes."
+                    }
                     require(entry.name == METADATA) {
-                        "La copia completa no contiene el manifiesto en primer lugar."
+                        "Este ZIP no es una copia de seguridad válida de BibliotecaAI. El archivo no se modificará."
                     }
                     val data = java.io.ByteArrayOutputStream()
                     while (true) {
@@ -110,8 +136,9 @@ object CompleteBackupArchive {
                     val books = BackupCodec.fromJson(json).books
                     require(books.size <= MAX_BOOKS) { "La copia contiene demasiados libros." }
                     books.forEach(::validateBook)
-                    expected = books.associateBy { entryName(it.id) }
-                    require(expected.size == books.size) { "La copia repite identificadores de libros." }
+                    require(books.map { it.id }.distinct().size == books.size) { "La copia repite identificadores de libros." }
+                    missing = missingOriginals(json, books)
+                    expected = books.filter { it.contentHash !in missing }.associateBy { entryName(it.id) }
                 } else {
                     val book = expected?.get(entry.name)
                         ?: throw IllegalArgumentException("La copia contiene archivos inesperados.")
@@ -149,7 +176,7 @@ object CompleteBackupArchive {
         require(expected!!.keys == seen - METADATA) {
             "Faltan originales: el archivo no es una copia completa."
         }
-        return Contents(metadata, staged, total)
+        return Contents(metadata, staged, total, missing)
     }
 
     /** Legacy JSON import is allowed separately; a ZIP must preserve ALL sections. */

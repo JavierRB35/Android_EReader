@@ -557,6 +557,8 @@ class SettingsActivity : AppCompatActivity() {
             state.recoveryPending -> getString(R.string.settings_backup_recovery_required)
             state.uri == null -> getString(R.string.settings_backup_not_configured)
             state.lastSuccess == 0L -> getString(R.string.settings_backup_not_verified)
+            state.missingTitles.isNotEmpty() -> "Copia verificada con originales ausentes: " + state.missingTitles.size +
+                "\n" + state.missingTitles.joinToString("\n").take(800)
             else -> getString(R.string.settings_backup_last_verified,
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                     .format(Date(state.lastSuccess)))
@@ -621,12 +623,16 @@ class SettingsActivity : AppCompatActivity() {
         backupStatus.text = getString(R.string.settings_backup_in_progress)
         lifecycleScope.launch {
             try {
-                BackupRoutine.save(applicationContext, db, BuildConfig.VERSION_NAME,
+                val result = BackupRoutine.save(applicationContext, db, BuildConfig.VERSION_NAME,
                     force = true, chosenUri = uri, replaceExisting = replaceExisting)
                 refreshBackupStatus()
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(R.string.backup_export_done_title)
-                    .setMessage(R.string.settings_backup_verified_message)
+                    .setMessage(if (result == BackupRoutine.Result.PARTIAL)
+                        "Copia guardada y verificada, pero incompleta. Se conservan los datos, notas y posiciones de todos los libros. No se han encontrado los originales de:\n\n" +
+                            BackupRoutine.status(this@SettingsActivity).missingTitles.joinToString("\n") +
+                            "\n\nPuedes reincorporarlos más adelante."
+                        else getString(R.string.settings_backup_verified_message))
                     .setPositiveButton(R.string.dialog_ok, null).show()
             } catch (error: Exception) {
                 refreshBackupStatus()
@@ -683,7 +689,9 @@ class SettingsActivity : AppCompatActivity() {
                     .setTitle(R.string.backup_restore_done_title)
                     .setMessage(getString(R.string.backup_restore_done_full,
                         result.originals, result.report.annotationsRestored,
-                        result.report.versionsRestored, result.report.positionsUpdated))
+                        result.report.versionsRestored, result.report.positionsUpdated) +
+                        if (result.missingTitles.isEmpty()) "" else "\n\nOriginales no incluidos en la copia (sus datos se han conservado):\n" +
+                            result.missingTitles.joinToString("\n"))
                     .setPositiveButton(R.string.dialog_ok, null).show()
             } catch (e: Exception) {
                 Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
