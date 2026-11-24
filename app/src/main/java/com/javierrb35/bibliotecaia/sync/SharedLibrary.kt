@@ -38,6 +38,28 @@ object SharedLibrary {
     fun uri(context: Context): Uri? = prefs(context).getString("tree", null)?.let(Uri::parse)
     fun configured(context: Context) = uri(context) != null
     fun hashes(context: Context): Set<String> = prefs(context).getStringSet("hashes", emptySet()).orEmpty().toSet()
+    fun peerCount(context: Context): Int = filePeers(context).size
+    fun connectedName(context: Context): String {
+        val selected = uri(context) ?: return ""
+        return runCatching {
+            context.contentResolver.query(selected, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull() ?: if (fileMode(context)) "BibliotecaIA-central-" +
+            ReadingPositionSafSync.deviceId(context).take(8) + ".zip" else "Carpeta seleccionada"
+    }
+    fun hasAccess(context: Context): Boolean {
+        val selected = uri(context) ?: return false
+        return context.contentResolver.persistedUriPermissions.any {
+            it.uri == selected && it.isReadPermission && it.isWritePermission
+        }
+    }
+    fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
+    fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
+        (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
+            it.uri == candidate || candidate.toString() in it.peers
+        }
     fun status(context: Context): String {
         if (!configured(context)) return "Sin biblioteca compartida configurada."
         val mode = if (fileMode(context)) "Contenedor propio · ${filePeers(context).size} otros dispositivos vinculados"
@@ -76,7 +98,7 @@ object SharedLibrary {
             .putString("mode", if (connection.files) "files" else "folder")
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
-        if (old?.uri != connection.uri) edit.remove("hashes").putString("status", "Pendiente de sincronizar.")
+        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
     }
@@ -124,20 +146,33 @@ object SharedLibrary {
         mutex.withLock {
             require(fileMode(context)) { "Crea primero el contenedor propio." }
             val own = requireNotNull(uri(context))
-            require(peer != own)
+            require(peer != own) { "Has elegido el archivo de este dispositivo. Selecciona el que creó el otro móvil o tablet." }
             val peers = (filePeers(context) + peer).distinct()
             require(peers.size <= 10)
-            SharedFileStore(context, own, listOf(peer), ReadingPositionSafSync.deviceId(context)).use {
+            SharedFileStore(context, own, peers, ReadingPositionSafSync.deviceId(context)).use {
                 require(it.readErrors.isEmpty()) { it.readErrors.joinToString(" · ") }
             }
             check(prefs(context).edit().putStringSet("file_peers", peers.map(Uri::toString).toSet()).commit())
         }
         sync(context, db)
     }
+    suspend fun removeFilePeer(context: Context, peer: Uri) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(fileMode(context))
+            check(prefs(context).edit().putStringSet("file_peers",
+                (filePeers(context) - peer).map(Uri::toString).toSet())
+                .putString("status", "Conexiones modificadas. Pendiente de comprobar.").commit())
+            changes.value += 1
+        }
+        schedule(context)
+    }
+    fun linkedFiles(context: Context): List<Uri> = filePeers(context).sortedBy { it.toString() }
     private fun publishStatus(context: Context, hashes: Set<String>, errors: List<String>) {
         val message = if (errors.isEmpty()) "Biblioteca comprobada: " + hashes.size + " originales."
             else "Sincronización parcial: " + errors.joinToString(" · ").take(1200)
-        prefs(context).edit().putStringSet("hashes", hashes).putString("status", message).apply()
+        val edit = prefs(context).edit().putStringSet("hashes", hashes).putString("status", message)
+        if (errors.isEmpty()) edit.putLong("last_success", System.currentTimeMillis())
+        edit.apply()
         changes.value += 1
     }
     suspend fun connect(context: Context, db: AppDatabase, tree: Uri) = withContext(Dispatchers.IO) {

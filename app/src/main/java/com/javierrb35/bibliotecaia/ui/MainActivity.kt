@@ -78,7 +78,16 @@ class MainActivity : AppCompatActivity() {
     private fun openCentral() {
         if (centralFlow.value.first) { setCentralMode(false); return }
         if (BackupRoutine.centralUri(applicationContext) == null) {
-            centralPicker.launch(arrayOf("application/zip", "application/octet-stream"))
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Biblioteca compartida")
+                .setMessage("Configura Drive para compartir libros y posiciones entre dispositivos. Si solo quieres consultar una copia de seguridad antigua, puedes abrirla sin modificarla.")
+                .setPositiveButton("Configurar biblioteca") { _, _ ->
+                    startActivity(Intent(this, SettingsActivity::class.java))
+                }
+                .setNeutralButton("Abrir copia antigua") { _, _ ->
+                    centralPicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                }
+                .setNegativeButton(android.R.string.cancel, null).show()
             return
         }
         lifecycleScope.launch {
