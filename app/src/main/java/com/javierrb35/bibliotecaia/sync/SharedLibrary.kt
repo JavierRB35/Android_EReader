@@ -38,7 +38,60 @@ object SharedLibrary {
     fun uri(context: Context): Uri? = prefs(context).getString("tree", null)?.let(Uri::parse)
     fun configured(context: Context) = uri(context) != null
     fun hashes(context: Context): Set<String> = prefs(context).getStringSet("hashes", emptySet()).orEmpty().toSet()
-    fun status(context: Context): String = prefs(context).getString("status", "Sin carpeta central configurada.").orEmpty()
+    fun status(context: Context): String {
+        if (!configured(context)) return "Sin biblioteca compartida configurada."
+        val mode = if (fileMode(context)) "Contenedor propio · ${filePeers(context).size} otros dispositivos vinculados"
+            else "Carpeta compartida"
+        return mode + "\n" + prefs(context).getString("status", "Pendiente de comprobar.").orEmpty()
+    }
+
+    data class SavedConnection(val uri: Uri, val files: Boolean, val peers: Set<String>) {
+        val label: String get() = (if (files) "Contenedor" else "Carpeta") +
+            " · " + (uri.lastPathSegment ?: uri.authority ?: "Almacenamiento").takeLast(90)
+        internal fun encode() = JSONObject().put("uri", uri.toString()).put("files", files)
+            .put("peers", org.json.JSONArray(peers.sorted())).toString()
+        companion object {
+            internal fun decode(value: String): SavedConnection {
+                val obj = JSONObject(value)
+                val peers = obj.getJSONArray("peers")
+                return SavedConnection(Uri.parse(obj.getString("uri")), obj.getBoolean("files"),
+                    (0 until peers.length()).map { peers.getString(it) }.toSet())
+            }
+        }
+    }
+    private fun currentConnection(context: Context): SavedConnection? = uri(context)?.let {
+        SavedConnection(it, fileMode(context), filePeers(context).map(Uri::toString).toSet())
+    }
+    fun previousConnections(context: Context): List<SavedConnection> =
+        prefs(context).getStringSet("previous_connections", emptySet()).orEmpty()
+            .mapNotNull { runCatching { SavedConnection.decode(it) }.getOrNull() }
+            .filter { it.uri != uri(context) }.sortedBy { it.label }
+    // Call only under the sync mutex, after the new destination is validated.
+    // Keep old grants and remote files; do not change Room or the backup URI.
+    private fun activate(context: Context, connection: SavedConnection) {
+        val old = currentConnection(context)
+        val history = previousConnections(context).filter { it.uri != connection.uri }.toMutableList()
+        if (old != null && old.uri != connection.uri) history.add(old)
+        val edit = prefs(context).edit().putString("tree", connection.uri.toString())
+            .putString("mode", if (connection.files) "files" else "folder")
+            .putStringSet("file_peers", connection.peers)
+            .putStringSet("previous_connections", history.map { it.encode() }.toSet())
+        if (old?.uri != connection.uri) edit.remove("hashes").putString("status", "Pendiente de sincronizar.")
+        check(edit.commit()) { "No se pudo guardar la nueva conexión." }
+        changes.value += 1
+    }
+    suspend fun restoreConnection(context: Context, db: AppDatabase, connection: SavedConnection) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(connection in previousConnections(context)) { "Conexión anterior no disponible." }
+            if (connection.files) {
+                SharedFileStore(context, connection.uri, connection.peers.map(Uri::parse),
+                    ReadingPositionSafSync.deviceId(context)).use { }
+            } else folderStore(context, connection.uri).use { it.list() }
+            activate(context, connection)
+        }
+        schedule(context)
+        sync(context, db)
+    }
 
     private fun folderStore(context: Context, tree: Uri): SharedDocumentStore {
         require(context.contentResolver.persistedUriPermissions.any {
@@ -57,9 +110,12 @@ object SharedLibrary {
     fun fileMode(context: Context): Boolean = configured(context) && prefs(context).getString("mode", "folder") == "files"
     suspend fun connectFile(context: Context, db: AppDatabase, own: Uri) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            require(!configured(context)) { "Ya existe una biblioteca central configurada." }
-            SharedFileStore(context, own, emptyList(), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
-            check(prefs(context).edit().putString("tree", own.toString()).putString("mode", "files").commit())
+            val old = currentConnection(context)
+            require(old?.uri != own || old.files) { "No se puede usar una carpeta como contenedor." }
+            val saved = previousConnections(context).firstOrNull { it.uri == own && it.files }
+            val peers = if (old?.uri == own && old.files) old.peers else saved?.peers.orEmpty()
+            SharedFileStore(context, own, peers.map(Uri::parse), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
+            activate(context, SavedConnection(own, true, peers))
         }
         schedule(context)
         sync(context, db)
@@ -86,12 +142,9 @@ object SharedLibrary {
     }
     suspend fun connect(context: Context, db: AppDatabase, tree: Uri) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            require(uri(context) == null || uri(context) == tree) {
-                "La biblioteca ya tiene una carpeta configurada. No se cambiará sin migración explícita."
-            }
-            require(!fileMode(context)) { "Ya hay un contenedor de archivos configurado." }
+            require(uri(context) != tree || !fileMode(context)) { "El contenedor no es una carpeta." }
             folderStore(context, tree).use { it.probe() }
-            check(prefs(context).edit().putString("tree", tree.toString()).putString("mode", "folder").commit())
+            activate(context, SavedConnection(tree, false, emptySet()))
         }
         schedule(context)
         sync(context, db)
