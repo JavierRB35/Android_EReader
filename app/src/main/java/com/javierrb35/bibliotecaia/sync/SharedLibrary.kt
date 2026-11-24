@@ -175,7 +175,9 @@ object SharedLibrary {
             val peers = (filePeers(context) + peer).distinct()
             require(peers.size <= 10)
             SharedFileStore(context, own, peers, ReadingPositionSafSync.deviceId(context)).use {
-                require(it.readErrors.isEmpty()) { it.readErrors.joinToString(" · ") }
+                require(peer in it.acceptedPeers) {
+                    it.readErrors.joinToString(" · ").ifBlank { "No se pudo verificar el archivo seleccionado." }
+                }
             }
             check(prefs(context).edit().putStringSet("file_peers", peers.map(Uri::toString).toSet()).commit())
         }

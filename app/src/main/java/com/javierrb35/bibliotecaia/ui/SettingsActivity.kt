@@ -94,7 +94,12 @@ class SettingsActivity : AppCompatActivity() {
     private val sharedFilePeer = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) sharedAction {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            com.javierrb35.bibliotecaia.sync.SharedLibrary.addFilePeer(applicationContext, db, uri)
+            val result = SharedLibrary.addFilePeer(applicationContext, db, uri)
+            if (result.errors.isEmpty()) {
+                Toast.makeText(this@SettingsActivity,
+                    "Dispositivo vinculado y biblioteca comprobada.", Toast.LENGTH_LONG).show()
+            }
+            result
         }
     }
     private val sharedMigration = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -267,6 +272,7 @@ class SettingsActivity : AppCompatActivity() {
         val success = SharedLibrary.lastSuccess(app)
         sharedStatus.text = buildString {
             append(SharedLibrary.status(app))
+            if (selected != null) append("\nID de este dispositivo: ").append(ReadingPositionSafSync.deviceId(app).take(8))
             if (selected != null && nameUri == selected && ownName.isNotBlank()) append("\nArchivo o carpeta: ").append(ownName)
             if (success > 0) append("\nÚltima comprobación: ").append(DateFormat.getDateTimeInstance().format(Date(success)))
         }
