@@ -81,7 +81,12 @@ class CompleteBackupManager(
                 val fromShared = books.filter { it.contentHash in missing && it.contentHash !in byHash }
                 val sharedFiles = if (fromShared.isEmpty() ||
                     !com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) emptyMap() else {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginals(context, fromShared, stage, skipUnavailable = true)
+                    try {
+                        com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginals(context, fromShared, stage, skipUnavailable = true)
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) {
+                        throw IOException("No se puede leer la biblioteca compartida para recuperar originales. Abre Ajustes → Biblioteca compartida y comprueba su conexión. La copia anterior no se ha modificado. Detalle: " + (e.message ?: e.javaClass.simpleName), e)
+                    }
                 }
                 val unavailable = mutableListOf<BookEntity>()
                 val sources = books.mapNotNull { book ->
