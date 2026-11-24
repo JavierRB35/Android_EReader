@@ -148,7 +148,11 @@ object ReadingPositionSafSync {
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val app = context.applicationContext
-                if (own(app) == null) return@withLock true
+                if (own(app) == null) {
+                    if (peers(app).isEmpty()) return@withLock true
+                    error(app, IllegalStateException("Falta crear el archivo propio de este dispositivo."))
+                    return@withLock false
+                }
                 try {
                     val ownUri = requireNotNull(own(app))
                     requireGrant(app, ownUri, write = true)

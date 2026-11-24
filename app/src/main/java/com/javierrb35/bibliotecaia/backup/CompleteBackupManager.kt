@@ -77,12 +77,17 @@ class CompleteBackupManager(
                 val byHash = priorBooks.associateBy { it.contentHash }
                 val sources = books.map { book ->
                     if (book.contentHash in missing) {
-                        val remote = requireNotNull(byHash[book.contentHash]) {
-                            "No se encuentra el original central: " + book.title.take(80)
+                        val remote = byHash[book.contentHash]
+                        val staged = remote?.let { previous?.staged?.get(CompleteBackupArchive.entryName(it.id)) }
+                        val source = if (staged != null) staged else {
+                            require(com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                                "No se encuentra el original central: " + book.title.take(80)
+                            }
+                            File.createTempFile("central-original-", ".bin", stage).also {
+                                com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginal(context, book, it)
+                            }
                         }
-                        val staged = previous?.staged?.get(CompleteBackupArchive.entryName(remote.id))
-                            ?: throw IOException("No se pudo recuperar el original central.")
-                        book.copy(localPath = staged.absolutePath)
+                        book.copy(localPath = source.absolutePath)
                     } else {
                         val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
                         val source = File(book.localPath).canonicalFile

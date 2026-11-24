@@ -43,6 +43,33 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
+    private var sharedBusy = false
+    private lateinit var sharedStatus: TextView
+    private val sharedFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.connect(applicationContext, db, uri)
+        }
+    }
+    private val sharedMigration = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) sharedAction {
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.migrateZip(applicationContext, db, uri)
+        }
+    }
+    private fun sharedAction(operation: suspend () -> Any) {
+        if (sharedBusy) return
+        sharedBusy = true
+        lifecycleScope.launch {
+            try { operation() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, e.message ?: "No se pudo sincronizar la carpeta.", Toast.LENGTH_LONG).show()
+            } finally {
+                sharedBusy = false
+                sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
+            }
+        }
+    }
     private lateinit var backupStatus: TextView
     private lateinit var backupError: TextView
     private lateinit var backupRecovery: MaterialButton
@@ -160,7 +187,21 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
-        section(layout, "Sincronización entre dispositivos")
+        section(layout, "Biblioteca central compartida (experimental)")
+        val sharedCard = card(layout)
+        hint(sharedCard, "Elige la misma carpeta en cada dispositivo. Debe permitir listar, crear y leer archivos mediante Android. El ZIP anterior se conserva como copia independiente. No todos los proveedores ofrecen acceso a carpetas.")
+        sharedStatus = hint(sharedCard, com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext))
+        action(sharedCard, "Conectar carpeta central") { sharedFolder.launch(null) }
+        action(sharedCard, "Migrar copia ZIP existente") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedMigration.launch(arrayOf("application/zip", "application/octet-stream"))
+            else Toast.makeText(this, "Conecta primero una carpeta central.", Toast.LENGTH_LONG).show()
+        }
+        action(sharedCard, "Sincronizar biblioteca ahora") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedAction { com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(applicationContext, db) }
+        }
+        section(layout, "Sincronización anterior (JSON de posiciones)")
         val syncCard = card(layout)
         hint(syncCard, "Una vez por dispositivo: crea su archivo JSON en Drive. " +
             "Después vincula en este dispositivo, como lectura, los archivos creados " +

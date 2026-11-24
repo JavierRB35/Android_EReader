@@ -61,6 +61,7 @@ object BackupRoutine {
     /** A separately connected archive is read-only; the configured backup remains
      * the single writer. Never make a new device overwrite a shared ZIP. */
     fun centralUri(context: Context): Uri? {
+        com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(context)?.let { return it }
         val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(CENTRAL_READ_URI, null)?.let(Uri::parse)
         return status(context).uri ?: uri?.takeIf { chosen ->
@@ -71,6 +72,8 @@ object BackupRoutine {
     /** Null means the current archive has not yet been verified on this device.
      * Do not confuse a stale Room catalogue with verified central originals. */
     fun centralHashes(context: Context): Set<String>? {
+        if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context))
+            return com.javierrb35.bibliotecaia.sync.SharedLibrary.hashes(context)
         val uri = centralUri(context) ?: return null
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getString("central_index_uri", null) != uri.toString()) return null
@@ -97,6 +100,10 @@ object BackupRoutine {
     suspend fun refreshCentral(context: Context, database: AppDatabase, version: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(context, database)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, emptySet())
@@ -107,17 +114,24 @@ object BackupRoutine {
     suspend fun downloadBook(context: Context, database: AppDatabase, version: String, hash: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.download(context, database, hash)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, setOf(hash))
                 rememberCentral(context, uri, result.catalogueHashes)
-                result
             }
         }
 
     suspend fun evictBook(context: Context, database: AppDatabase, version: String, id: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.evict(context, database, id)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val book = database.bookDao().findById(id) ?: error("No se encuentra el libro.")
                 val manager = CompleteBackupManager(context.applicationContext, database, version)

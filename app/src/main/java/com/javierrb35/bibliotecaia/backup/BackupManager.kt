@@ -37,7 +37,8 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
     }
 
-    suspend fun restoreJson(json: String, availableOriginals: Map<String, String> = emptyMap()): RestoreReport {
+    suspend fun restoreJson(json: String, availableOriginals: Map<String, String> = emptyMap(),
+                            synchronize: Boolean = false): RestoreReport {
         // Validación ANTES de tocar la base (Issue #10.4): estructura, versión y entradas.
         val snapshot = BackupCodec.fromJson(json)
         return db.withTransaction {
@@ -118,7 +119,13 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
             })
 
             // Add only missing synopses; never overwrite a local synopsis when restoring.
-            db.synopsisDao().insertIgnore(snapshot.synopses.map { it.copy(bookId = identity.book(it.bookId)) })
+            val synopses = snapshot.synopses.map { it.copy(bookId = identity.book(it.bookId)) }
+            db.synopsisDao().insertIgnore(synopses)
+            if (synchronize) for (synopsis in synopses) {
+                val existing = db.synopsisDao().byBook(synopsis.bookId)
+                if (existing == null || synopsis.generatedAt > existing.generatedAt)
+                    db.synopsisDao().save(synopsis)
+            }
 
             val existingNotes = dao.annotationsAll().associateBy { it.id }
             val remappedNotes = snapshot.annotations.map { note ->
@@ -130,6 +137,13 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 note.copy(bookId = mappedId)
             }
             val annotationsRestored = countInserted(dao.insertAnnotationsIgnore(remappedNotes))
+            if (synchronize) for (note in remappedNotes) {
+                val existing = existingNotes[note.id] ?: continue
+                if (note.updatedAt > existing.updatedAt ||
+                    (note.updatedAt == existing.updatedAt && note.deletedAt != null && existing.deletedAt == null)) {
+                    db.readingDao().updateAnnotation(note)
+                }
+            }
             val annotationIds = dao.annotationsAll().map { it.id }.toSet()
             require(snapshot.versions.all { it.annotationId in annotationIds }) {
                 "La copia contiene versiones de una anotación inexistente."
