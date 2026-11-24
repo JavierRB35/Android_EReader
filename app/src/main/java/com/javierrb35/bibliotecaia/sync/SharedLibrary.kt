@@ -111,9 +111,9 @@ object SharedLibrary {
     suspend fun connectFile(context: Context, db: AppDatabase, own: Uri) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val old = currentConnection(context)
-            require(old?.uri != own || old.files) { "No se puede usar una carpeta como contenedor." }
+            require(old == null || old.uri != own || old.files) { "No se puede usar una carpeta como contenedor." }
             val saved = previousConnections(context).firstOrNull { it.uri == own && it.files }
-            val peers = if (old?.uri == own && old.files) old.peers else saved?.peers.orEmpty()
+            val peers = if (old != null && old.uri == own && old.files) old.peers else saved?.peers.orEmpty()
             SharedFileStore(context, own, peers.map(Uri::parse), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
             activate(context, SavedConnection(own, true, peers))
         }

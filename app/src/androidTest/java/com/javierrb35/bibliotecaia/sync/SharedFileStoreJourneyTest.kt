@@ -38,6 +38,14 @@ class SharedFileStoreJourneyTest {
             }
         }
     }
+    @Test fun connectionHistoryPreservesModeAndPeerPermissions() {
+        val file = SharedLibrary.SavedConnection(Uri.parse("content://provider/document/owner"),
+            true, setOf("content://provider/document/peer-a", "content://provider/document/peer-b"))
+        val folder = SharedLibrary.SavedConnection(Uri.parse("content://provider/tree/root"), false, emptySet())
+        assertEquals(file, SharedLibrary.SavedConnection.decode(file.encode()))
+        assertEquals(folder, SharedLibrary.SavedConnection.decode(folder.encode()))
+        assertNotEquals(file, folder)
+    }
     @Test fun fileOnlyDevicesNeverOverwritePeersAndRecoverInterruptedWrite() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "file-journey-" + UUID.randomUUID()).apply { mkdirs() }
