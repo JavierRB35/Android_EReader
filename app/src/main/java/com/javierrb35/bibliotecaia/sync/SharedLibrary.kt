@@ -46,8 +46,7 @@ object SharedLibrary {
                 null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
-        }.getOrNull() ?: if (fileMode(context)) "BibliotecaIA-central-" +
-            ReadingPositionSafSync.deviceId(context).take(8) + ".zip" else "Carpeta seleccionada"
+        }.getOrNull() ?: if (fileMode(context)) "" else "Carpeta seleccionada"
     }
     fun hasAccess(context: Context): Boolean {
         val selected = uri(context) ?: return false
@@ -133,7 +132,10 @@ object SharedLibrary {
     suspend fun connectFile(context: Context, db: AppDatabase, own: Uri) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val old = currentConnection(context)
-            require(old == null || old.uri != own || old.files) { "No se puede usar una carpeta como contenedor." }
+            require(old == null || old.uri != own || old.files) { "No se puede usar una carpeta como archivo de biblioteca." }
+            require(own != BackupRoutine.status(context).uri) {
+                "Ese archivo es tu copia de seguridad. Crea un archivo nuevo para la biblioteca."
+            }
             val saved = previousConnections(context).firstOrNull { it.uri == own && it.files }
             val peers = if (old != null && old.uri == own && old.files) old.peers else saved?.peers.orEmpty()
             SharedFileStore(context, own, peers.map(Uri::parse), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
@@ -146,6 +148,9 @@ object SharedLibrary {
         mutex.withLock {
             require(fileMode(context)) { "Crea primero el contenedor propio." }
             val own = requireNotNull(uri(context))
+            require(peer != BackupRoutine.status(context).uri) {
+                "Has seleccionado una copia de seguridad, no el archivo del otro dispositivo."
+            }
             require(peer != own) { "Has elegido el archivo de este dispositivo. Selecciona el que creó el otro móvil o tablet." }
             val peers = (filePeers(context) + peer).distinct()
             require(peers.size <= 10)

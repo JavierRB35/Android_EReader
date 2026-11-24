@@ -7,3 +7,5 @@ Incidencia #72, PR #76. Prioridad UX: una acción principal contextual. Sin OAut
 - La copia de seguridad tiene sección independiente; se rechaza escribir como respaldo sobre el archivo de biblioteca propio, vinculado o histórico conocido por URI. No se garantiza identidad de documentos con URIs de proveedores distintos.
 - El sistema de JSON anterior se oculta bajo configuración avanzada, sin borrar ajustes.
 - Las pruebas de interfaz comprueban acceso inicial al asistente y a copia de seguridad. La prueba física de Drive sigue pendiente.
+
+Los archivos nuevos llevan el modelo del dispositivo y un identificador corto para distinguirlos. El diálogo de vinculación incluye los tres pasos y el nombre propio real cuando el proveedor lo ofrece. Se permite sincronizar también sin pares y se distinguen los errores de permisos/archivo de los fallos de conexión. Se rechaza seleccionar el respaldo configurado como archivo propio o de otro dispositivo.

@@ -50,6 +50,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var sharedStatus: TextView
     private lateinit var sharedPrimary: MaterialButton
     private lateinit var sharedLink: MaterialButton
+    private lateinit var sharedSync: MaterialButton
     private lateinit var sharedOptions: MaterialButton
     private lateinit var sharedGuide: TextView
     private var ownName: String = ""
@@ -119,7 +120,11 @@ class SettingsActivity : AppCompatActivity() {
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)
-                Toast.makeText(this@SettingsActivity, e.message ?: "No se pudo sincronizar la carpeta.", Toast.LENGTH_LONG).show()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("No se pudo completar la conexión")
+                    .setMessage((e.message ?: "No se pudo acceder al archivo.") +
+                        "\n\nPuedes volver a intentarlo o cambiar la ubicación desde las opciones. No borres los datos de la aplicación.")
+                    .setPositiveButton("Entendido", null).show()
             } finally {
                 sharedBusy = false
                 refreshSharedPanel()
@@ -128,7 +133,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun createOwnLibrary() = chooseSharedConnection {
-        sharedFileOwn.launch("BibliotecaIA-central-" + ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
+        val model = Build.MODEL.replace(Regex("[^a-zA-Z0-9_-]+"), "-").trim('-').take(28).ifBlank { "Android" }
+        sharedFileOwn.launch("BibliotecaIA-" + model + "-" + ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
     }
     private fun openOwnLibrary() = chooseSharedConnection {
         sharedFileExisting.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -141,7 +147,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun linkDevice() {
         if (!sharedBusy) androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Añadir otro dispositivo")
-            .setMessage("En el otro móvil o tablet, abre Ajustes → Biblioteca compartida y configura su propio archivo en Drive. Aquí selecciona ESE archivo, no el de este dispositivo. Después, en el otro dispositivo, vincula el archivo de este. Solo hay que hacerlo una vez por dispositivo.")
+            .setMessage("1. En el otro móvil o tablet, abre Ajustes → Biblioteca compartida y configura su archivo en Drive, en la misma carpeta.\n\n2. Aquí selecciona el archivo creado por el otro dispositivo.\n\n3. En el otro equipo, añade el archivo de este dispositivo" +
+                (if (ownName.isBlank()) "." else ":\n" + ownName) +
+                "\n\nSolo hay que hacerlo una vez por dispositivo.")
             .setPositiveButton("Seleccionar archivo del otro dispositivo") { _, _ ->
                 sharedFilePeer.launch(arrayOf("application/zip", "application/octet-stream"))
             }.setNegativeButton(android.R.string.cancel, null).show()
@@ -226,6 +234,8 @@ class SettingsActivity : AppCompatActivity() {
         sharedPrimary.isEnabled = !sharedBusy
         sharedLink.visibility = if (configured && files && linked > 0 && access) View.VISIBLE else View.GONE
         sharedLink.isEnabled = !sharedBusy
+        sharedSync.visibility = if (configured && files && linked == 0 && access) View.VISIBLE else View.GONE
+        sharedSync.isEnabled = !sharedBusy
         sharedOptions.isEnabled = !sharedBusy
         sharedOptions.visibility = if (configured || SharedLibrary.previousConnections(app).isNotEmpty()) View.VISIBLE else View.GONE
         sharedGuide.text = when {
@@ -248,6 +258,7 @@ class SettingsActivity : AppCompatActivity() {
             if (selected != null && nameUri == selected && ownName.isNotBlank()) append("\nArchivo o carpeta: ").append(ownName)
             if (success > 0) append("\nÚltima comprobación: ").append(DateFormat.getDateTimeInstance().format(Date(success)))
         }
+        if (selected == null) { nameUri = null; ownName = "" }
         if (selected != null && selected != nameUri) {
             nameUri = selected
             ownName = ""
@@ -389,6 +400,9 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         sharedLink = action(sharedCard, "Añadir otro dispositivo") { linkDevice() }
+        sharedSync = action(sharedCard, "Sincronizar ahora") {
+            sharedAction { SharedLibrary.sync(applicationContext, db) }
+        }
         sharedOptions = action(sharedCard, "Opciones de biblioteca") { showSharedOptions() }
         refreshSharedPanel()
         lifecycleScope.launch {
