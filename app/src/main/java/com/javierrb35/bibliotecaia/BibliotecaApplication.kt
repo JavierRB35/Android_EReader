@@ -15,7 +15,7 @@ import java.io.File
 class BibliotecaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        if (isMainProcess()) UpdateRuntime.initialize(this)
+        if (isMainProcess() && !BuildConfig.QA_BUILD) UpdateRuntime.initialize(this)
     }
 
     private fun isMainProcess(): Boolean {

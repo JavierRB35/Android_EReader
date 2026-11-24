@@ -327,6 +327,19 @@ object SharedLibrary {
             store(context).use { store -> verifiedCopy(store, inventory(store), book, file) }
         }
     }
+    suspend fun stageOriginals(context: Context, books: List<BookEntity>, directory: File): Map<String, File> =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                store(context).use { store ->
+                    val inv = inventory(store)
+                    books.associate { book ->
+                        val target = File.createTempFile("central-original-", ".bin", directory)
+                        verifiedCopy(store, inv, book, target)
+                        book.contentHash to target
+                    }
+                }
+            }
+        }
     suspend fun pull(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val inv = store(context).use { inventory(it) }
@@ -366,8 +379,10 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
         return try {
             val revision = SharedLibrary.revision(applicationContext)
             val result = SharedLibrary.sync(applicationContext, AppDatabase.get(applicationContext))
-            if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext))
-                Result.success() else Result.retry()
+            if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
+                BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+                Result.success()
+            } else Result.retry()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             SharedLibrary.recordFailure(applicationContext, e)

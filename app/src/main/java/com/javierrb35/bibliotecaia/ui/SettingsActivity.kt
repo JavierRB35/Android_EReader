@@ -280,10 +280,10 @@ class SettingsActivity : AppCompatActivity() {
 
         val backupCard = card(layout)
         hint(backupCard, getString(R.string.settings_backup_intro))
-        hint(backupCard, "Atención: el ZIP completo sigue siendo una copia de recuperación, " +
-            "no un archivo colaborativo. Si usas varios dispositivos, no sustituyas " +
-            "el ZIP compartido desde un dispositivo desactualizado. La " +
-            "sincronización segura inicial comprende solo posiciones de lectura.")
+        hint(backupCard, "El ZIP es una copia de recuperación, no un archivo de sincronización. " +
+            "Con la biblioteca compartida, crea una copia NUEVA e independiente en el dispositivo " +
+            "encargado del respaldo para activar su actualización automática (como máximo cada 12 h). " +
+            "No selecciones un contenedor activo ni el respaldo de otro dispositivo.")
         backupStatus = hint(backupCard, "")
         backupError = hint(backupCard, "")
 
@@ -550,6 +550,10 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun checkUpdates() {
+        if (BuildConfig.QA_BUILD) {
+            Toast.makeText(this, "Compilación QA aislada. No se instalarán actualizaciones de producción.", Toast.LENGTH_LONG).show()
+            return
+        }
         lifecycleScope.launch {
             val release = withContext(Dispatchers.IO) {
                 UpdateChecker.latestRelease(BuildConfig.VERSION_NAME)

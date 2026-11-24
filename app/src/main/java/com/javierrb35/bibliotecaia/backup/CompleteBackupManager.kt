@@ -75,18 +75,19 @@ class CompleteBackupManager(
                     "Hay libros centrales que aún no están en este catálogo. Abre Biblioteca completa antes de guardar."
                 }
                 val byHash = priorBooks.associateBy { it.contentHash }
+                val fromShared = books.filter { it.contentHash in missing && it.contentHash !in byHash }
+                val sharedFiles = if (fromShared.isEmpty()) emptyMap() else {
+                    require(com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                        "No se encuentra el original central: " + fromShared.first().title.take(80)
+                    }
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginals(context, fromShared, stage)
+                }
                 val sources = books.map { book ->
                     if (book.contentHash in missing) {
                         val remote = byHash[book.contentHash]
                         val staged = remote?.let { previous?.staged?.get(CompleteBackupArchive.entryName(it.id)) }
-                        val source = if (staged != null) staged else {
-                            require(com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
-                                "No se encuentra el original central: " + book.title.take(80)
-                            }
-                            File.createTempFile("central-original-", ".bin", stage).also {
-                                com.javierrb35.bibliotecaia.sync.SharedLibrary.stageOriginal(context, book, it)
-                            }
-                        }
+                        val source = staged ?: sharedFiles[book.contentHash]
+                            ?: throw IOException("No se pudo recuperar el original central: " + book.title.take(80))
                         book.copy(localPath = source.absolutePath)
                     } else {
                         val requiredDir = File(context.filesDir, "books/" + book.id).canonicalFile
