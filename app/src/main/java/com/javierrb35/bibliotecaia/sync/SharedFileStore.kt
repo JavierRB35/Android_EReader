@@ -20,6 +20,10 @@ import java.util.zip.ZipOutputStream
 internal interface SharedContainerAccess {
     fun requireGrant(uri: Uri, write: Boolean)
     fun input(uri: Uri): InputStream
+    // Some providers expose different stream paths for typed and generic reads.
+    // Retry only a rejected peer, never use this to override writer ownership.
+    fun alternateInput(uri: Uri): InputStream = input(uri)
+    fun displayName(uri: Uri): String? = null
     fun output(uri: Uri): java.io.OutputStream
 }
 private class SafContainerAccess(context: Context) : SharedContainerAccess {
@@ -31,6 +35,13 @@ private class SafContainerAccess(context: Context) : SharedContainerAccess {
     }
     override fun input(uri: Uri) = resolver.openInputStream(uri)
         ?: throw IOException("Contenedor inaccesible.")
+    override fun alternateInput(uri: Uri): InputStream =
+        resolver.openTypedAssetFileDescriptor(uri, "application/zip", null)?.createInputStream()
+            ?: throw IOException("El proveedor no ofrece una lectura ZIP alternativa.")
+    override fun displayName(uri: Uri): String? = resolver.query(uri,
+        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+        if (it.moveToFirst()) it.getString(0) else null
+    }
     override fun output(uri: Uri) = resolver.openOutputStream(uri, "wt")
         ?: throw IOException("No se puede escribir el contenedor propio.")
 }
@@ -90,21 +101,52 @@ internal class SharedFileStore(
                     require(peer != own)
                     access.requireGrant(peer, false)
                     val file = File(temp, "peer-" + UUID.randomUUID() + ".zip")
-                    copyUri(peer, file)
-                    val zip = ZipFile(file)
-                    try {
-                        val id = ownerOf(zip)
-                        require(id !in seenOwners) { "Contenedor duplicado o perteneciente a este dispositivo." }
-                        validate(zip)
-                        seenOwners.add(id)
-                        register(zip)
-                        accepted.add(peer)
-                    } catch (e: Exception) { zip.close(); throw e }
+                    val (zip, id) = openPeer(peer, file, seenOwners)
+                    seenOwners.add(id)
+                    register(zip)
+                    accepted.add(peer)
                 } catch (e: Exception) { errors.add("Contenedor de otro dispositivo: " + (e.message ?: "inaccesible")) }
             }
         } catch (e: Exception) { close(); throw e }
     }
-     private fun copyBounded(input: InputStream, target: File, max: Long) {
+    private fun openPeer(peer: Uri, file: File, seenOwners: Set<String>): Pair<ZipFile, String> {
+        val name = runCatching { access.displayName(peer) }.getOrNull()
+            ?.take(160) ?: "Archivo seleccionado"
+        fun attempt(alternate: Boolean): Pair<ZipFile, String> {
+            copyBounded(if (alternate) access.alternateInput(peer) else access.input(peer), file, MAX)
+            val zip = ZipFile(file)
+            try {
+                validate(zip)
+                val actual = ownerOf(zip)
+                require(actual != owner) {
+                    "Se ha recibido el archivo de este dispositivo (ID " + owner.take(8) + ")."
+                }
+                require(actual !in seenOwners) {
+                    "El archivo pertenece a un dispositivo ya vinculado (ID " + actual.take(8) + ")."
+                }
+                // Generated filenames are a consistency hint, not a substitute for
+                // the internal validated owner. A renamed file need not match a name.
+                val hint = Regex("^BibliotecaIA-(?:.+?-)?([a-f0-9]{8})(?:-[a-f0-9]{8})?(?: \\(\\d+\\))?\\.zip$",
+                    RegexOption.IGNORE_CASE).matchEntire(name)?.groupValues?.get(1)
+                require(hint == null || actual.startsWith(hint, ignoreCase = true)) {
+                    "El nombre indica ID " + hint + ", pero el contenido leído tiene ID " + actual.take(8) + "."
+                }
+                return zip to actual
+            } catch (e: Exception) { zip.close(); throw e }
+        }
+        return try { attempt(false) }
+        catch (first: Exception) {
+            try { attempt(true) }
+            catch (second: Exception) {
+                throw IOException("Archivo seleccionado: " + name + ". ID de este dispositivo: " +
+                    owner.take(8) + ". " + (first.message ?: first.javaClass.simpleName) +
+                    " La segunda lectura tampoco se pudo verificar: " +
+                    (second.message ?: second.javaClass.simpleName) +
+                    ". Selecciona el archivo del otro dispositivo, no crees ni borres ZIP.", second)
+            }
+        }
+    }
+    private fun copyBounded(input: InputStream, target: File, max: Long) {
         input.use { source ->
             target.outputStream().use { out ->
                 val buffer = ByteArray(64 * 1024)

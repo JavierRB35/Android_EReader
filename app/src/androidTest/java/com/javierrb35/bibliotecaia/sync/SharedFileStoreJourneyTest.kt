@@ -20,9 +20,17 @@ import java.util.UUID
 class SharedFileStoreJourneyTest {
     private class Access : SharedContainerAccess {
         var failNextWrite = false
+        var wrongRead: Pair<Uri, Uri>? = null
+        var alternateReads = 0
         val writes = mutableListOf<Uri>()
         override fun requireGrant(uri: Uri, write: Boolean) {}
-        override fun input(uri: Uri) = File(uri.path!!).inputStream()
+        override fun input(uri: Uri) = File(
+            wrongRead?.takeIf { it.first == uri }?.second?.path ?: uri.path!!).inputStream()
+        override fun alternateInput(uri: Uri): java.io.InputStream {
+            alternateReads++
+            return File(uri.path!!).inputStream()
+        }
+        override fun displayName(uri: Uri) = File(uri.path!!).name
         override fun output(uri: Uri): OutputStream {
             writes.add(uri)
             val file = File(uri.path!!)
@@ -70,7 +78,17 @@ class SharedFileStoreJourneyTest {
             a.bookDao().insert(book)
             openA().use { assertTrue(SharedLibrary.syncStore(it, a, ownerA).errors.isEmpty()) }
             val beforeA = File(uriA.path!!).readBytes()
-            openB().use { assertTrue(SharedLibrary.syncStore(it, b, ownerB).errors.isEmpty()) }
+            // Reproduce a provider returning the local device's ZIP for a
+            // different selected URI. The typed fallback must actually read
+            // the other owner, not relax the ownership check.
+            access.wrongRead = uriA to uriB
+            openB().use {
+                assertEquals(listOf(uriA), it.acceptedPeers)
+                assertTrue(it.readErrors.isEmpty())
+                assertTrue(SharedLibrary.syncStore(it, b, ownerB).errors.isEmpty())
+            }
+            assertEquals(1, access.alternateReads)
+            access.wrongRead = null
             assertArrayEquals(beforeA, File(uriA.path!!).readBytes())
             val peer = b.bookDao().findByHash(book.contentHash)!!
             assertTrue(peer.localPath.isBlank())
