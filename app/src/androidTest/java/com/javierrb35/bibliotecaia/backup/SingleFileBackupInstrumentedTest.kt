@@ -49,8 +49,9 @@ class SingleFileBackupInstrumentedTest {
             // An absent second original must preserve the first and all metadata.
             // The resulting archive is explicitly partial, not a complete claim.
             db.bookDao().insert(BookEntity(id2, "Dos", null, BookFormat.PDF,
-                original2.name, original2.absolutePath, "0".repeat(64),
-                3L, System.currentTimeMillis()))
+                original2.name, original2.absolutePath, MessageDigest.getInstance("SHA-256")
+                    .digest("PDF de prueba propio".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) },
+                "PDF de prueba propio".toByteArray().size.toLong(), System.currentTimeMillis()))
             val partial = manager.exportTo(uri, replaceExisting = true)
             assertEquals(1, partial.books)
             assertEquals(listOf("Dos"), partial.missingTitles)
@@ -65,7 +66,7 @@ class SingleFileBackupInstrumentedTest {
             } finally { partialDb.close() }
             val partialBytes = target.readBytes()
             // A present but corrupt file is not a declared absence; preserve ZIP.
-            original2.writeText("BAD")
+            original2.writeText("X".repeat("PDF de prueba propio".toByteArray().size))
             try {
                 manager.exportTo(uri, replaceExisting = true)
                 fail("Corrupt original should abort before truncating the old ZIP")
