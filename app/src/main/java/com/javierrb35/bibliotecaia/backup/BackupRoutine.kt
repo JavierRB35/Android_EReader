@@ -206,6 +206,9 @@ object BackupRoutine {
             }
             val manager = CompleteBackupManager(app, database, version)
             try {
+                require(!com.javierrb35.bibliotecaia.sync.SharedLibrary.isLibraryDocument(app, uri)) {
+                    "Este archivo pertenece a la biblioteca sincronizada. Crea un archivo de respaldo diferente."
+                }
                 check(!manager.hasPendingRecovery()) {
                     "Existe una copia anterior pendiente de recuperación. Recupérala desde Ajustes."
                 }

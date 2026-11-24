@@ -26,6 +26,9 @@ import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
+import com.javierrb35.bibliotecaia.sync.SharedLibrary
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
@@ -45,6 +48,13 @@ class SettingsActivity : AppCompatActivity() {
     private var backupBusy = false
     private var sharedBusy = false
     private lateinit var sharedStatus: TextView
+    private lateinit var sharedPrimary: MaterialButton
+    private lateinit var sharedLink: MaterialButton
+    private lateinit var sharedSync: MaterialButton
+    private lateinit var sharedOptions: MaterialButton
+    private lateinit var sharedGuide: TextView
+    private var ownName: String = ""
+    private var nameUri: Uri? = null
     private val sharedFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) sharedAction {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -56,6 +66,30 @@ class SettingsActivity : AppCompatActivity() {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri)
         }
+    }
+    private val sharedFileExisting = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) result.data?.let { data ->
+            data.data?.let { uri -> sharedAction {
+                val grant = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                require(grant == (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) {
+                    "El proveedor no permite escribir en este contenedor."
+                }
+                contentResolver.takePersistableUriPermission(uri, grant)
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri)
+            } }
+        }
+    }
+    private fun chooseSharedConnection(action: () -> Unit) {
+        if (sharedBusy) return
+        if (!com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)) {
+            action()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Cambiar conexión de biblioteca")
+            .setMessage("Se conservarán los libros descargados, notas, posiciones, el ZIP y los archivos de la biblioteca anterior. Los libros solo disponibles en la conexión anterior seguirán allí; podrás volver a esa conexión desde Ajustes. No se trasladan automáticamente sus originales al nuevo destino.")
+            .setPositiveButton("Continuar") { _, _ -> action() }
+            .setNegativeButton(android.R.string.cancel, null).show()
     }
     private val sharedFilePeer = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) sharedAction {
@@ -72,14 +106,168 @@ class SettingsActivity : AppCompatActivity() {
         if (sharedBusy) return
         sharedBusy = true
         lifecycleScope.launch {
-            try { operation() }
+            sharedStatus.text = "Comprobando la conexión…"
+            refreshSharedButtons()
+            try {
+                val result = operation()
+                if (result is SharedLibrary.Result && result.errors.isNotEmpty()) {
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("Conexión con avisos")
+                        .setMessage(result.errors.joinToString("\n").take(1800))
+                        .setPositiveButton("Entendido", null).show()
+                }
+            }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)
-                Toast.makeText(this@SettingsActivity, e.message ?: "No se pudo sincronizar la carpeta.", Toast.LENGTH_LONG).show()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("No se pudo completar la conexión")
+                    .setMessage((e.message ?: "No se pudo acceder al archivo.") +
+                        "\n\nPuedes volver a intentarlo o cambiar la ubicación desde las opciones. No borres los datos de la aplicación.")
+                    .setPositiveButton("Entendido", null).show()
             } finally {
                 sharedBusy = false
-                sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
+                refreshSharedPanel()
+            }
+        }
+    }
+
+    private fun createOwnLibrary() = chooseSharedConnection {
+        val model = Build.MODEL.replace(Regex("[^a-zA-Z0-9_-]+"), "-").trim('-').take(28).ifBlank { "Android" }
+        sharedFileOwn.launch("BibliotecaIA-" + model + "-" + ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
+    }
+    private fun openOwnLibrary() = chooseSharedConnection {
+        sharedFileExisting.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        })
+    }
+    private fun linkDevice() {
+        if (!sharedBusy) androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Añadir otro dispositivo")
+            .setMessage("1. En el otro móvil o tablet, abre Ajustes → Biblioteca compartida y configura su archivo en Drive, en la misma carpeta.\n\n2. Aquí selecciona el archivo creado por el otro dispositivo.\n\n3. En el otro equipo, añade el archivo de este dispositivo" +
+                (if (ownName.isBlank()) "." else ":\n" + ownName) +
+                "\n\nSolo hay que hacerlo una vez por dispositivo.")
+            .setPositiveButton("Seleccionar archivo del otro dispositivo") { _, _ ->
+                sharedFilePeer.launch(arrayOf("application/zip", "application/octet-stream"))
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun showSetup() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("¿Dónde quieres guardar tu biblioteca?")
+            .setItems(arrayOf("Google Drive u otra nube (recomendado)", "Abrir mi archivo de biblioteca existente", "Carpeta compartida compatible (avanzado)")) { _, which ->
+                when (which) {
+                    0 -> createOwnLibrary()
+                    1 -> openOwnLibrary()
+                    else -> chooseSharedConnection {
+                        androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("Carpeta compartida")
+                            .setMessage("Elige una carpeta que todos tus dispositivos puedan abrir. Si Google Drive no aparece en este selector, vuelve atrás y elige Google Drive u otra nube.")
+                            .setPositiveButton("Seleccionar carpeta") { _, _ -> sharedFolder.launch(null) }
+                            .setNegativeButton(android.R.string.cancel, null).show()
+                    }
+                }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun restorePreviousConnection() {
+        val saved = SharedLibrary.previousConnections(applicationContext)
+        if (saved.isEmpty()) return
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Conexiones anteriores")
+            .setItems(saved.map { it.label }.toTypedArray()) { _, which ->
+                chooseSharedConnection {
+                    sharedAction { SharedLibrary.restoreConnection(applicationContext, db, saved[which]) }
+                }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun showSharedOptions() {
+        val labels = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        fun option(label: String, action: () -> Unit) { labels.add(label); actions.add(action) }
+        option("Cambiar ubicación o reparar permisos") { showSetup() }
+        if (SharedLibrary.fileMode(applicationContext)) {
+            option("Abrir de nuevo mi archivo") { openOwnLibrary() }
+            if (SharedLibrary.peerCount(applicationContext) > 0) option("Gestionar dispositivos vinculados") {
+                val peers = SharedLibrary.linkedFiles(applicationContext)
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Dispositivos vinculados")
+                    .setItems(peers.mapIndexed { index, uri -> "Dispositivo ${index + 1} · " + (uri.lastPathSegment ?: "").takeLast(45) }.toTypedArray()) { _, which ->
+                        androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("Desvincular dispositivo")
+                            .setMessage("Se dejará de sincronizar con este archivo. No se borrará ningún dato, pero sus libros que no estén en otra ubicación podrán dejar de estar disponibles aquí.")
+                            .setPositiveButton("Desvincular") { _, _ ->
+                                sharedAction { SharedLibrary.removeFilePeer(applicationContext, peers[which]) }
+                            }.setNegativeButton(android.R.string.cancel, null).show()
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            }
+        }
+        if (SharedLibrary.configured(applicationContext)) option("Incorporar una copia de seguridad anterior") {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Incorporar libros de un respaldo")
+                .setMessage("Selecciona un ZIP de recuperación anterior. Los originales se añadirán a la biblioteca sin borrar la copia.")
+                .setPositiveButton("Seleccionar copia") { _, _ ->
+                    sharedMigration.launch(arrayOf("application/zip", "application/octet-stream"))
+                }.setNegativeButton(android.R.string.cancel, null).show()
+        }
+        if (SharedLibrary.previousConnections(applicationContext).isNotEmpty())
+            option("Recuperar conexión anterior") { restorePreviousConnection() }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Opciones de biblioteca")
+            .setItems(labels.toTypedArray()) { _, which -> actions[which]() }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun refreshSharedButtons() {
+        if (!::sharedPrimary.isInitialized) return
+        val app = applicationContext
+        val configured = SharedLibrary.configured(app)
+        val files = SharedLibrary.fileMode(app)
+        val linked = SharedLibrary.peerCount(app)
+        val access = SharedLibrary.hasAccess(app)
+        sharedPrimary.text = when {
+            !configured -> "Configurar biblioteca"
+            !access -> "Reparar conexión"
+            files && linked == 0 -> "Añadir otro dispositivo"
+            else -> "Sincronizar ahora"
+        }
+        sharedPrimary.isEnabled = !sharedBusy
+        sharedLink.visibility = if (configured && files && linked > 0 && access) View.VISIBLE else View.GONE
+        sharedLink.isEnabled = !sharedBusy
+        sharedSync.visibility = if (configured && files && linked == 0 && access) View.VISIBLE else View.GONE
+        sharedSync.isEnabled = !sharedBusy
+        sharedOptions.isEnabled = !sharedBusy
+        sharedOptions.visibility = if (configured || SharedLibrary.previousConnections(app).isNotEmpty()) View.VISIBLE else View.GONE
+        sharedGuide.text = when {
+            !configured -> "Guarda los libros en Drive y continúa leyendo desde otro dispositivo. Sin crear una cuenta nueva."
+            !access -> "Falta acceso al archivo o carpeta. Repara la conexión sin borrar los datos."
+            files && linked == 0 -> "Archivo de este dispositivo preparado. Añade el otro móvil o tablet para compartir libros y posiciones."
+            files -> "Dispositivos vinculados: $linked. Comprueba que también han vinculado el archivo de este dispositivo."
+            else -> "En los demás dispositivos, selecciona la misma carpeta compartida."
+        }
+    }
+    private fun refreshSharedPanel() {
+        if (!::sharedStatus.isInitialized) return
+        refreshSharedButtons()
+        if (sharedBusy) return
+        val app = applicationContext
+        val selected = SharedLibrary.uri(app)
+        val success = SharedLibrary.lastSuccess(app)
+        sharedStatus.text = buildString {
+            append(SharedLibrary.status(app))
+            if (selected != null && nameUri == selected && ownName.isNotBlank()) append("\nArchivo o carpeta: ").append(ownName)
+            if (success > 0) append("\nÚltima comprobación: ").append(DateFormat.getDateTimeInstance().format(Date(success)))
+        }
+        if (selected == null) { nameUri = null; ownName = "" }
+        if (selected != null && selected != nameUri) {
+            nameUri = selected
+            ownName = ""
+            lifecycleScope.launch {
+                val name = withContext(Dispatchers.IO) { SharedLibrary.connectedName(app) }
+                if (SharedLibrary.uri(app) == selected && nameUri == selected) {
+                    ownName = name
+                    refreshSharedPanel()
+                }
             }
         }
     }
@@ -200,34 +388,38 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
-        section(layout, "Biblioteca central compartida (experimental)")
+        section(layout, "Biblioteca compartida")
         val sharedCard = card(layout)
-        hint(sharedCard, "Elige la misma carpeta en cada dispositivo. Debe permitir listar, crear y leer archivos mediante Android. El ZIP anterior se conserva como copia independiente. No todos los proveedores ofrecen acceso a carpetas.")
-        sharedStatus = hint(sharedCard, com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext))
-        action(sharedCard, "Conectar carpeta central") { sharedFolder.launch(null) }
-        hint(sharedCard, "Si Drive no ofrece seleccionar carpetas, crea un contenedor propio en cada dispositivo y vincula el de los demás. Cada dispositivo escribe únicamente su archivo. La copia ZIP de recuperación es independiente.")
-        action(sharedCard, "Crear contenedor de este dispositivo") {
-            if (!com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
-                sharedFileOwn.launch("BibliotecaIA-central-" + com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
-            else Toast.makeText(this, "Ya hay una biblioteca configurada.", Toast.LENGTH_LONG).show()
+        sharedStatus = hint(sharedCard, "")
+        sharedGuide = hint(sharedCard, "")
+        sharedPrimary = action(sharedCard, "Configurar biblioteca", primary = true) {
+            when {
+                !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> showSetup()
+                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> linkDevice()
+                else -> sharedAction { SharedLibrary.sync(applicationContext, db) }
+            }
         }
-        action(sharedCard, "Vincular contenedor de otro dispositivo") {
-            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.fileMode(applicationContext))
-                sharedFilePeer.launch(arrayOf("application/zip", "application/octet-stream"))
-            else Toast.makeText(this, "Crea primero tu contenedor propio.", Toast.LENGTH_LONG).show()
+        sharedLink = action(sharedCard, "Añadir otro dispositivo") { linkDevice() }
+        sharedSync = action(sharedCard, "Sincronizar ahora") {
+            sharedAction { SharedLibrary.sync(applicationContext, db) }
         }
-        action(sharedCard, "Migrar copia ZIP existente") {
-            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
-                sharedMigration.launch(arrayOf("application/zip", "application/octet-stream"))
-            else Toast.makeText(this, "Conecta primero una carpeta central.", Toast.LENGTH_LONG).show()
+        sharedOptions = action(sharedCard, "Opciones de biblioteca") { showSharedOptions() }
+        refreshSharedPanel()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                SharedLibrary.changes.collect { refreshSharedPanel() }
+            }
         }
-        action(sharedCard, "Sincronizar biblioteca ahora") {
-            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
-                sharedAction { com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(applicationContext, db) }
-        }
-        section(layout, "Sincronización anterior (JSON de posiciones)")
+
+        section(layout, "Configuración avanzada")
+        val legacyToggle = action(layout, "Mostrar sincronización antigua (solo posiciones)") {}
         val syncCard = card(layout)
-        hint(syncCard, "Una vez por dispositivo: crea su archivo JSON en Drive. " +
+        syncCard.visibility = View.GONE
+        legacyToggle.setOnClickListener {
+            syncCard.visibility = if (syncCard.visibility == View.GONE) View.VISIBLE else View.GONE
+            legacyToggle.text = if (syncCard.visibility == View.VISIBLE) "Ocultar sincronización antigua" else "Mostrar sincronización antigua (solo posiciones)"
+        }
+        hint(syncCard, "Configuración anterior. No es necesaria si utilizas la biblioteca compartida. " +
             "Después vincula en este dispositivo, como lectura, los archivos creados " +
             "en tus otros dispositivos. Cada dispositivo escribe solo el suyo. " +
             "No se requiere cuenta ni OAuth en BibliotecaAI.")
@@ -280,10 +472,7 @@ class SettingsActivity : AppCompatActivity() {
 
         val backupCard = card(layout)
         hint(backupCard, getString(R.string.settings_backup_intro))
-        hint(backupCard, "El ZIP es una copia de recuperación, no un archivo de sincronización. " +
-            "Con la biblioteca compartida, crea una copia NUEVA e independiente en el dispositivo " +
-            "encargado del respaldo para activar su actualización automática (como máximo cada 12 h). " +
-            "No selecciones un contenedor activo ni el respaldo de otro dispositivo.")
+        hint(backupCard, "La copia de seguridad permite recuperar tus datos. No es necesaria para conectar otro dispositivo. Crea un archivo distinto del de la biblioteca compartida.")
         backupStatus = hint(backupCard, "")
         backupError = hint(backupCard, "")
 
@@ -326,8 +515,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::sharedStatus.isInitialized)
-            sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
+        if (::sharedStatus.isInitialized) refreshSharedPanel()
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
     }
