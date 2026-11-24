@@ -13,7 +13,16 @@ import kotlinx.coroutines.launch
 object ReaderRouter {
     fun open(activity: AppCompatActivity, bookId: String, locator: String? = null) {
         activity.lifecycleScope.launch {
-            val book = AppDatabase.get(activity).bookDao().findById(bookId)
+            val db = AppDatabase.get(activity)
+            try {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(activity.applicationContext, db)
+                } else {
+                    com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.refresh(activity.applicationContext, db)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { /* Reading remains available offline. */ }
+            val book = db.bookDao().findById(bookId)
             if (book == null) {
                 Toast.makeText(activity, "No se encuentra el libro de origen", Toast.LENGTH_LONG).show()
                 return@launch

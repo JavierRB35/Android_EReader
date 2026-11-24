@@ -37,6 +37,8 @@ if (configuredVersionCode < 1 || configuredVersionCode > 2100000000) {
     throw new GradleException('Release versionCode is outside Android limits')
 }
 
+def qaRequested = project.findProperty('BIBLIOTECA_QA')?.toString() == 'true'
+
 android {
     namespace 'com.javierrb35.bibliotecaia'
     compileSdk 34
@@ -48,6 +50,8 @@ android {
         versionCode configuredVersionCode
         versionName (releaseVersionNameOverride ?: "0.1.0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders = [appLabel: '@string/app_name']
+        buildConfigField 'boolean', 'QA_BUILD', 'false'
         buildConfigField 'String', 'SUPABASE_URL', javaString(publicAuthValue('BIBLIOTECA_SUPABASE_URL'))
         buildConfigField 'String', 'SUPABASE_PUBLIC_KEY', javaString(publicSupabaseKey)
     }
@@ -55,6 +59,14 @@ android {
     buildFeatures { buildConfig true }
 
     buildTypes {
+        debug {
+            if (qaRequested) {
+                applicationIdSuffix '.qa'
+                versionNameSuffix '-qa'
+                manifestPlaceholders = [appLabel: 'BibliotecaAI QA']
+                buildConfigField 'boolean', 'QA_BUILD', 'true'
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

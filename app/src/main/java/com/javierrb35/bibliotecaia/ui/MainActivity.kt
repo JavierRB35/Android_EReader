@@ -152,6 +152,14 @@ class MainActivity : AppCompatActivity() {
         setCentralMode(savedInstanceState?.getBoolean("central_mode") == true)
         findViewById<View>(R.id.btnMissingOriginals).setOnClickListener { showMissingOriginals() }
         observeCatalog()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.changes.collect {
+                    if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                        setCentralMode(centralFlow.value.first)
+                }
+            }
+        }
         consumeImportIntent(intent)
     }
 
@@ -188,7 +196,11 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             // Pull peer positions before any automatic ZIP backup attempt.
             // Do not treat a failed peer read as evidence that the remote is current.
-            val remoteChecked = ReadingPositionSafSync.refresh(applicationContext, db)
+            val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
+            val remoteChecked = if (shared) {
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(applicationContext)
+                false
+            } else ReadingPositionSafSync.refresh(applicationContext, db)
             // A shared ZIP remains a single-writer backup, NOT a sync channel.
             // With peer devices configured, do not silently overwrite it with
             // a possibly stale full library; keep manual backup in Settings.
@@ -345,7 +357,11 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.import_success, book.title),
                     Toast.LENGTH_LONG
                 ).show()
-                val remoteChecked = ReadingPositionSafSync.refresh(applicationContext, db)
+                val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
+                if (shared) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(applicationContext)
+                }
+                val remoteChecked = !shared && ReadingPositionSafSync.refresh(applicationContext, db)
                 if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
                     BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 }

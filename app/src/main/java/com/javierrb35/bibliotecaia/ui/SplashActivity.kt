@@ -38,7 +38,8 @@ class SplashActivity : AppCompatActivity() {
             if (destinationConfigured) View.VISIBLE else View.INVISIBLE
 
         // Existing routine launches I/O in its own application coroutine scope.
-        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+        // MainActivity/shared worker coordinate backup after remote refresh.
+        // The backup routine itself also checks multi-device ownership.
         handler.postDelayed(openLibrary, SPLASH_DURATION_MS)
     }
 

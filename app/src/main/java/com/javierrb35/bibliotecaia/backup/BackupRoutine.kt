@@ -28,6 +28,8 @@ object BackupRoutine {
     private const val LAST_SUCCESS = "last_success"
     private const val LAST_ERROR = "last_error"
     private const val CENTRAL_READ_URI = "central_read_uri"
+    private const val SHARED_AUTO_URI = "shared_auto_backup_uri"
+    private const val SHARED_INTERVAL_MS = 12L * 60 * 60 * 1000
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -61,6 +63,7 @@ object BackupRoutine {
     /** A separately connected archive is read-only; the configured backup remains
      * the single writer. Never make a new device overwrite a shared ZIP. */
     fun centralUri(context: Context): Uri? {
+        com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(context)?.let { return it }
         val uri = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(CENTRAL_READ_URI, null)?.let(Uri::parse)
         return status(context).uri ?: uri?.takeIf { chosen ->
@@ -71,6 +74,8 @@ object BackupRoutine {
     /** Null means the current archive has not yet been verified on this device.
      * Do not confuse a stale Room catalogue with verified central originals. */
     fun centralHashes(context: Context): Set<String>? {
+        if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context))
+            return com.javierrb35.bibliotecaia.sync.SharedLibrary.hashes(context)
         val uri = centralUri(context) ?: return null
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getString("central_index_uri", null) != uri.toString()) return null
@@ -97,6 +102,10 @@ object BackupRoutine {
     suspend fun refreshCentral(context: Context, database: AppDatabase, version: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(context, database)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, emptySet())
@@ -107,17 +116,24 @@ object BackupRoutine {
     suspend fun downloadBook(context: Context, database: AppDatabase, version: String, hash: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.download(context, database, hash)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val result = CompleteBackupManager(context.applicationContext, database, version)
                     .restoreFrom(uri, setOf(hash))
                 rememberCentral(context, uri, result.catalogueHashes)
-                result
             }
         }
 
     suspend fun evictBook(context: Context, database: AppDatabase, version: String, id: String) =
         withContext(Dispatchers.IO) {
             lock.withLock {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.evict(context, database, id)
+                    return@withLock
+                }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")
                 val book = database.bookDao().findById(id) ?: error("No se encuentra el libro.")
                 val manager = CompleteBackupManager(context.applicationContext, database, version)
@@ -150,7 +166,16 @@ object BackupRoutine {
     /** Called only from the library entry screen or after importing an original. */
     fun refreshOnLibraryOpen(context: Context, version: String) {
         val app = context.applicationContext
-        if (status(app).uri == null) return
+        val state = status(app)
+        if (state.uri == null) return
+        val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(app)
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (shared) {
+            // Only a NEW independently created backup is eligible for auto-write.
+            // A legacy ZIP may still be shared by other devices.
+            if (prefs.getString(SHARED_AUTO_URI, null) != state.uri.toString()) return
+            if (state.lastSuccess > 0 && System.currentTimeMillis() - state.lastSuccess < SHARED_INTERVAL_MS) return
+        } else if (com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.status(app).peerCount > 0) return
         scope.launch {
             try {
                 save(app, AppDatabase.get(app), version, force = false)
@@ -199,8 +224,15 @@ object BackupRoutine {
                 // Re-read the fingerprint AFTER saving. A change arriving during
                 // the export must be saved on the next launch, not silently omitted.
                 val after = libraryFingerprint(app, database, version)
-                check(prefs.edit()
+                val destinationEdit = prefs.edit()
                     .putString(TARGET_URI, uri.toString())
+                if (chosenUri != null && !replaceExisting &&
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(app)) {
+                    destinationEdit.putString(SHARED_AUTO_URI, uri.toString())
+                } else if (chosenUri != null && chosenUri != current.uri) {
+                    destinationEdit.remove(SHARED_AUTO_URI)
+                }
+                check(destinationEdit
                     .putString(FINGERPRINT,
                         if (after == signature) signature else "")
                     .putLong(LAST_SUCCESS, System.currentTimeMillis())

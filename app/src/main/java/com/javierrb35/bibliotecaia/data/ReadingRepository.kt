@@ -32,7 +32,15 @@ class ReadingRepository(
             dao.updateBookProgress(bookId, bounded, now)
             changed = true
         }
-        if (changed) appContext?.let(ReadingPositionSafSync::requestPublish)
+        if (changed) requestSync()
+    }
+
+    private fun requestSync() {
+        appContext?.let {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(it))
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(it)
+            else ReadingPositionSafSync.requestPublish(it)
+        }
     }
 
     suspend fun addAnnotation(bookId: String?, locator: String?, quote: String, body: String,
@@ -44,6 +52,7 @@ class ReadingRepository(
             val now = System.currentTimeMillis()
             dao.insertAnnotation(AnnotationEntity(id, bookId, locator, quote, body.trim(), kind, color, now, now))
         }
+        requestSync()
         return id
     }
 
@@ -58,6 +67,7 @@ class ReadingRepository(
             dao.insertVersion(AnnotationVersionEntity(UUID.randomUUID().toString(), id, old.body, old.color, now))
             dao.updateAnnotation(old.copy(body = body.trim(), color = color, updatedAt = now))
         }
+        requestSync()
     }
 
     /**
@@ -83,6 +93,7 @@ class ReadingRepository(
                 }
             }
         }
+        requestSync()
     }
 
     private fun validate(locator: String?, quote: String, body: String, kind: String) {

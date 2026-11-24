@@ -43,6 +43,46 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
+    private var sharedBusy = false
+    private lateinit var sharedStatus: TextView
+    private val sharedFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.connect(applicationContext, db, uri)
+        }
+    }
+    private val sharedFileOwn = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.connectFile(applicationContext, db, uri)
+        }
+    }
+    private val sharedFilePeer = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) sharedAction {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.addFilePeer(applicationContext, db, uri)
+        }
+    }
+    private val sharedMigration = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) sharedAction {
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.migrateZip(applicationContext, db, uri)
+        }
+    }
+    private fun sharedAction(operation: suspend () -> Any) {
+        if (sharedBusy) return
+        sharedBusy = true
+        lifecycleScope.launch {
+            try { operation() }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)
+                Toast.makeText(this@SettingsActivity, e.message ?: "No se pudo sincronizar la carpeta.", Toast.LENGTH_LONG).show()
+            } finally {
+                sharedBusy = false
+                sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
+            }
+        }
+    }
     private lateinit var backupStatus: TextView
     private lateinit var backupError: TextView
     private lateinit var backupRecovery: MaterialButton
@@ -160,7 +200,32 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
-        section(layout, "Sincronización entre dispositivos")
+        section(layout, "Biblioteca central compartida (experimental)")
+        val sharedCard = card(layout)
+        hint(sharedCard, "Elige la misma carpeta en cada dispositivo. Debe permitir listar, crear y leer archivos mediante Android. El ZIP anterior se conserva como copia independiente. No todos los proveedores ofrecen acceso a carpetas.")
+        sharedStatus = hint(sharedCard, com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext))
+        action(sharedCard, "Conectar carpeta central") { sharedFolder.launch(null) }
+        hint(sharedCard, "Si Drive no ofrece seleccionar carpetas, crea un contenedor propio en cada dispositivo y vincula el de los demás. Cada dispositivo escribe únicamente su archivo. La copia ZIP de recuperación es independiente.")
+        action(sharedCard, "Crear contenedor de este dispositivo") {
+            if (!com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedFileOwn.launch("BibliotecaIA-central-" + com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(applicationContext).take(8) + ".zip")
+            else Toast.makeText(this, "Ya hay una biblioteca configurada.", Toast.LENGTH_LONG).show()
+        }
+        action(sharedCard, "Vincular contenedor de otro dispositivo") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.fileMode(applicationContext))
+                sharedFilePeer.launch(arrayOf("application/zip", "application/octet-stream"))
+            else Toast.makeText(this, "Crea primero tu contenedor propio.", Toast.LENGTH_LONG).show()
+        }
+        action(sharedCard, "Migrar copia ZIP existente") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedMigration.launch(arrayOf("application/zip", "application/octet-stream"))
+            else Toast.makeText(this, "Conecta primero una carpeta central.", Toast.LENGTH_LONG).show()
+        }
+        action(sharedCard, "Sincronizar biblioteca ahora") {
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext))
+                sharedAction { com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(applicationContext, db) }
+        }
+        section(layout, "Sincronización anterior (JSON de posiciones)")
         val syncCard = card(layout)
         hint(syncCard, "Una vez por dispositivo: crea su archivo JSON en Drive. " +
             "Después vincula en este dispositivo, como lectura, los archivos creados " +
@@ -215,10 +280,10 @@ class SettingsActivity : AppCompatActivity() {
 
         val backupCard = card(layout)
         hint(backupCard, getString(R.string.settings_backup_intro))
-        hint(backupCard, "Atención: el ZIP completo sigue siendo una copia de recuperación, " +
-            "no un archivo colaborativo. Si usas varios dispositivos, no sustituyas " +
-            "el ZIP compartido desde un dispositivo desactualizado. La " +
-            "sincronización segura inicial comprende solo posiciones de lectura.")
+        hint(backupCard, "El ZIP es una copia de recuperación, no un archivo de sincronización. " +
+            "Con la biblioteca compartida, crea una copia NUEVA e independiente en el dispositivo " +
+            "encargado del respaldo para activar su actualización automática (como máximo cada 12 h). " +
+            "No selecciones un contenedor activo ni el respaldo de otro dispositivo.")
         backupStatus = hint(backupCard, "")
         backupError = hint(backupCard, "")
 
@@ -261,6 +326,8 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::sharedStatus.isInitialized)
+            sharedStatus.text = com.javierrb35.bibliotecaia.sync.SharedLibrary.status(applicationContext)
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
     }
@@ -483,6 +550,10 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun checkUpdates() {
+        if (BuildConfig.QA_BUILD) {
+            Toast.makeText(this, "Compilación QA aislada. No se instalarán actualizaciones de producción.", Toast.LENGTH_LONG).show()
+            return
+        }
         lifecycleScope.launch {
             val release = withContext(Dispatchers.IO) {
                 UpdateChecker.latestRelease(BuildConfig.VERSION_NAME)

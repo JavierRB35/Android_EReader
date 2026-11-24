@@ -79,3 +79,26 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Assemble isolated QA app for two-device acceptance
+        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/shared-library-rebuild'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh ./gradlew :app:assembleDebug -PBIBLIOTECA_QA=true --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.javierrb35.bibliotecaia.qa'"
+          mkdir -p qa-dist
+          cp "$apk" qa-dist/BibliotecaAI-QA.apk
+
+      - name: Archive isolated QA APK (not a production update)
+        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/shared-library-rebuild'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BibliotecaAI-QA
+          path: qa-dist/BibliotecaAI-QA.apk
+          if-no-files-found: error
+          retention-days: 14
