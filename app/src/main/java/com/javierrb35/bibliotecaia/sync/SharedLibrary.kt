@@ -54,6 +54,12 @@ object SharedLibrary {
             it.uri == selected && it.isReadPermission && it.isWritePermission
         }
     }
+    fun needsRepair(context: Context): Boolean {
+        val status = prefs(context).getString("status", "").orEmpty()
+        return fileMode(context) && (prefs(context).getBoolean("owner_mismatch", false) ||
+            status.contains("El archivo pertenece a otro dispositivo") ||
+            status.contains("La identidad del archivo no coincide"))
+    }
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
@@ -97,6 +103,7 @@ object SharedLibrary {
             .putString("mode", if (connection.files) "files" else "folder")
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
+            .remove("owner_mismatch")
         if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
@@ -129,7 +136,7 @@ object SharedLibrary {
         else folderStore(context, selected)
     }
     fun fileMode(context: Context): Boolean = configured(context) && prefs(context).getString("mode", "folder") == "files"
-    suspend fun connectFile(context: Context, db: AppDatabase, own: Uri) = withContext(Dispatchers.IO) {
+    suspend fun connectFile(context: Context, db: AppDatabase, own: Uri, newDocument: Boolean = false) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val old = currentConnection(context)
             require(old == null || old.uri != own || old.files) { "No se puede usar una carpeta como archivo de biblioteca." }
@@ -137,9 +144,22 @@ object SharedLibrary {
                 "Ese archivo es tu copia de seguridad. Crea un archivo nuevo para la biblioteca."
             }
             val saved = previousConnections(context).firstOrNull { it.uri == own && it.files }
-            val peers = if (old != null && old.uri == own && old.files) old.peers else saved?.peers.orEmpty()
-            SharedFileStore(context, own, peers.map(Uri::parse), ReadingPositionSafSync.deviceId(context)).use { it.commit() }
-            activate(context, SavedConnection(own, true, peers))
+            val repairing = newDocument && needsRepair(context) && old?.files == true
+            if (newDocument) require(!isLibraryDocument(context, own)) {
+                "Selecciona un archivo NUEVO. El archivo anterior y los vinculados se conservarán."
+            }
+            val peers = when {
+                repairing && old != null -> old.peers + old.uri.toString()
+                old != null && old.uri == own && old.files -> old.peers
+                else -> saved?.peers.orEmpty()
+            }
+            val accepted = SharedFileStore(context, own, peers.map(Uri::parse),
+                ReadingPositionSafSync.deviceId(context), requireEmpty = newDocument).use {
+                it.commit()
+                // The old owner-mismatch archive remains read-only. Never change its owner.
+                if (repairing) it.acceptedPeers.map(Uri::toString).toSet() else peers
+            }
+            activate(context, SavedConnection(own, true, accepted))
         }
         schedule(context)
         sync(context, db)
@@ -176,7 +196,7 @@ object SharedLibrary {
         val message = if (errors.isEmpty()) "Biblioteca comprobada: " + hashes.size + " originales."
             else "Sincronización parcial: " + errors.joinToString(" · ").take(1200)
         val edit = prefs(context).edit().putStringSet("hashes", hashes).putString("status", message)
-        if (errors.isEmpty()) edit.putLong("last_success", System.currentTimeMillis())
+        if (errors.isEmpty()) edit.putLong("last_success", System.currentTimeMillis()).remove("owner_mismatch")
         edit.apply()
         changes.value += 1
     }
@@ -451,7 +471,9 @@ object SharedLibrary {
         }
     }
     fun recordFailure(context: Context, error: Exception) {
-        prefs(context).edit().putString("status", "Pendiente de sincronizar: " + (error.message ?: "error")).apply()
+        val edit = prefs(context).edit().putString("status", "Pendiente de sincronizar: " + (error.message ?: "error"))
+        if (error is SharedOwnerMismatch) edit.putBoolean("owner_mismatch", true)
+        edit.apply()
         changes.value += 1
     }
     private val requestLock = Any()

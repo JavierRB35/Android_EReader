@@ -91,7 +91,28 @@ class SharedFileStoreJourneyTest {
             try {
                 SharedFileStore(cache, filesB, access, uriA, emptyList(), ownerB).use { it.commit() }
                 fail("Must refuse another device's archive as own")
+            } catch (error: SharedOwnerMismatch) {
+                assertEquals(ownerB, error.expected)
+                assertEquals(ownerA, error.actual)
+            }
+            val oldBytes = File(uriA.path!!).readBytes()
+            try {
+                SharedFileStore(cache, filesB, access, uriA, emptyList(), ownerB, requireEmpty = true).use { it.commit() }
+                fail("A new-document selection must never reuse a populated archive")
             } catch (_: IllegalArgumentException) {}
+            assertArrayEquals(oldBytes, File(uriA.path!!).readBytes())
+            val replacement = Uri.fromFile(File(root, "repair.zip").apply { createNewFile() })
+            SharedFileStore(cache, filesB, access, replacement, listOf(uriA), ownerB, requireEmpty = true).use {
+                assertEquals(listOf(uriA), it.acceptedPeers)
+                it.commit()
+            }
+            SharedFileStore(cache, filesB, access, replacement, listOf(uriA), ownerB).use {
+                assertTrue(SharedLibrary.syncStore(it, b, ownerB).errors.isEmpty())
+                val restored = File(root, "repair-download.epub")
+                SharedLibrary.stageFromStore(it, peer, restored)
+                assertArrayEquals(original.readBytes(), restored.readBytes())
+            }
+            assertArrayEquals(oldBytes, File(uriA.path!!).readBytes())
         } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 }

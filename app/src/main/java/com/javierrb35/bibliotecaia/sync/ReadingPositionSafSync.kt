@@ -50,6 +50,9 @@ object ReadingPositionSafSync {
     data class Status(val ownConfigured: Boolean, val peerCount: Int,
                       val lastSuccess: Long, val lastError: String)
 
+    // UI, reader and WorkManager can request the first ID concurrently.
+    // Never generate two identities for the same installation.
+    @Synchronized
     fun deviceId(context: Context): String {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.getString(DEVICE, null)?.let { return it }
