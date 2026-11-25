@@ -91,7 +91,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Biblioteca compartida")
                 .setMessage("Configura Drive para compartir libros y posiciones entre dispositivos. Si solo quieres consultar una copia de seguridad antigua, puedes abrirla sin modificarla.")
                 .setPositiveButton("Configurar biblioteca") { _, _ ->
-                    startActivity(Intent(this, SettingsActivity::class.java))
+                    startActivity(Intent(this, SettingsActivity::class.java).putExtra("open_cloud_wizard", true))
                 }
                 .setNeutralButton("Abrir copia antigua") { _, _ ->
                     centralPicker.launch(arrayOf("application/zip", "application/octet-stream"))
@@ -167,6 +167,14 @@ class MainActivity : AppCompatActivity() {
             openImportPicker()
         }
         findViewById<View>(R.id.btnCentralLibrary).setOnClickListener { openCentral() }
+        findViewById<View>(R.id.btnCloudSetup).setOnClickListener {
+            getSharedPreferences("cloud_setup_wizard", MODE_PRIVATE).edit().putBoolean("offered", true).apply()
+            startActivity(Intent(this, SettingsActivity::class.java).putExtra("open_cloud_wizard", true))
+        }
+        findViewById<View>(R.id.btnDismissCloudSetup).setOnClickListener {
+            getSharedPreferences("cloud_setup_wizard", MODE_PRIVATE).edit().putBoolean("offered", true).apply()
+            findViewById<View>(R.id.cloudSetupOffer).visibility = View.GONE
+        }
         setCentralMode(savedInstanceState?.getBoolean("central_mode") == true)
         findViewById<View>(R.id.btnMissingOriginals).setOnClickListener { showMissingOriginals() }
         observeCatalog()
@@ -200,6 +208,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        val app = applicationContext
+        val needsSetup = !com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(app) ||
+            !ReadingPositionSafSync.hasOwn(app) || BackupRoutine.status(app).uri == null
+        findViewById<View>(R.id.cloudSetupOffer).visibility =
+            if (needsSetup && collectionFlow.value.isEmpty() &&
+                !getSharedPreferences("cloud_setup_wizard", MODE_PRIVATE).getBoolean("offered", false))
+                View.VISIBLE else View.GONE
         setCentralMode(centralFlow.value.first)
         lifecycleScope.launch {
             if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null) {

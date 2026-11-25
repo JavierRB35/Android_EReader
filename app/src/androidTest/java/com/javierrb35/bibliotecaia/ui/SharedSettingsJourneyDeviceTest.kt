@@ -22,12 +22,12 @@ class SharedSettingsJourneyDeviceTest {
         val activity = instrumentation.startActivitySync(Intent(app, SettingsActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         try {
-            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
-            onView(withText("Google Drive u otra nube (recomendado)")).check(matches(isDisplayed()))
-            onView(withText("Abrir mi archivo de biblioteca existente")).check(matches(isDisplayed()))
-            onView(withText("Carpeta compartida compatible (avanzado)")).check(matches(isDisplayed()))
-            pressBack()
-            onView(withText("Mostrar sincronización antigua (solo posiciones)")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Configurar copia y sincronización")).perform(scrollTo(), click())
+            onView(withText("Asistente de copia y sincronización")).check(matches(isDisplayed()))
+            onView(withText("Elegir carpeta")).check(matches(isDisplayed()))
+            onView(withText("Usar selector de Drive")).check(matches(isDisplayed()))
+            onView(withText("Más tarde")).perform(click())
+            onView(withText("Sincronización rápida de posiciones")).perform(scrollTo()).check(matches(isDisplayed()))
         } finally { instrumentation.runOnMainSync { activity.finish() } }
     }
 }

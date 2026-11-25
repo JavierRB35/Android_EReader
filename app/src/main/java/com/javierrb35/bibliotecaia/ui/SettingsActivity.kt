@@ -27,6 +27,8 @@ import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.sync.SharedLibrary
+import com.javierrb35.bibliotecaia.sync.CloudSetupFolder
+import kotlinx.coroutines.CancellationException
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.javierrb35.bibliotecaia.data.AppDatabase
@@ -47,6 +49,239 @@ class SettingsActivity : AppCompatActivity() {
     private val db by lazy { AppDatabase.get(this) }
     private var backupBusy = false
     private var sharedBusy = false
+    private var wizardActive = false
+    private var wizardFileOnly = false
+    private var wizardBusy = false
+    private var wizardOperation: String? = null
+    private var wizardLinkMore = false
+    private lateinit var wizardSummary: TextView
+
+    private val wizardPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val operation = wizardOperation
+        wizardOperation = null
+        val data = result.data
+        val uri = data?.data
+        if (!wizardActive) return@registerForActivityResult
+        if (result.resultCode != RESULT_OK || uri == null) {
+            wizardActive = false
+            refreshWizardSummary()
+            return@registerForActivityResult
+        }
+        wizardRun {
+            val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val write = operation !in listOf("peer-library", "peer-position")
+            val mask = read or if (write) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0
+            require((data.flags and mask) == mask) { "La ubicación no ha concedido los permisos necesarios." }
+            contentResolver.takePersistableUriPermission(uri, mask)
+            val app = applicationContext
+            when (operation) {
+                "folder" -> {
+                    CloudSetupFolder.remember(app, uri)
+                    if (!SharedLibrary.configured(app)) {
+                        val result = SharedLibrary.connect(app, db, uri)
+                        require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                    }
+                    ReadingPositionSafSync.prepareFolder(app, db)
+                }
+                "library" -> {
+                    val result = SharedLibrary.connectFile(app, db, uri, newDocument = true)
+                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                }
+                "position" -> ReadingPositionSafSync.setOwn(app, db, uri)
+                "backup" -> BackupRoutine.save(app, db, BuildConfig.VERSION_NAME,
+                    force = true, chosenUri = uri, replaceExisting = false)
+                "peer-library" -> {
+                    val result = SharedLibrary.addFilePeer(app, db, uri)
+                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                    wizardLinkMore = false
+                }
+                "peer-position" -> ReadingPositionSafSync.addPeer(app, uri)
+                else -> error("No se reconoce el paso del asistente.")
+            }
+        }
+    }
+
+    private fun wizardPick(operation: String, mime: String, name: String? = null) {
+        wizardOperation = operation
+        val readOnly = operation in listOf("peer-library", "peer-position")
+        val action = when {
+            operation == "folder" -> Intent.ACTION_OPEN_DOCUMENT_TREE
+            readOnly -> Intent.ACTION_OPEN_DOCUMENT
+            else -> Intent.ACTION_CREATE_DOCUMENT
+        }
+        wizardPicker.launch(Intent(action).apply {
+            if (operation != "folder") {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mime
+            }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            if (!readOnly) addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            if (name != null) putExtra(Intent.EXTRA_TITLE, name)
+            // The provider can use the current folder as an initial location,
+            // but Android decides whether that hint is supported.
+            CloudSetupFolder.tree(applicationContext)?.let {
+                putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, it)
+            }
+        })
+    }
+
+    private fun startWizard(linkMore: Boolean = false) {
+        if (wizardBusy || sharedBusy || backupBusy || wizardOperation != null) return
+        wizardActive = true
+        wizardFileOnly = false
+        wizardLinkMore = linkMore
+        val app = applicationContext
+        if (CloudSetupFolder.tree(app) != null) {
+            wizardRun { ReadingPositionSafSync.prepareFolder(app, db) }
+        } else if (SharedLibrary.configured(app) && ReadingPositionSafSync.hasOwn(app) &&
+            BackupRoutine.status(app).uri != null) {
+            wizardFileOnly = true
+            advanceWizard()
+        } else {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Asistente de copia y sincronización")
+                .setMessage("Guarda tus libros y continúa leyendo en otro dispositivo. Elegirás la ubicación; BibliotecaAI preparará los archivos necesarios y conservará los que ya tienes. No se necesita iniciar sesión en la aplicación.")
+                .setPositiveButton("Elegir carpeta") { _, _ -> wizardPick("folder", "*/*") }
+                .setNeutralButton("Usar selector de Drive") { _, _ ->
+                    wizardFileOnly = true
+                    advanceWizard()
+                }
+                .setNegativeButton("Más tarde") { _, _ -> wizardActive = false }
+                .setOnCancelListener { wizardActive = false }.show()
+        }
+    }
+
+    private fun wizardRun(operation: suspend () -> Unit) {
+        if (wizardBusy) return
+        wizardBusy = true
+        refreshWizardSummary()
+        lifecycleScope.launch {
+            var completed = false
+            try {
+                operation()
+                completed = true
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("No se ha completado este paso")
+                    .setMessage((e.message ?: "No se puede acceder a la ubicación.") +
+                        "\nTus libros y la configuración anterior se conservan.")
+                    .setPositiveButton("Reintentar") { _, _ -> advanceWizard() }
+                    .setNeutralButton("Usar selector de Drive") { _, _ ->
+                        wizardFileOnly = true
+                        advanceWizard()
+                    }
+                    .setNegativeButton("Más tarde") { _, _ -> wizardActive = false }
+                    .setOnCancelListener { wizardActive = false }.show()
+            } finally {
+                wizardBusy = false
+                refreshWizardSummary()
+                refreshSharedPanel()
+                refreshPositionSyncStatus()
+                if (::backupStatus.isInitialized) refreshBackupStatus()
+            }
+            if (completed && wizardActive) advanceWizard()
+        }
+    }
+
+    private fun wizardStep(title: String, message: String, next: String, action: () -> Unit) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(title).setMessage(message)
+            .setPositiveButton(next) { _, _ -> action() }
+            .setNegativeButton("Más tarde") { _, _ -> wizardActive = false }
+            .setOnCancelListener { wizardActive = false }.show()
+    }
+
+    private fun advanceWizard() {
+        if (!wizardActive || wizardBusy || isFinishing || isDestroyed) return
+        val app = applicationContext
+        val folder = CloudSetupFolder.tree(app).takeUnless { wizardFileOnly }
+        val backup = BackupRoutine.status(app)
+        when {
+            !SharedLibrary.configured(app) -> {
+                if (folder != null) wizardRun {
+                    val result = SharedLibrary.connect(app, db, folder)
+                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                } else wizardStep("1 de 4 · Tu biblioteca",
+                    "Elige dónde guardar la biblioteca de este dispositivo. BibliotecaAI ya ha preparado el nombre.",
+                    "Elegir ubicación") {
+                    wizardPick("library", "application/zip", "BibliotecaIA-" + CloudSetupFolder.deviceLabel(app) + ".zip")
+                }
+            }
+            SharedLibrary.needsRepair(app) || !SharedLibrary.hasAccess(app) -> {
+                wizardActive = false
+                wizardStep("Revisar la conexión", "La biblioteca existente necesita recuperar su acceso. No crearemos otra ni borraremos datos.",
+                    "Reparar conexión") { if (SharedLibrary.needsRepair(app)) repairOwnLibrary() else showSetup() }
+            }
+            !ReadingPositionSafSync.hasOwn(app) -> {
+                if (folder != null) wizardRun {
+                    check(ReadingPositionSafSync.prepareFolder(app, db) && ReadingPositionSafSync.hasOwn(app))
+                } else wizardStep("2 de 4 · Continuar leyendo",
+                    "Guarda el pequeño archivo de lectura en la misma ubicación. Se actualizará automáticamente al avanzar.",
+                    "Elegir ubicación") {
+                    wizardPick("position", "application/json", ReadingPositionSafSync.suggestedName(app))
+                }
+            }
+            backup.recoveryPending -> {
+                wizardActive = false
+                wizardStep("Recuperar copia anterior", "Hay una copia pendiente de recuperar. Se conservará antes de crear otra.",
+                    "Recuperar") { recoverPreviousBackup() }
+            }
+            backup.uri == null -> {
+                if (folder != null) wizardRun { CloudSetupFolder.prepareBackup(app, db, folder) }
+                else wizardStep("3 de 4 · Copia de seguridad",
+                    "Elige dónde guardar una copia completa de tus libros y notas. Se actualizará siempre el mismo archivo.",
+                    "Elegir ubicación") {
+                    wizardPick("backup", "application/zip", CloudSetupFolder.backupName(app))
+                }
+            }
+            SharedLibrary.fileMode(app) && (SharedLibrary.peerCount(app) == 0 || wizardLinkMore) ->
+                wizardStep("4 de 4 · Otro móvil o tablet",
+                    "Si quieres conectar otro dispositivo, configura primero BibliotecaAI en él. Después selecciona su archivo de biblioteca. Si aún no tienes otro dispositivo, puedes terminar más tarde.",
+                    "Vincular otro dispositivo") { wizardPick("peer-library", "application/zip") }
+            SharedLibrary.fileMode(app) && !ReadingPositionSafSync.fastReady(app) ->
+                wizardStep("4 de 4 · Continuar en otro dispositivo",
+                    "Selecciona el archivo de lectura creado por el otro dispositivo (empieza por BibliotecaIA-lectura). No tienes que escribir ni modificar su nombre.",
+                    "Vincular lectura") { wizardPick("peer-position", "*/*") }
+            else -> {
+                wizardActive = false
+                wizardLinkMore = false
+                lifecycleScope.launch {
+                    val checked = ReadingPositionSafSync.refreshForRead(app, db)
+                    ReadingPositionSafSync.requestPublish(app)
+                    refreshWizardSummary()
+                    refreshPositionSyncStatus()
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle(if (checked) "Configuración guardada" else "Configuración guardada con avisos")
+                        .setMessage(if (checked && ReadingPositionSafSync.fastReady(app))
+                            "Tus libros y copia están preparados. Las posiciones se consultarán automáticamente."
+                            else if (checked && folder != null)
+                                "Tus archivos están preparados. Configura el otro dispositivo en la misma carpeta y se detectará al consultar la lectura."
+                            else "Los archivos se conservan. Revisa el estado de sincronización cuando el otro dispositivo esté disponible.")
+                        .setPositiveButton("Entendido", null).show()
+                }
+            }
+        }
+    }
+
+    private fun refreshWizardSummary() {
+        if (!::wizardSummary.isInitialized) return
+        val app = applicationContext
+        val backup = BackupRoutine.status(app)
+        val positions = ReadingPositionSafSync.status(app)
+        wizardSummary.text = if (wizardBusy) "Preparando y comprobando tus archivos…"
+        else listOf(
+            if (SharedLibrary.configured(app) && SharedLibrary.hasAccess(app) && !SharedLibrary.needsRepair(app))
+                "Biblioteca: preparada" else "Biblioteca: pendiente",
+            if (backup.uri != null && !backup.recoveryPending)
+                "Copia de seguridad: " + if (backup.missingTitles.isEmpty()) "preparada" else "faltan algunos originales"
+                else "Copia de seguridad: pendiente",
+            if (positions.ownConfigured) "Lectura: " + if (ReadingPositionSafSync.fastReady(app))
+                "dispositivos vinculados" else "preparada en este dispositivo"
+                else "Lectura: pendiente"
+        ).joinToString("\n")
+    }
+
     private lateinit var sharedStatus: TextView
     private lateinit var sharedPrimary: MaterialButton
     private lateinit var sharedLink: MaterialButton
@@ -396,6 +631,10 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        wizardActive = savedInstanceState?.getBoolean("wizard_active") == true
+        wizardFileOnly = savedInstanceState?.getBoolean("wizard_file_only") == true
+        wizardOperation = savedInstanceState?.getString("wizard_operation")
+        wizardLinkMore = savedInstanceState?.getBoolean("wizard_link_more") == true
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(28))
@@ -409,6 +648,11 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
+        section(layout, "Copia y sincronización")
+        val wizardCard = card(layout)
+        wizardSummary = hint(wizardCard, "")
+        action(wizardCard, "Configurar copia y sincronización", primary = true) { startWizard() }
+        refreshWizardSummary()
         section(layout, "Biblioteca compartida")
         val sharedCard = card(layout)
         sharedStatus = hint(sharedCard, "")
@@ -416,12 +660,13 @@ class SettingsActivity : AppCompatActivity() {
         sharedPrimary = action(sharedCard, "Configurar biblioteca", primary = true) {
             when {
                 SharedLibrary.needsRepair(applicationContext) -> repairOwnLibrary()
-                !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> showSetup()
-                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> linkDevice()
+                !SharedLibrary.configured(applicationContext) -> startWizard()
+                !SharedLibrary.hasAccess(applicationContext) -> showSetup()
+                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> startWizard(linkMore = true)
                 else -> sharedAction { SharedLibrary.sync(applicationContext, db) }
             }
         }
-        sharedLink = action(sharedCard, "Añadir otro dispositivo") { linkDevice() }
+        sharedLink = action(sharedCard, "Añadir otro dispositivo") { startWizard(linkMore = true) }
         sharedSync = action(sharedCard, "Sincronizar ahora") {
             sharedAction { SharedLibrary.sync(applicationContext, db) }
         }
@@ -429,19 +674,24 @@ class SettingsActivity : AppCompatActivity() {
         refreshSharedPanel()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                SharedLibrary.changes.collect { refreshSharedPanel() }
+                SharedLibrary.changes.collect { refreshSharedPanel(); refreshWizardSummary() }
             }
         }
 
         section(layout, "Sincronización rápida de posiciones")
         val syncCard = card(layout)
-        hint(syncCard, "Independiente de los ZIP de biblioteca y de seguridad. " +
-            "Si todavía no tienes un archivo JSON propio, créalo en la misma carpeta de Drive. " +
-            "Hazlo en cada dispositivo y vincula aquí el JSON de los demás. " +
-            "Si ya están vinculados, no tienes que volver a crearlos. " +
-            "Cada dispositivo escribe solo el suyo; no se requiere OAuth ni cuenta adicional.")
+        hint(syncCard, "La posición se guarda automáticamente mientras lees. Usa el asistente de arriba si falta configurar un dispositivo.")
         positionSyncStatus = hint(syncCard, "")
-        action(syncCard, "Crear JSON de este dispositivo") {
+        val advanced = action(syncCard, "Opciones de lectura") {}
+        val advancedCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        syncCard.addView(advancedCard)
+        advanced.setOnClickListener {
+            advancedCard.visibility = if (advancedCard.visibility == View.GONE) View.VISIBLE else View.GONE
+        }
+        action(advancedCard, "Cambiar archivo de lectura de este dispositivo") {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "application/json"
@@ -453,7 +703,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             createPositionSyncFile.launch(intent)
         }
-        action(syncCard, "Vincular JSON de otro dispositivo") {
+        action(advancedCard, "Vincular archivo de lectura de otro dispositivo") {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "*/*"
@@ -473,7 +723,7 @@ class SettingsActivity : AppCompatActivity() {
                     Toast.LENGTH_LONG).show()
             }
         }
-        action(syncCard, "Desvincular archivos de otros dispositivos") {
+        action(advancedCard, "Desvincular archivos de otros dispositivos") {
             androidx.appcompat.app.AlertDialog.Builder(this)
                 .setMessage("Se olvidarán los archivos de los otros dispositivos. " +
                     "No se borrará ningún archivo de Drive ni ningún dato local.")
@@ -487,7 +737,7 @@ class SettingsActivity : AppCompatActivity() {
         refreshPositionSyncStatus()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ReadingPositionSafSync.changes.collect { refreshPositionSyncStatus() }
+                ReadingPositionSafSync.changes.collect { refreshPositionSyncStatus(); refreshWizardSummary() }
             }
         }
 
@@ -534,6 +784,18 @@ class SettingsActivity : AppCompatActivity() {
         section(layout, getString(R.string.settings_about))
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
         refreshBackupStatus()
+        if (intent.getBooleanExtra("open_cloud_wizard", false) && savedInstanceState == null) {
+            intent.removeExtra("open_cloud_wizard")
+            layout.post { startWizard() }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("wizard_active", wizardActive)
+        outState.putBoolean("wizard_file_only", wizardFileOnly)
+        outState.putString("wizard_operation", wizardOperation)
+        outState.putBoolean("wizard_link_more", wizardLinkMore)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
@@ -541,6 +803,7 @@ class SettingsActivity : AppCompatActivity() {
         if (::sharedStatus.isInitialized) refreshSharedPanel()
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
+        refreshWizardSummary()
     }
 
     private fun refreshPositionSyncStatus() {
@@ -548,12 +811,12 @@ class SettingsActivity : AppCompatActivity() {
         val sync = ReadingPositionSafSync.status(this)
         positionSyncStatus.text = buildString {
             append(if (sync.ownConfigured) "Archivo propio configurado" else
-                "Sin archivo propio. Crea uno para activar la sincronización")
+                "Lectura pendiente de configurar. Usa el asistente.")
             append(" · Otros dispositivos: ").append(sync.peerCount)
             append(if (ReadingPositionSafSync.fastReady(this@SettingsActivity))
-                "\nCanal JSON configurado." else "\nCompleta los enlaces JSON; se mantiene el canal anterior durante la transición.")
+                "\nSincronización rápida configurada." else "\nPuedes seguir leyendo; completa la conexión cuando tengas otro dispositivo.")
             if (sync.lastPublished > 0) {
-                append("\nÚltimo envío JSON comprobado: ")
+                append("\nÚltima posición enviada y comprobada: ")
                 append(DateFormat.getDateTimeInstance().format(Date(sync.lastPublished)))
             }
             if (sync.lastSuccess > 0) {

@@ -37,6 +37,7 @@ object ReadingPositionSafSync {
     private const val LAST_ERROR = "last_error"
     private const val LAST_PUBLISHED = "last_published"
     private const val BOOTSTRAP = "shared_bootstrap"
+    private const val AUTO_PEERS = "folder_peers"
     private const val REVISION = "publish_revision"
     private val requestLock = Any()
     val changes = MutableStateFlow(0L)
@@ -75,16 +76,86 @@ object ReadingPositionSafSync {
     }
 
     fun suggestedName(context: Context): String =
-        "BibliotecaIA-lectura-${deviceId(context).take(8)}.json"
+        "BibliotecaIA-lectura-${CloudSetupFolder.deviceLabel(context)}.json"
 
     fun status(context: Context): Status {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return Status(prefs.getString(OWN, null) != null, peers(context).size,
+        return Status(hasOwn(context), peers(context).size,
             prefs.getLong(LAST_SYNC, 0L), prefs.getString(LAST_ERROR, "").orEmpty(),
             prefs.getLong(LAST_PUBLISHED, 0L))
     }
 
-    fun hasOwn(context: Context): Boolean = own(context) != null
+    fun hasOwn(context: Context): Boolean = own(context)?.let {
+        CloudSetupFolder.permitted(context, it, true)
+    } == true
+
+    /** A tree grant is enough to provision the missing file and discover peers.
+     * Existing valid own/peer grants survive; no ZIP is replaced or moved.
+     * Called before opening a reader, so a second device becomes visible
+     * without requiring the first device to repeat setup. */
+    suspend fun prepareFolder(context: Context, database: AppDatabase): Boolean =
+        withContext(Dispatchers.IO) {
+            val app = context.applicationContext
+            val tree = CloudSetupFolder.tree(app) ?: return@withContext false
+            mutex.withLock {
+                val id = deviceId(app)
+                val items = SharedDocumentStore(app, tree).use { it.list() }
+                    .filter { POSITION_NAME.matches(it.name) }
+                val documents = mutableListOf<Pair<Uri, ReadingPositionDocument>>()
+                for (item in items.take(200)) {
+                    try {
+                        val data = read(app, item.uri, false) ?: continue
+                        // Filename is only a hint; owner inside JSON must agree.
+                        val suffix = POSITION_NAME.matchEntire(item.name)?.groupValues?.get(1)
+                        if (suffix != null && data.deviceId.startsWith(suffix, ignoreCase = true))
+                            documents.add(item.uri to data)
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* Never adopt an unreadable file. */ }
+                }
+                if (!hasOwn(app)) {
+                    val current = own(app)
+                    // A pending rollback belongs to the previous URI, not a replacement.
+                    if (current != null && (emergency(app, current).isFile ||
+                            File(app.filesDir, "reading-position-sync-rollback.json").isFile))
+                        error("Recupera el acceso al archivo anterior antes de cambiarlo.")
+                    val matches = documents.filter { it.second.deviceId == id }
+                    require(matches.size <= 1) { "Hay varias copias de lectura de este dispositivo. Revisa la ubicación." }
+                    val uri = matches.singleOrNull()?.first ?: run {
+                        val name = suggestedName(app)
+                        require(items.none { it.name == name }) {
+                            "Existe un archivo de lectura sin verificar. Revisa la ubicación; no se sobrescribirá."
+                        }
+                        CloudSetupFolder.create(app, tree, name, "application/json")
+                    }
+                    check(prefs(app).edit().putString(OWN, uri.toString()).remove(BOOTSTRAP).commit())
+                    publishLocked(app, database)
+                    published(app)
+                }
+                // Discover only validated BibliotecaAI files in the explicitly
+                // chosen folder. Manual links win over a duplicate tree alias.
+                val seen = hashSetOf(id)
+                for (peer in manualPeers(app)) {
+                    try { seen.add(readPeer(app, peer, seen).deviceId) }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { }
+                }
+                val found = documents.sortedBy { it.first.toString() }
+                    .filter { seen.add(it.second.deviceId) }.take(10)
+                    .map { it.first.toString() }.toSet()
+                val old = prefs(app).getStringSet(AUTO_PEERS, emptySet()).orEmpty()
+                // Retain a previously discovered peer on temporary listing
+                // failures; do not mistake an offline device for a removed one.
+                val combined = (old + found).take(10).toSet()
+                if (combined != old) {
+                    prefs(app).edit().putStringSet(AUTO_PEERS, combined).remove(BOOTSTRAP).apply()
+                    changes.value += 1
+                }
+                true
+            }
+        }
+
+    private val POSITION_NAME = Regex("^BibliotecaIA-lectura-(?:[a-zA-Z0-9_-]+-)?([a-fA-F0-9]{8})(?: \\(\\d+\\))?\\.json$",
+        RegexOption.IGNORE_CASE)
 
     /** File-only grants cannot create sibling files in Drive. Keep the existing
      * library path as fallback until every linked device has a JSON channel. */
@@ -103,6 +174,9 @@ object ReadingPositionSafSync {
      * A single verified legacy pull seeds the JSON channel per configuration. */
     suspend fun refreshForRead(context: Context, database: AppDatabase): Boolean {
         val app = context.applicationContext
+        try { prepareFolder(app, database) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error(app, e) }
         if (!SharedLibrary.configured(app)) return refresh(app, database)
         val ready = fastReady(app)
         val key = connectionKey(app)
@@ -125,7 +199,10 @@ object ReadingPositionSafSync {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(OWN, null)?.let(Uri::parse)
 
-    private fun peers(context: Context): List<Uri> {
+    private fun peers(context: Context): List<Uri> =
+        (manualPeers(context) + prefs(context).getStringSet(AUTO_PEERS, emptySet()).orEmpty().map(Uri::parse)).distinct()
+
+    private fun manualPeers(context: Context): List<Uri> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(PEERS, "[]") ?: "[]"
         return try {
@@ -137,9 +214,7 @@ object ReadingPositionSafSync {
     /** Persisted grants must come from the system picker, not inferred from a Drive account. */
     private fun requireGrant(context: Context, uri: Uri, write: Boolean) {
         require(uri.scheme == "content") { "Selecciona un archivo mediante Android." }
-        check(context.contentResolver.persistedUriPermissions.any {
-            it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
-        }) { "Sin permiso persistente para ${if (write) "leer y escribir" else "leer"} el archivo." }
+        check(CloudSetupFolder.permitted(context, uri, write)) { "Sin permiso persistente para ${if (write) "leer y escribir" else "leer"} el archivo." }
     }
 
     /**
@@ -191,7 +266,7 @@ object ReadingPositionSafSync {
             require(data.deviceId != deviceId(app)) {
                 "Ese archivo también pertenece a este dispositivo."
             }
-            val all = (peers(app) + uri).distinct()
+            val all = (manualPeers(app) + uri).distinct()
             check(all.size <= 10) { "Se ha alcanzado el límite de dispositivos vinculados." }
             check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(PEERS, JSONArray(all.map(Uri::toString)).toString())
@@ -203,7 +278,7 @@ object ReadingPositionSafSync {
 
     fun unlinkPeers(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().remove(PEERS).remove(BOOTSTRAP).apply()
+            .edit().remove(PEERS).remove(AUTO_PEERS).remove(BOOTSTRAP).apply()
         changes.value += 1
     }
 
@@ -283,7 +358,7 @@ object ReadingPositionSafSync {
     /** Immediate in-process send, plus durable retry when offline or killed. */
     fun requestPublish(context: Context) {
         val app = context.applicationContext
-        if (own(app) == null) return
+        if (!hasOwn(app)) return
         synchronized(requestLock) {
             prefs(app).edit().putLong(REVISION, revision(app) + 1L).apply()
         }

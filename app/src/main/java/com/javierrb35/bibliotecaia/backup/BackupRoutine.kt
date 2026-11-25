@@ -46,10 +46,7 @@ object BackupRoutine {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val uri = prefs.getString(TARGET_URI, null)?.let(Uri::parse)
             ?.takeIf { picked ->
-                context.contentResolver.persistedUriPermissions.any { permission ->
-                    permission.uri == picked && permission.isReadPermission &&
-                        permission.isWritePermission
-                }
+                com.javierrb35.bibliotecaia.sync.CloudSetupFolder.permitted(context, picked, true)
             }
         return Status(
             uri = uri,
