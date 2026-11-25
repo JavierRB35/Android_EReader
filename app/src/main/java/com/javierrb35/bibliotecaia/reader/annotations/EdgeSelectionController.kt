@@ -143,10 +143,11 @@ internal class EdgeSelectionController(
         val layout = text.layout ?: return true
         text.getLocationOnScreen(textOrigin)
         try {
-            // Show custom grips first; a failing window leaves native selection intact.
+            // Native handles are separate sub-panels. Hide them before adding
+            // ours above the text; reset restores them if the popup cannot open.
+            hideNative()
             start.place(selection.first, layout)
             end.place(selection.second, layout)
-            if (start.popup.isShowing || end.popup.isShowing) hideNative()
         } catch (_: android.view.WindowManager.BadTokenException) {
             unavailable = true
             reset()
@@ -170,6 +171,7 @@ internal class EdgeSelectionController(
         val popup = PopupWindow(view, size, size, false).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             isTouchable = true
+            setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL)
             isOutsideTouchable = false
             inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             animationStyle = 0
@@ -193,8 +195,10 @@ internal class EdgeSelectionController(
                 hide()
                 return
             }
-            val shift = if (Build.VERSION.SDK_INT < 29)
-                (if (leading) -24f else 24f) * density else 0f
+            // Separate the touch targets even for a one-character selection.
+            // On older Android leave additional room for the system handles.
+            val shift = (if (leading) -1f else 1f) *
+                (if (Build.VERSION.SDK_INT < 29) 26f else 12f) * density
             var x = (anchorX + shift - size / 2f).roundToInt()
                 .coerceIn(viewport.left, maxOf(viewport.left, viewport.right - size))
             var y = anchorY.coerceIn(viewport.top, maxOf(viewport.top, viewport.bottom - size))
@@ -290,8 +294,11 @@ internal class EdgeSelectionController(
         val y = (pointerY - gripOffsetY)
             .coerceIn(viewport.top.toFloat(), (viewport.bottom - 1).toFloat())
         val offset = text.getOffsetForPosition(x - textOrigin[0], y - textOrigin[1])
-        val a = if (grip.leading) offset.coerceIn(0, fixed - 1) else fixed
-        val b = if (grip.leading) fixed else offset.coerceIn(fixed + 1, current.length)
+        // Do not cross or collapse the opposite handle; keep Android's
+        // layout-derived character boundary (including surrogate pairs).
+        if ((grip.leading && offset >= fixed) || (!grip.leading && offset <= fixed)) return
+        val a = if (grip.leading) offset else fixed
+        val b = if (grip.leading) fixed else offset
         if (text.selectionStart != a || text.selectionEnd != b) {
             Selection.setSelection(current, a, b)
             text.invalidate()

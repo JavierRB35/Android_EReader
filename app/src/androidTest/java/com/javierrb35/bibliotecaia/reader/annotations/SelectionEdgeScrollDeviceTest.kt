@@ -19,7 +19,11 @@ import org.junit.runner.RunWith
 /** Real long press and popup-window pointer events, not direct range assignment. */
 @RunWith(AndroidJUnit4::class)
 class SelectionEdgeScrollDeviceTest {
-    @Test fun dragToBottomExtendsSelectionAndStopsOnRelease() {
+    @Test fun dragToBottomExtendsSelectionAndStopsOnRelease() = exercise(false)
+
+    @Test fun dragToTopExtendsSelectionAndStopsOnRelease() = exercise(true)
+
+    private fun exercise(leading: Boolean) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         lateinit var text: TextView
@@ -46,22 +50,29 @@ class SelectionEdgeScrollDeviceTest {
                         (300 * activity.resources.displayMetrics.density).toInt(), Gravity.TOP))
             }
             instrumentation.waitForIdleSync()
-            PlatformNoteTap.holdOnText(instrumentation, text, 3)
+            val selectedOffset = if (leading) 2500 else 3
+            if (leading) scenario.onActivity {
+                val line = requireNotNull(text.layout).getLineForOffset(selectedOffset)
+                scroll.scrollTo(0, (text.layout.getLineTop(line) - scroll.height / 2).coerceAtLeast(0))
+            }
+            PlatformNoteTap.holdOnText(instrumentation, text, selectedOffset)
             instrumentation.waitForIdleSync()
             var start = 0
             var end = 0
             var point = 0f to 0f
             var center = 0f
-            var bottom = 0f
+            var edge = 0f
+            var initialScroll = 0
             scenario.onActivity {
                 start = text.selectionStart
                 end = text.selectionEnd
                 assertTrue(end > start)
-                point = requireNotNull(scroll.selectionGripCenterOnScreen(false))
+                point = requireNotNull(scroll.selectionGripCenterOnScreen(leading))
+                initialScroll = scroll.scrollY
                 val pos = IntArray(2)
                 scroll.getLocationOnScreen(pos)
                 center = pos[1] + scroll.height / 2f
-                bottom = pos[1] + scroll.height - 5f
+                edge = if (leading) pos[1] + 5f else pos[1] + scroll.height - 5f
             }
             val downTime = SystemClock.uptimeMillis()
             fun send(action: Int, x: Float, y: Float) {
@@ -69,14 +80,18 @@ class SelectionEdgeScrollDeviceTest {
                 try { instrumentation.sendPointerSync(event) } finally { event.recycle() }
             }
             send(MotionEvent.ACTION_DOWN, point.first, point.second)
-            send(MotionEvent.ACTION_MOVE, point.first, bottom)
+            send(MotionEvent.ACTION_MOVE, point.first, edge)
             SystemClock.sleep(900)
-            var atEdge = 0
             scenario.onActivity {
-                atEdge = scroll.scrollY
-                assertTrue("Viewport must scroll on a stationary finger", atEdge > 0)
-                assertEquals(start, text.selectionStart)
-                assertTrue(text.selectionEnd > end)
+                assertTrue("Viewport must scroll on a stationary finger",
+                    if (leading) scroll.scrollY < initialScroll else scroll.scrollY > initialScroll)
+                if (leading) {
+                    assertEquals(end, text.selectionEnd)
+                    assertTrue(text.selectionStart < start)
+                } else {
+                    assertEquals(start, text.selectionStart)
+                    assertTrue(text.selectionEnd > end)
+                }
             }
             send(MotionEvent.ACTION_MOVE, point.first, center)
             SystemClock.sleep(200)
@@ -88,8 +103,13 @@ class SelectionEdgeScrollDeviceTest {
             SystemClock.sleep(300)
             scenario.onActivity {
                 assertEquals(stopped, scroll.scrollY)
-                assertEquals(start, text.selectionStart)
-                assertTrue(text.selectionEnd > end)
+                if (leading) {
+                    assertEquals(end, text.selectionEnd)
+                    assertTrue(text.selectionStart < start)
+                } else {
+                    assertEquals(start, text.selectionStart)
+                    assertTrue(text.selectionEnd > end)
+                }
                 assertEquals(0, turns)
             }
         } finally { scenario.close() }
