@@ -12,6 +12,8 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.LinearLayout;
+import android.widget.Button;
+import android.widget.Toast;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -62,6 +64,8 @@ public final class DefinitionUi {
         void openExternal(String url);
         void explainWithGemini(String word);
         void showError(String message);
+        // Resolve the ORIGINAL range synchronously, before ActionMode closes.
+        default DefinitionAnnotation.Target captureAnnotation(String quote,int start,int end){return null;}
     }
     public interface SelectionHandler {
         void onAnnotate(String quote,int start,int end);
@@ -236,8 +240,9 @@ public final class DefinitionUi {
                 }
                 // Capture the exact occurrence BEFORE Android clears the selection.
                 final ContextualDefinition.Passage passage=ContextualDefinition.fromSelection(original,start,end);
+                final DefinitionAnnotation.Target target=delegate.captureAnnotation(original.substring(start,end),start,end);
                 if(mode!=null)mode.finish();
-                show(activity,selected,geminiEnabled,delegate,passage);
+                show(activity,selected,geminiEnabled,delegate,passage,target);
                 return true;
             }
             @Override public void onDestroyActionMode(ActionMode mode){
@@ -252,6 +257,23 @@ public final class DefinitionUi {
 
     public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate,
                             ContextualDefinition.Passage passage){
+        show(activity,word,geminiEnabled,delegate,passage,null);
+    }
+
+    public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate,
+                            ContextualDefinition.Passage passage,DefinitionAnnotation.Target target){
+        showWithRequest(activity,word,geminiEnabled,delegate,passage,target,ContextualDefinition::request);
+    }
+
+    // Injectable request only for deterministic Android UI regression tests.
+    interface DefinitionRequest {
+        Runnable request(Activity activity,String query,ContextualDefinition.Passage passage,
+                         ContextualDefinition.Callback callback);
+    }
+
+    static void showWithRequest(Activity activity,String word,boolean geminiEnabled,Delegate delegate,
+                            ContextualDefinition.Passage passage,DefinitionAnnotation.Target target,
+                            DefinitionRequest requester){
         final String query=WordMeaning.searchPhrase(word);
         if(query==null){
             delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
@@ -275,6 +297,15 @@ public final class DefinitionUi {
                 "Se envía solo la expresión y un fragmento breve de su entorno al proveedor de IA configurado.":
                 "No hay texto circundante disponible; la IA solo puede dar una definición general.",
             12,MUTED,false,8);
+        final Button addNote=new Button(activity);
+        addNote.setText("Añadir como anotación");
+        addNote.setAllCaps(false);
+        addNote.setMinHeight(dp(activity,48));
+        addNote.setVisibility(View.GONE);
+        addNote.setEnabled(false);
+        LinearLayout.LayoutParams noteParams=new LinearLayout.LayoutParams(-1,-2);
+        noteParams.topMargin=dp(activity,8);
+        content.addView(addNote,noteParams);
         final TextView retry=addText(activity,content,"Reintentar definición",14,GOLD,true,8);
         retry.setMinHeight(dp(activity,42));
         retry.setGravity(Gravity.CENTER_VERTICAL);
@@ -296,18 +327,52 @@ public final class DefinitionUi {
             .setNegativeButton("Cerrar",(d,w)->d.dismiss())
             .create();
         final Runnable[] cancellation=new Runnable[1];
+        final String[] definition=new String[1];
+        final boolean[] saving={false};
+        addNote.setOnClickListener(v->{
+            if(saving[0]||target==null||definition[0]==null||definition[0].trim().isEmpty())return;
+            saving[0]=true;
+            addNote.setEnabled(false);
+            addNote.setText("Guardando anotación…");
+            dialog.setCancelable(false);
+            if(dialog.getButton(DialogInterface.BUTTON_NEGATIVE)!=null)
+                dialog.getButton(DialogInterface.BUTTON_NEGATIVE).setEnabled(false);
+            DefinitionAnnotation.save(activity,target,definition[0],error->{
+                if(!dialog.isShowing()||activity.isFinishing()||activity.isDestroyed())return;
+                if(error==null){
+                    Toast.makeText(activity,"Definición guardada como anotación.",Toast.LENGTH_SHORT).show();
+                    dialog.dismiss();
+                }else{
+                    saving[0]=false;
+                    addNote.setEnabled(true);
+                    addNote.setText("Añadir como anotación");
+                    dialog.setCancelable(true);
+                    if(dialog.getButton(DialogInterface.BUTTON_NEGATIVE)!=null)
+                        dialog.getButton(DialogInterface.BUTTON_NEGATIVE).setEnabled(true);
+                    Toast.makeText(activity,error,Toast.LENGTH_LONG).show();
+                }
+            });
+        });
         final Runnable request=()->{
             if(cancellation[0]!=null)cancellation[0].run();
             retry.setVisibility(View.GONE);
+            definition[0]=null;
+            addNote.setEnabled(false);
+            addNote.setVisibility(View.GONE);
             aiResult.setText("Consultando el significado…");
-            cancellation[0]=ContextualDefinition.request(activity,query,passage,
+            cancellation[0]=requester.request(activity,query,passage,
                 (answer,provider,error)->{
                     if(!dialog.isShowing()||activity.isFinishing()||activity.isDestroyed())return;
-                    if(error!=null){
-                        aiResult.setText("No se pudo obtener la definición de IA. "+error);
+                    if(error!=null||answer==null||answer.trim().isEmpty()){
+                        aiResult.setText("No se pudo obtener la definición de IA. "+(error!=null?error:"Respuesta vacía."));
                         retry.setVisibility(View.VISIBLE);
                     }else{
                         aiResult.setText(answer);
+                        definition[0]=answer;
+                        if(target!=null){
+                            addNote.setVisibility(View.VISIBLE);
+                            addNote.setEnabled(true);
+                        }
                         aiSource.setText((passage.getHasContext()?"Interpretación del pasaje":"Definición general (sin contexto)")+
                             " · "+provider+" · Generada por IA, no es una cita de Wikipedia.");
                     }

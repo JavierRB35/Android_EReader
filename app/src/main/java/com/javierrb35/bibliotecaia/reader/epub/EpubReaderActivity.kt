@@ -401,6 +401,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 val locator = nativeLocator(lastNativeSelectionStart, word)
                 AiChatActivity.start(this@EpubReaderActivity, bookId, word, locator)
             }
+            override fun captureAnnotation(quote: String, start: Int, end: Int):
+                com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target? =
+                nativeLocator(start, quote)?.let {
+                    com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target(bookId, it, quote)
+                }
             override fun showError(message: String) = toast(message)
         }, DefinitionUi.SelectionHandler { quote, start, _ ->
             val locator = nativeLocator(start, quote)
@@ -1234,7 +1239,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                 }
                                 mode?.finish()
                                 DefinitionUi.show(this@EpubReaderActivity, quote,
-                                    aiConfigured(), definitionDelegate(locator), passage)
+                                    aiConfigured(), definitionDelegate(locator), passage,
+                                    com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target(bookId, locator, quote))
                             }
                         }
                         DefinitionUi.isAnnotate(item.itemId) ->
