@@ -100,7 +100,8 @@ object ReadingPositionSafSync {
             val items = SharedDocumentStore(app, tree).use { it.list() }
             val saved = own(app)
             val listed = StorageGrants.listed(saved, tree, items)
-            val missingInFolder = saved != null && StorageGrants.belongs(saved, tree) && listed == null
+            val missingInFolder = saved != null && listed == null &&
+                (StorageGrants.belongs(saved, tree) || unified)
             // Folder grants survive deletion of descendants. Rebuild an absent
             // file, not an inaccessible file that still appears in the listing.
             if (!hasOwn(app) || missingInFolder || (unified && listed == null)) {
@@ -120,7 +121,9 @@ object ReadingPositionSafSync {
                         require(data == null || data.deviceId == id) { "El archivo de avances pertenece a otro dispositivo." }
                         true
                     } else {
-                        read(app, item.uri, false)?.deviceId == id
+                        // A peer may be in the middle of its own first setup.
+                        // It is not our own file, and is verified separately on pull.
+                        runCatching { read(app, item.uri, false)?.deviceId == id }.getOrDefault(false)
                     }
                 }
                 require(valid.size <= 1) { "Hay más de un archivo de lectura propio. Selecciona el correcto desde el asistente." }

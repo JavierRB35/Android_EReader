@@ -75,13 +75,13 @@ object BackupRoutine {
                 val existingOwn = grants.listed(old, tree, items)
                 val recoveryPrefs = app.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
                 val recoveryUri = recoveryPrefs.getString("uri", null)?.let(Uri::parse)
-                if (recoveryUri != null && grants.belongs(recoveryUri, tree) &&
-                    grants.listed(recoveryUri, tree, items) == null) {
+                if (recoveryUri != null && grants.listed(recoveryUri, tree, items) == null &&
+                    (grants.belongs(recoveryUri, tree) || items.none { it.name.startsWith("BibliotecaIA-copia-") })) {
                     grants.archiveRollback(File(app.filesDir, "previous-complete-backup.zip"))
                     check(recoveryPrefs.edit().remove("uri").commit())
                 }
                 require(!status(app).recoveryPending) { "Hay una copia anterior pendiente de recuperar." }
-                if (old != null && grants.belongs(old, tree) && existingOwn == null) {
+                if (old != null && existingOwn == null) {
                     // Forget only references/status; the local library is intact.
                     check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                         .remove(TARGET_URI).remove(FINGERPRINT).remove(LAST_SUCCESS).remove(LAST_ERROR)
