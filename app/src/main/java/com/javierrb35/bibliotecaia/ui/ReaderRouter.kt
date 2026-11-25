@@ -15,14 +15,11 @@ object ReaderRouter {
         activity.lifecycleScope.launch {
             val db = AppDatabase.get(activity)
             try {
-                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {
-                    val result = com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(activity.applicationContext, db)
-                    if (result.errors.isNotEmpty()) Toast.makeText(activity,
-                        "No se pudo comprobar la posición de todos los dispositivos. Se abrirá la última posición disponible.",
-                        Toast.LENGTH_LONG).show()
-                } else {
-                    com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.refresh(activity.applicationContext, db)
-                }
+                val checked = com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
+                    .refreshForRead(activity.applicationContext, db)
+                if (!checked) Toast.makeText(activity,
+                    "No se pudo comprobar la posición de todos los dispositivos. Se abrirá la última posición disponible.",
+                    Toast.LENGTH_LONG).show()
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (e: Exception) {
                 if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {

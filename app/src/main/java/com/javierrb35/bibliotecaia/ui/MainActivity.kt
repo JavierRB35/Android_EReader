@@ -217,7 +217,7 @@ class MainActivity : AppCompatActivity() {
             val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
             val remoteChecked = if (shared) {
                 try {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(applicationContext, db)
+                    ReadingPositionSafSync.refreshForRead(applicationContext, db)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
                     com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)

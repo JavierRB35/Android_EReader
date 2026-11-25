@@ -503,7 +503,8 @@ object SharedLibrary {
     }
     fun publishReadingExit(context: Context) {
         val app = context.applicationContext
-        if (!configured(app)) return
+        ReadingPositionSafSync.requestPublish(app)
+        if (!configured(app) || ReadingPositionSafSync.fastReady(app)) return
         schedule(app, immediate = true)
         exitRequests.trySend(app)
     }

@@ -3,13 +3,16 @@ package com.javierrb35.bibliotecaia.sync
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import androidx.work.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.concurrent.TimeUnit
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.ReadingPositionEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,6 +35,13 @@ object ReadingPositionSafSync {
     private const val DEVICE = "device"
     private const val LAST_SYNC = "last_sync"
     private const val LAST_ERROR = "last_error"
+    private const val LAST_PUBLISHED = "last_published"
+    private const val BOOTSTRAP = "shared_bootstrap"
+    private const val REVISION = "publish_revision"
+    private val requestLock = Any()
+    val changes = MutableStateFlow(0L)
+    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    internal fun revision(context: Context) = prefs(context).getLong(REVISION, 0L)
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val publicationRequests = Channel<Context>(Channel.CONFLATED)
@@ -39,16 +49,17 @@ object ReadingPositionSafSync {
     init {
         scope.launch {
             for (context in publicationRequests) {
-                delay(3000)
-                // Conflated channel ensures newer movements remain queued even
-                // if an earlier SAF write is already in progress.
-                publish(context, AppDatabase.get(context))
+                // Readers already debounce scroll events. Do not add another
+                // delay or wait for the library ZIP / WorkManager.
+                try { publish(context, AppDatabase.get(context)) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { error(context, e) }
             }
         }
     }
 
     data class Status(val ownConfigured: Boolean, val peerCount: Int,
-                      val lastSuccess: Long, val lastError: String)
+                      val lastSuccess: Long, val lastError: String, val lastPublished: Long)
 
     // UI, reader and WorkManager can request the first ID concurrently.
     // Never generate two identities for the same installation.
@@ -69,7 +80,45 @@ object ReadingPositionSafSync {
     fun status(context: Context): Status {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return Status(prefs.getString(OWN, null) != null, peers(context).size,
-            prefs.getLong(LAST_SYNC, 0L), prefs.getString(LAST_ERROR, "").orEmpty())
+            prefs.getLong(LAST_SYNC, 0L), prefs.getString(LAST_ERROR, "").orEmpty(),
+            prefs.getLong(LAST_PUBLISHED, 0L))
+    }
+
+    fun hasOwn(context: Context): Boolean = own(context) != null
+
+    /** File-only grants cannot create sibling files in Drive. Keep the existing
+     * library path as fallback until every linked device has a JSON channel. */
+    fun fastReady(context: Context): Boolean {
+        val status = status(context)
+        val expected = if (SharedLibrary.fileMode(context)) SharedLibrary.peerCount(context) else 1
+        return status.ownConfigured && status.peerCount >= maxOf(1, expected)
+    }
+
+    private fun connectionKey(context: Context): String =
+        listOf(SharedLibrary.uri(context)?.toString().orEmpty(), own(context)?.toString().orEmpty(),
+            SharedLibrary.peerCount(context).toString(), peers(context).map(Uri::toString).sorted().joinToString("|"))
+            .joinToString("\n")
+
+    /** Upgrade without losing a newer position still present only in a ZIP.
+     * A single verified legacy pull seeds the JSON channel per configuration. */
+    suspend fun refreshForRead(context: Context, database: AppDatabase): Boolean {
+        val app = context.applicationContext
+        if (!SharedLibrary.configured(app)) return refresh(app, database)
+        val ready = fastReady(app)
+        val key = connectionKey(app)
+        val bootstrapped = prefs(app).getString(BOOTSTRAP, null) == key
+        if (ready && bootstrapped && refresh(app, database)) return true
+        // During migration or a JSON error, preserve the previous mechanism.
+        val zipOk = try {
+            SharedLibrary.pull(app, database).errors.isEmpty()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { SharedLibrary.recordFailure(app, e); false }
+        val jsonOk = if (hasOwn(app)) refresh(app, database) else false
+        if (ready && zipOk && jsonOk && publish(app, database)) {
+            prefs(app).edit().putString(BOOTSTRAP, key).apply()
+            return true
+        }
+        return if (ready) false else zipOk && (!hasOwn(app) || jsonOk)
     }
 
     private fun own(context: Context): Uri? =
@@ -102,16 +151,28 @@ object ReadingPositionSafSync {
             mutex.withLock {
                 val app = context.applicationContext
                 requireGrant(app, uri, write = true)
+                require(!SharedLibrary.isLibraryDocument(app, uri) &&
+                    uri != com.javierrb35.bibliotecaia.backup.BackupRoutine.status(app).uri) {
+                    "Selecciona un JSON de posiciones, no un ZIP de biblioteca o de seguridad."
+                }
+                val old = own(app)
+                if (old != null && old != uri) {
+                    requireGrant(app, old, write = true)
+                    recoverPending(app, old)
+                }
                 val current = read(app, uri, allowEmpty = true)
                 val id = deviceId(app)
                 require(current == null || current.deviceId == id) {
                     "Este archivo pertenece a otro dispositivo. Vincúlalo como archivo de lectura."
                 }
                 check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().putString(OWN, uri.toString()).putString(LAST_ERROR, "").commit()) {
+                    .edit().putString(OWN, uri.toString()).remove(BOOTSTRAP)
+                    .remove(LAST_PUBLISHED).putString(LAST_ERROR, "").commit()) {
                     "No se pudo registrar el archivo propio."
                 }
                 publishLocked(app, database)
+                published(app)
+                changes.value += 1
             }
         }
 
@@ -121,9 +182,12 @@ object ReadingPositionSafSync {
             val app = context.applicationContext
             requireGrant(app, uri, write = false)
             require(uri != own(app)) { "Tu archivo propio no es otro dispositivo." }
-            val data = requireNotNull(read(app, uri, allowEmpty = false)) {
-                "El otro dispositivo todavía no ha creado su archivo de posiciones."
+            require(!SharedLibrary.isLibraryDocument(app, uri) &&
+                uri != com.javierrb35.bibliotecaia.backup.BackupRoutine.status(app).uri) {
+                "Selecciona el JSON de posiciones del otro dispositivo."
             }
+            val existing = peers(app).filter { it != uri }.map { readPeer(app, it, emptySet()).deviceId }.toSet()
+            val data = readPeer(app, uri, existing)
             require(data.deviceId != deviceId(app)) {
                 "Ese archivo también pertenece a este dispositivo."
             }
@@ -131,7 +195,7 @@ object ReadingPositionSafSync {
             check(all.size <= 10) { "Se ha alcanzado el límite de dispositivos vinculados." }
             check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(PEERS, JSONArray(all.map(Uri::toString)).toString())
-                .putString(LAST_ERROR, "").commit()) {
+                .remove(BOOTSTRAP).putString(LAST_ERROR, "").commit()) {
                 "No se pudo registrar el otro dispositivo."
             }
         }
@@ -139,7 +203,8 @@ object ReadingPositionSafSync {
 
     fun unlinkPeers(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().remove(PEERS).apply()
+            .edit().remove(PEERS).remove(BOOTSTRAP).apply()
+        changes.value += 1
     }
 
     /**
@@ -165,61 +230,69 @@ object ReadingPositionSafSync {
                     check(ownData == null || ownData.deviceId == id) {
                         "El archivo propio fue sustituido por el de otro dispositivo."
                     }
-                    val peerData = peers(app).map { peerUri ->
-                        requireGrant(app, peerUri, write = false)
-                        requireNotNull(read(app, peerUri, allowEmpty = false)) {
-                            "Hay un dispositivo vinculado con archivo vacío."
-                        }
+                    val seen = hashSetOf(id)
+                    val documents = mutableListOf<ReadingPositionDocument>()
+                    ownData?.let { documents.add(it) }
+                    val errors = mutableListOf<String>()
+                    for (peerUri in peers(app)) {
+                        try {
+                            val data = readPeer(app, peerUri, seen)
+                            seen.add(data.deviceId)
+                            documents.add(data)
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { errors.add(e.message ?: "Archivo vinculado inaccesible.") }
                     }
-                    val documents = listOfNotNull(ownData) + peerData
-                    check(documents.map { it.deviceId }.distinct().size == documents.size) {
-                        "Hay dos archivos vinculados para el mismo dispositivo."
+                    mergePositions(database, documents.flatMap { it.positions })
+                    // Read-only: opening a reader does not upload a stale position.
+                    if (errors.isNotEmpty()) {
+                        error(app, IOException(errors.joinToString(" · ")))
+                        false
+                    } else {
+                        success(app)
+                        true
                     }
-                    val localBooks = database.backupDao().booksAll().associateBy { it.id }
-                    val localRecords = database.backupDao().positionsAll().mapNotNull { position ->
-                        val book = localBooks[position.bookId] ?: return@mapNotNull null
-                        ReadingPositionRecord(book.contentHash, position.locator, position.progress,
-                            position.updatedAt, id)
-                    }
-                    val latest = ReadingPositionFileCodec.newest(
-                        documents.flatMap { it.positions } + localRecords)
-                    database.withTransaction {
-                        val books = database.backupDao().booksAll().associateBy { it.contentHash }
-                        for ((hash, incoming) in latest) {
-                            val book = books[hash] ?: continue
-                            val existing = database.backupDao().positionFor(book.id)
-                            // A user moving backwards is valid; never compare progress itself.
-                            if (existing == null || incoming.updatedAt > existing.updatedAt ||
-                                (incoming.updatedAt == existing.updatedAt &&
-                                    incoming.deviceId > id &&
-                                    (incoming.locator != existing.locator ||
-                                        incoming.progress != existing.progress))) {
-                                database.backupDao().insertPositionReplace(
-                                    ReadingPositionEntity(book.id, incoming.locator,
-                                        incoming.progress, incoming.updatedAt))
-                                database.backupDao().updateBookProgressAfterRestore(
-                                    book.id, incoming.progress)
-                            }
-                        }
-                    }
-                    publishLocked(app, database)
-                    success(app)
-                    true
-                } catch (failure: Exception) {
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) {
                     error(app, failure)
                     false
                 }
             }
         }
 
-    /**
-     * Position writes from a reader publish to this device's OWN file after
-     * a short debounce. They do not pull another position into an open reader.
-     */
+    internal suspend fun mergePositions(database: AppDatabase, records: List<ReadingPositionRecord>) {
+        val latest = ReadingPositionFileCodec.newest(records)
+        database.withTransaction {
+            val books = database.backupDao().booksAll().associateBy { it.contentHash }
+            for ((hash, incoming) in latest) {
+                val book = books[hash] ?: continue
+                val existing = database.backupDao().positionFor(book.id)
+                // Same deterministic tie rule as the ZIP restore; no fresh timestamp
+                // for a received record or a book left open without movement.
+                if (existing == null || incoming.updatedAt > existing.updatedAt ||
+                    (incoming.updatedAt == existing.updatedAt &&
+                        (incoming.locator > existing.locator ||
+                            (incoming.locator == existing.locator && incoming.progress > existing.progress)))) {
+                    database.backupDao().insertPositionReplace(
+                        ReadingPositionEntity(book.id, incoming.locator, incoming.progress, incoming.updatedAt))
+                    database.backupDao().updateBookProgressAfterRestore(book.id, incoming.progress)
+                }
+            }
+        }
+    }
+
+    /** Immediate in-process send, plus durable retry when offline or killed. */
     fun requestPublish(context: Context) {
         val app = context.applicationContext
         if (own(app) == null) return
+        synchronized(requestLock) {
+            prefs(app).edit().putLong(REVISION, revision(app) + 1L).apply()
+        }
         publicationRequests.trySend(app)
+        val work = WorkManager.getInstance(app)
+        work.enqueueUniqueWork("reading-position-json-now", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<ReadingPositionWorker>().setInitialDelay(5, TimeUnit.SECONDS).build())
+        work.enqueueUniquePeriodicWork("reading-position-json-retry", ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<ReadingPositionWorker>(15, TimeUnit.MINUTES).build())
     }
 
     suspend fun publish(context: Context, database: AppDatabase): Boolean =
@@ -231,9 +304,10 @@ object ReadingPositionSafSync {
                     requireGrant(app, uri, write = true)
                     recoverPending(app, uri)
                     publishLocked(app, database)
-                    success(app)
+                    published(app)
                     true
-                } catch (failure: Exception) {
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) {
                     error(app, failure)
                     false
                 }
@@ -247,11 +321,13 @@ object ReadingPositionSafSync {
         check(previous == null || previous.deviceId == id) {
             "No se modificará un archivo de otro dispositivo."
         }
-        val books = database.backupDao().booksAll().associateBy { it.id }
-        val local = database.backupDao().positionsAll().mapNotNull { position ->
-            val book = books[position.bookId] ?: return@mapNotNull null
-            ReadingPositionRecord(book.contentHash, position.locator,
-                position.progress, position.updatedAt, id)
+        val local = database.withTransaction {
+            val books = database.backupDao().booksAll().associateBy { it.id }
+            database.backupDao().positionsAll().mapNotNull { position ->
+                val book = books[position.bookId] ?: return@mapNotNull null
+                ReadingPositionRecord(book.contentHash, position.locator,
+                    position.progress, position.updatedAt, id)
+            }
         }
         val merged = ReadingPositionFileCodec.newest(
             previous?.positions.orEmpty() + local
@@ -263,8 +339,25 @@ object ReadingPositionSafSync {
         writeVerified(context, uri, output, priorText)
     }
 
-    private fun read(context: Context, uri: Uri, allowEmpty: Boolean): ReadingPositionDocument? {
-        val data = context.contentResolver.openInputStream(uri)?.use { input ->
+    private fun readPeer(context: Context, uri: Uri, seen: Set<String>): ReadingPositionDocument {
+        requireGrant(context, uri, write = false)
+        require(uri != own(context))
+        fun validate(document: ReadingPositionDocument?): ReadingPositionDocument {
+            val data = requireNotNull(document) { "Archivo de posiciones vacío." }
+            require(data.deviceId != deviceId(context) && data.deviceId !in seen) {
+                "El archivo recibido pertenece a este dispositivo o a otro ya vinculado."
+            }
+            return data
+        }
+        return try { validate(read(context, uri, false)) }
+        catch (e: Exception) { validate(read(context, uri, false, alternate = true)) }
+    }
+
+    private fun read(context: Context, uri: Uri, allowEmpty: Boolean, alternate: Boolean = false): ReadingPositionDocument? {
+        val stream = if (alternate) context.contentResolver
+            .openTypedAssetFileDescriptor(uri, "application/json", null)?.createInputStream()
+            else context.contentResolver.openInputStream(uri)
+        val data = stream?.use { input ->
             val result = ByteArrayOutputStream()
             val chunk = ByteArray(16 * 1024)
             while (true) {
@@ -282,11 +375,17 @@ object ReadingPositionSafSync {
         return ReadingPositionFileCodec.decode(String(data, Charsets.UTF_8))
     }
 
-    private fun emergency(context: Context) =
-        File(context.filesDir, "reading-position-sync-rollback.json")
+    private fun emergency(context: Context, uri: Uri) =
+        File(context.filesDir, "reading-position-sync-rollback-" +
+            SharedDocumentStore.hash(uri.toString().toByteArray()).take(24) + ".json")
 
     private fun recoverPending(context: Context, uri: Uri) {
-        val backup = emergency(context)
+        val backup = emergency(context, uri)
+        // Older versions kept a single rollback. It is only eligible for
+        // the currently registered own URI, never for a newly selected file.
+        val legacy = File(context.filesDir, "reading-position-sync-rollback.json")
+        if (!backup.exists() && legacy.isFile && uri == own(context))
+            check(legacy.renameTo(backup))
         if (!backup.isFile) return
         // Only our own URI can be used for recovery. Never touch a peer.
         check(uri == own(context)) { "Destino de recuperación distinto del archivo propio." }
@@ -295,7 +394,10 @@ object ReadingPositionSafSync {
             check(it.deviceId == deviceId(context)) { "La copia de emergencia es de otro dispositivo." }
         }
         val existing = runCatching { read(context, uri, allowEmpty = true) }.getOrNull()
-        if (existing != null && existing.deviceId == deviceId(context)) {
+        require(existing == null || existing.deviceId == deviceId(context)) {
+            "No se recuperará sobre un archivo de otro dispositivo."
+        }
+        if (existing != null) {
             // Valid current data already exists. It could contain newer positions.
             // Do not roll it back; preserve the local recovery as a manual safeguard.
             check(backup.delete()) { "No se puede limpiar recuperación de posiciones." }
@@ -311,7 +413,7 @@ object ReadingPositionSafSync {
     private fun writeVerified(context: Context, uri: Uri, content: String, previous: String?) {
         // A private rollback prevents a provider failure from discarding the prior
         // known-good state. The user's local Room positions are never deleted.
-        val backup = emergency(context)
+        val backup = emergency(context, uri)
         require(!backup.exists()) { "Primero hay que recuperar el archivo anterior." }
         if (previous != null) backup.writeText(previous, Charsets.UTF_8)
         try {
@@ -346,6 +448,12 @@ object ReadingPositionSafSync {
     private fun success(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putLong(LAST_SYNC, System.currentTimeMillis()).putString(LAST_ERROR, "").apply()
+        changes.value += 1
+    }
+
+    private fun published(context: Context) {
+        prefs(context).edit().putLong(LAST_PUBLISHED, System.currentTimeMillis()).apply()
+        changes.value += 1
     }
 
     private fun error(context: Context, failure: Exception) {
@@ -353,5 +461,16 @@ object ReadingPositionSafSync {
             .putString(LAST_ERROR,
                 failure.message ?: "No se ha podido comprobar el estado de otros dispositivos.")
             .apply()
+        changes.value += 1
+    }
+}
+
+class ReadingPositionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext
+        if (!ReadingPositionSafSync.hasOwn(app)) return Result.success()
+        val revision = ReadingPositionSafSync.revision(app)
+        val ok = ReadingPositionSafSync.publish(app, AppDatabase.get(app))
+        return if (ok && revision == ReadingPositionSafSync.revision(app)) Result.success() else Result.retry()
     }
 }

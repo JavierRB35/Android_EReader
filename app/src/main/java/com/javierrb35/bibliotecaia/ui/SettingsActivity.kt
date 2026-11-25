@@ -368,7 +368,8 @@ class SettingsActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     try {
                         ReadingPositionSafSync.addPeer(applicationContext, uri)
-                        val ok = ReadingPositionSafSync.refresh(applicationContext, db)
+                        val ok = ReadingPositionSafSync.refreshForRead(applicationContext, db)
+                        ReadingPositionSafSync.requestPublish(applicationContext)
                         refreshPositionSyncStatus()
                         Toast.makeText(this@SettingsActivity,
                             if (ok) "Dispositivo vinculado y posiciones comprobadas."
@@ -432,20 +433,15 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        section(layout, "Configuración avanzada")
-        val legacyToggle = action(layout, "Mostrar sincronización antigua (solo posiciones)") {}
+        section(layout, "Sincronización rápida de posiciones")
         val syncCard = card(layout)
-        syncCard.visibility = View.GONE
-        legacyToggle.setOnClickListener {
-            syncCard.visibility = if (syncCard.visibility == View.GONE) View.VISIBLE else View.GONE
-            legacyToggle.text = if (syncCard.visibility == View.VISIBLE) "Ocultar sincronización antigua" else "Mostrar sincronización antigua (solo posiciones)"
-        }
-        hint(syncCard, "Configuración anterior. No es necesaria si utilizas la biblioteca compartida. " +
-            "Después vincula en este dispositivo, como lectura, los archivos creados " +
-            "en tus otros dispositivos. Cada dispositivo escribe solo el suyo. " +
-            "No se requiere cuenta ni OAuth en BibliotecaAI.")
+        hint(syncCard, "Independiente de los ZIP de biblioteca y de seguridad. " +
+            "Si todavía no tienes un archivo JSON propio, créalo en la misma carpeta de Drive. " +
+            "Hazlo en cada dispositivo y vincula aquí el JSON de los demás. " +
+            "Si ya están vinculados, no tienes que volver a crearlos. " +
+            "Cada dispositivo escribe solo el suyo; no se requiere OAuth ni cuenta adicional.")
         positionSyncStatus = hint(syncCard, "")
-        action(syncCard, "Crear archivo de este dispositivo") {
+        action(syncCard, "Crear JSON de este dispositivo") {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "application/json"
@@ -457,7 +453,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             createPositionSyncFile.launch(intent)
         }
-        action(syncCard, "Vincular archivo de otro dispositivo") {
+        action(syncCard, "Vincular JSON de otro dispositivo") {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "*/*"
@@ -468,7 +464,8 @@ class SettingsActivity : AppCompatActivity() {
         }
         action(syncCard, "Sincronizar posiciones ahora") {
             lifecycleScope.launch {
-                val success = ReadingPositionSafSync.refresh(applicationContext, db)
+                val success = ReadingPositionSafSync.refreshForRead(applicationContext, db)
+                ReadingPositionSafSync.requestPublish(applicationContext)
                 refreshPositionSyncStatus()
                 Toast.makeText(this@SettingsActivity,
                     if (success) "Posiciones sincronizadas."
@@ -488,6 +485,11 @@ class SettingsActivity : AppCompatActivity() {
                 .show()
         }
         refreshPositionSyncStatus()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ReadingPositionSafSync.changes.collect { refreshPositionSyncStatus() }
+            }
+        }
 
         section(layout, getString(R.string.settings_backup))
 
@@ -548,6 +550,12 @@ class SettingsActivity : AppCompatActivity() {
             append(if (sync.ownConfigured) "Archivo propio configurado" else
                 "Sin archivo propio. Crea uno para activar la sincronización")
             append(" · Otros dispositivos: ").append(sync.peerCount)
+            append(if (ReadingPositionSafSync.fastReady(this@SettingsActivity))
+                "\nCanal JSON configurado." else "\nCompleta los enlaces JSON; se mantiene el canal anterior durante la transición.")
+            if (sync.lastPublished > 0) {
+                append("\nÚltimo envío JSON comprobado: ")
+                append(DateFormat.getDateTimeInstance().format(Date(sync.lastPublished)))
+            }
             if (sync.lastSuccess > 0) {
                 append("\nÚltima comprobación: ")
                 append(DateFormat.getDateTimeInstance().format(Date(sync.lastSuccess)))

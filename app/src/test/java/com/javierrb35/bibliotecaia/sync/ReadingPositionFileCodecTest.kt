@@ -36,6 +36,13 @@ class ReadingPositionFileCodecTest {
             ReadingPositionFileCodec.newest(listOf(two, one)))
     }
 
+    @Test fun staleRepublishedCopyDoesNotWinAgainstNewerMovement() {
+        val old = record(a, "page:150", 10, mobile)
+        val current = record(a, "page:20", 12, tablet)
+        val copied = old.copy(deviceId = tablet)
+        assertEquals(current, ReadingPositionFileCodec.newest(listOf(old,current,copied)).getValue(a))
+    }
+
     @Test fun rejectsForeignFilesAndDuplicateBooks() {
         assertThrows(IllegalArgumentException::class.java) {
             ReadingPositionFileCodec.decode("{}")
