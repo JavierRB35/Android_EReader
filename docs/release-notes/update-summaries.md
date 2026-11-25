@@ -1,0 +1,2 @@
+- Las actualizaciones muestran las mejoras y correcciones antes de instalar, también en los avisos del sistema.
+- Las notas de cada publicación se generan a partir de los cambios integrados desde la última APK oficial.
