@@ -1,0 +1,3 @@
+- Configuración de biblioteca mediante una única carpeta compartida, sin crear un ZIP ni un archivo de avances por dispositivo.
+- Los nuevos originales se guardan con nombre y extensión reales; se reutilizan los archivos cuyo contenido coincide y no se sobrescriben libros distintos.
+- La nueva conexión se comprueba antes de sustituir la anterior. Se conservan los originales y archivos históricos. La sincronización real con Google Drive requiere verificar que su selector ofrece acceso a carpetas.
