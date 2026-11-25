@@ -31,6 +31,35 @@ class SharedLibraryJourneyTest {
             return item
         }
     }
+    @Test fun namedOriginalsKeepReadableNamesAndReuseByHashWithoutOverwriting() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "named-originals-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(folder)
+        val first = File(root, "Don Quijote.epub").apply { writeText("first bytes") }
+        val other = File(root, "different.epub").apply { writeText("other bytes") }
+        fun book(id: String, file: File) = BookEntity(id, "Libro", null, BookFormat.EPUB,
+            first.name, file.absolutePath, SharedDocumentStore.hash(file.readBytes()), file.length(), 1L)
+        try {
+            val a = book("a", first)
+            val b = book("b", other)
+            val item = SharedNamedOriginals.ensure(store, a, first)
+            assertEquals(first.name, item.name)
+            assertEquals(item, SharedNamedOriginals.ensure(store, a.copy(fileName = "Otro título.epub"), first))
+            val distinct = SharedNamedOriginals.ensure(store, b, other)
+            assertEquals("Don Quijote (2).epub", distinct.name)
+            assertArrayEquals(first.readBytes(), File(folder, first.name).readBytes())
+            assertArrayEquals(other.readBytes(), File(folder, distinct.name).readBytes())
+            assertEquals(2, store.list().size)
+            assertThrows(IllegalArgumentException::class.java) {
+                SharedNamedOriginals.ensure(store, a.copy(fileName = "../escape.epub"), first)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                SharedNamedOriginals.ensure(store, a, other)
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun interruptedPublicationReusesVerifiedOriginalWithoutTrustingFilename() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "dedup-retry-" + UUID.randomUUID()).apply { mkdirs() }
