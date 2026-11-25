@@ -749,12 +749,24 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         lifecycleScope.launch {
-            val release = withContext(Dispatchers.IO) {
-                UpdateChecker.latestRelease(BuildConfig.VERSION_NAME)
+            val result = withContext(Dispatchers.IO) {
+                UpdateChecker.check(BuildConfig.VERSION_NAME)
             }
-            if (release == null) {
-                Toast.makeText(this@SettingsActivity, R.string.updates_none, Toast.LENGTH_SHORT).show()
-                return@launch
+            val release = when (result) {
+                is UpdateChecker.CheckResult.Available -> result.release
+                UpdateChecker.CheckResult.Current -> {
+                    Toast.makeText(this@SettingsActivity, R.string.updates_none, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                is UpdateChecker.CheckResult.Unavailable -> {
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("No se pudo comprobar la actualización")
+                        .setMessage(result.reason + "\n\nVersión instalada: " + BuildConfig.VERSION_NAME)
+                        .setPositiveButton("Reintentar") { _, _ -> checkUpdates() }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                    return@launch
+                }
             }
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
