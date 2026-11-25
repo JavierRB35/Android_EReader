@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
 class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
+    private lateinit var setupWizard: StorageSetupWizard
     private var backupBusy = false
     private var sharedBusy = false
     private lateinit var sharedStatus: TextView
@@ -396,6 +397,11 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setupWizard = StorageSetupWizard(this, db) {
+            refreshSharedPanel()
+            if (::backupStatus.isInitialized) refreshBackupStatus()
+            refreshPositionSyncStatus()
+        }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(28))
@@ -409,6 +415,10 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
+        section(layout, "Configuración guiada")
+        val setupCard = card(layout)
+        hint(setupCard, "Configura la biblioteca, la copia de seguridad y la lectura en varios dispositivos en un único asistente. Conservamos lo que ya funciona.")
+        action(setupCard, "Iniciar asistente", primary = true) { setupWizard.start() }
         section(layout, "Biblioteca compartida")
         val sharedCard = card(layout)
         sharedStatus = hint(sharedCard, "")
@@ -416,12 +426,12 @@ class SettingsActivity : AppCompatActivity() {
         sharedPrimary = action(sharedCard, "Configurar biblioteca", primary = true) {
             when {
                 SharedLibrary.needsRepair(applicationContext) -> repairOwnLibrary()
-                !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> showSetup()
-                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> linkDevice()
+                !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> setupWizard.start()
+                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> setupWizard.start()
                 else -> sharedAction { SharedLibrary.sync(applicationContext, db) }
             }
         }
-        sharedLink = action(sharedCard, "Añadir otro dispositivo") { linkDevice() }
+        sharedLink = action(sharedCard, "Añadir otro dispositivo") { setupWizard.start(addDevice = true) }
         sharedSync = action(sharedCard, "Sincronizar ahora") {
             sharedAction { SharedLibrary.sync(applicationContext, db) }
         }
@@ -434,13 +444,17 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         section(layout, "Sincronización rápida de posiciones")
-        val syncCard = card(layout)
-        hint(syncCard, "Independiente de los ZIP de biblioteca y de seguridad. " +
-            "Si todavía no tienes un archivo JSON propio, créalo en la misma carpeta de Drive. " +
-            "Hazlo en cada dispositivo y vincula aquí el JSON de los demás. " +
-            "Si ya están vinculados, no tienes que volver a crearlos. " +
-            "Cada dispositivo escribe solo el suyo; no se requiere OAuth ni cuenta adicional.")
-        positionSyncStatus = hint(syncCard, "")
+        val positionCard = card(layout)
+        hint(positionCard, "Tu última página se guarda automáticamente. Usa el asistente para conectar otro equipo.")
+        positionSyncStatus = hint(positionCard, "")
+        action(positionCard, "Configurar lectura en otros dispositivos") { setupWizard.start() }
+        action(positionCard, "Añadir otro equipo") { setupWizard.start(addDevice = true) }
+        val advancedPositions = action(positionCard, "Opciones avanzadas de sincronización") {}
+        val syncCard = card(positionCard)
+        syncCard.visibility = View.GONE
+        advancedPositions.setOnClickListener {
+            syncCard.visibility = if (syncCard.visibility == View.GONE) View.VISIBLE else View.GONE
+        }
         action(syncCard, "Crear JSON de este dispositivo") {
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
@@ -533,7 +547,15 @@ class SettingsActivity : AppCompatActivity() {
 
         section(layout, getString(R.string.settings_about))
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
+        setupWizard.restore(savedInstanceState)
+        if (savedInstanceState == null && intent.getBooleanExtra(StorageSetupWizard.EXTRA_OPEN, false))
+            window.decorView.post { setupWizard.start() }
         refreshBackupStatus()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::setupWizard.isInitialized) setupWizard.save(outState)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {

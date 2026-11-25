@@ -37,6 +37,8 @@ object ReadingPositionSafSync {
     private const val LAST_ERROR = "last_error"
     private const val LAST_PUBLISHED = "last_published"
     private const val BOOTSTRAP = "shared_bootstrap"
+    private const val FOLDER = "position_folder"
+    private const val AUTO_PEERS = "auto_peers"
     private const val REVISION = "publish_revision"
     private val requestLock = Any()
     val changes = MutableStateFlow(0L)
@@ -79,12 +81,69 @@ object ReadingPositionSafSync {
 
     fun status(context: Context): Status {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return Status(prefs.getString(OWN, null) != null, peers(context).size,
+        return Status(hasOwn(context), maxOf(peers(context).size, prefs.getInt(AUTO_PEERS, 0)),
             prefs.getLong(LAST_SYNC, 0L), prefs.getString(LAST_ERROR, "").orEmpty(),
             prefs.getLong(LAST_PUBLISHED, 0L))
     }
 
-    fun hasOwn(context: Context): Boolean = own(context) != null
+    fun hasOwn(context: Context): Boolean = own(context)?.let { StorageGrants.allows(context, it, true) } == true
+    fun folder(context: Context): Uri? = prefs(context).getString(FOLDER, null)?.let(Uri::parse)
+        ?.takeIf { StorageGrants.allows(context, it, true) }
+
+    /** A granted folder supports automatic creation and discovery. Existing own
+     * files are never replaced or relocated merely by running setup. */
+    suspend fun prepareFolder(context: Context, database: AppDatabase, tree: Uri) = withContext(Dispatchers.IO) {
+        val app = context.applicationContext
+        require(StorageGrants.allows(app, tree, true)) { "No hay permiso para esta carpeta." }
+        mutex.withLock {
+            val id = deviceId(app)
+            if (!hasOwn(app)) {
+                val candidates = SharedDocumentStore(app, tree).use { it.list() }
+                    .filter { it.name.startsWith("BibliotecaIA-lectura-") && it.name.endsWith(".json", true) }
+                val valid = candidates.filter { item ->
+                    runCatching { read(app, item.uri, false)?.deviceId == id }.getOrDefault(false)
+                }
+                require(valid.size <= 1) { "Hay más de un archivo de lectura propio. Selecciona el correcto desde el asistente." }
+                val target = valid.singleOrNull()?.uri ?: StorageGrants.create(app, tree, "application/json", suggestedName(app))
+                val old = own(app)
+                require(old == null || old == target || (!emergency(app, old).exists() &&
+                    !File(app.filesDir, "reading-position-sync-rollback.json").exists())) {
+                    "Hay una recuperación pendiente del archivo anterior. No se sustituirá."
+                }
+                val data = read(app, target, allowEmpty = true)
+                require(data == null || data.deviceId == id) { "No se modificará un archivo de otro dispositivo." }
+                check(prefs(app).edit().putString(OWN, target.toString()).remove(BOOTSTRAP).commit())
+                recoverPending(app, target)
+                publishLocked(app, database)
+                published(app)
+            }
+            val edit = prefs(app).edit().putString(FOLDER, tree.toString())
+            if (folder(app) != tree) edit.remove(AUTO_PEERS).remove(BOOTSTRAP)
+            check(edit.commit())
+        }
+        refreshForRead(app, database)
+    }
+
+    /** No dialog or picker is necessary when a shared folder is already granted. */
+    suspend fun ensureAutomaticFolder(context: Context, database: AppDatabase) {
+        val app = context.applicationContext
+        if (!SharedLibrary.configured(app) || SharedLibrary.fileMode(app) ||
+            !SharedLibrary.hasAccess(app)) return
+        val tree = SharedLibrary.uri(app) ?: return
+        if (hasOwn(app) && folder(app) != null) return
+        try { prepareFolder(app, database, tree) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error(app, e) }
+    }
+
+    private fun folderCandidates(context: Context): List<Uri> {
+        val tree = folder(context) ?: return emptyList()
+        return SharedDocumentStore(context, tree).use { store ->
+            store.list().filter {
+                it.name.startsWith("BibliotecaIA-lectura-") && it.name.endsWith(".json", true)
+            }.map { it.uri }
+        }
+    }
 
     /** File-only grants cannot create sibling files in Drive. Keep the existing
      * library path as fallback until every linked device has a JSON channel. */
@@ -96,7 +155,8 @@ object ReadingPositionSafSync {
 
     private fun connectionKey(context: Context): String =
         listOf(SharedLibrary.uri(context)?.toString().orEmpty(), own(context)?.toString().orEmpty(),
-            SharedLibrary.peerCount(context).toString(), peers(context).map(Uri::toString).sorted().joinToString("|"))
+            SharedLibrary.peerCount(context).toString(), folder(context)?.toString().orEmpty(),
+            peers(context).map(Uri::toString).sorted().joinToString("|"))
             .joinToString("\n")
 
     /** Upgrade without losing a newer position still present only in a ZIP.
@@ -137,9 +197,7 @@ object ReadingPositionSafSync {
     /** Persisted grants must come from the system picker, not inferred from a Drive account. */
     private fun requireGrant(context: Context, uri: Uri, write: Boolean) {
         require(uri.scheme == "content") { "Selecciona un archivo mediante Android." }
-        check(context.contentResolver.persistedUriPermissions.any {
-            it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
-        }) { "Sin permiso persistente para ${if (write) "leer y escribir" else "leer"} el archivo." }
+        check(StorageGrants.allows(context, uri, write)) { "Sin permiso persistente para ${if (write) "leer y escribir" else "leer"} el archivo." }
     }
 
     /**
@@ -203,7 +261,7 @@ object ReadingPositionSafSync {
 
     fun unlinkPeers(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().remove(PEERS).remove(BOOTSTRAP).apply()
+            .edit().remove(PEERS).remove(BOOTSTRAP).remove(FOLDER).remove(AUTO_PEERS).apply()
         changes.value += 1
     }
 
@@ -242,6 +300,25 @@ object ReadingPositionSafSync {
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { errors.add(e.message ?: "Archivo vinculado inaccesible.") }
                     }
+                    // The same folder may expose an already selected peer through
+                    // a different URI. Deduplicate by validated document owner.
+                    try {
+                        for (candidate in folderCandidates(app).filter { it != ownUri && it !in peers(app) }) {
+                            try {
+                                val data = read(app, candidate, false)
+                                    ?: continue
+                                if (data.deviceId == id) continue
+                                if (seen.add(data.deviceId)) documents.add(data)
+                                else if (documents.none { it == data }) {
+                                    errors.add("Hay dos estados distintos del mismo dispositivo en la carpeta.")
+                                    documents.add(data)
+                                }
+                            } catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { errors.add(e.message ?: "Archivo de lectura inaccesible.") }
+                        }
+                        prefs(app).edit().putInt(AUTO_PEERS, seen.size - 1).apply()
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { errors.add(e.message ?: "No se pudo consultar la carpeta de lectura.") }
                     mergePositions(database, documents.flatMap { it.positions })
                     // Read-only: opening a reader does not upload a stale position.
                     if (errors.isNotEmpty()) {
