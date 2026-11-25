@@ -1213,8 +1213,29 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         DefinitionUi.isDefinition(item.itemId) -> {
                             if (WordMeaning.searchPhrase(quote) == null) {
                                 toast("Selecciona una palabra o expresión breve para consultar su significado.")
-                            } else DefinitionUi.show(this@EpubReaderActivity, quote,
-                                aiConfigured(), definitionDelegate(locator))
+                            } else {
+                                val location = selection?.locator
+                                var passage = com.javierrb35.bibliotecaia.study.ContextualDefinition.fromParts(
+                                    location?.text?.before.orEmpty(), quote, location?.text?.after.orEmpty())
+                                // Older Readium/WebView versions may omit before/after.
+                                // Only use a unique exact match in the CURRENT resource.
+                                if (!passage.hasContext) {
+                                    val pub = publication
+                                    val link = pub?.readingOrder?.firstOrNull {
+                                        it.url().toString() == location?.href?.toString()
+                                    }
+                                    if (pub != null && link != null) {
+                                        val chapter = withContext(Dispatchers.IO) {
+                                            NativeEpubText.load(pub, link)
+                                        }
+                                        passage = com.javierrb35.bibliotecaia.study.ContextualDefinition
+                                            .fromUniqueOccurrence(chapter.text, quote)
+                                    }
+                                }
+                                mode?.finish()
+                                DefinitionUi.show(this@EpubReaderActivity, quote,
+                                    aiConfigured(), definitionDelegate(locator), passage)
+                            }
                         }
                         DefinitionUi.isAnnotate(item.itemId) ->
                             AnnotationEditor.show(this@EpubReaderActivity, bookId, locator,
