@@ -1,10 +1,13 @@
 package com.javierrb35.bibliotecaia.backup
 
 import androidx.room.withTransaction
+import com.javierrb35.bibliotecaia.data.AnnotationEntity
+import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.BookDeletion
 import java.io.File
+import java.util.UUID
 
 /**
  * Copia de seguridad local (Prompt Maestro §16): exportación completa de metadatos y
@@ -144,18 +147,31 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 note.copy(bookId = mappedId)
             }
             val annotationsRestored = countInserted(dao.insertAnnotationsIgnore(remappedNotes))
-            if (synchronize) for (note in remappedNotes) {
-                val existing = existingNotes[note.id] ?: continue
-                if (note.updatedAt > existing.updatedAt ||
-                    (note.updatedAt == existing.updatedAt && note.deletedAt != null && existing.deletedAt == null)) {
-                    db.readingDao().updateAnnotation(note)
-                }
-            }
             val annotationIds = dao.annotationsAll().map { it.id }.toSet()
             require(snapshot.versions.all { it.annotationId in annotationIds }) {
                 "La copia contiene versiones de una anotación inexistente."
             }
-            val versionsRestored = countInserted(dao.insertVersionsIgnore(snapshot.versions))
+            val snapshotVersionsRestored = countInserted(dao.insertVersionsIgnore(snapshot.versions))
+            var conflictVersionsRestored = 0
+            if (synchronize) {
+                val knownVersions = dao.versionsAll()
+                    .mapTo(HashSet()) { VersionKey(it.annotationId, it.body, it.color) }
+                val conflictVersions = mutableListOf<AnnotationVersionEntity>()
+                for (note in remappedNotes) {
+                    val existing = existingNotes[note.id] ?: continue
+                    val resolution = resolveAnnotationConflict(existing, note)
+                    if (resolution.applyIncoming) db.readingDao().updateAnnotation(note)
+                    resolution.preservedVersion?.let { version ->
+                        if (knownVersions.add(VersionKey(version.annotationId, version.body, version.color))) {
+                            conflictVersions.add(version)
+                        }
+                    }
+                }
+                if (conflictVersions.isNotEmpty()) {
+                    conflictVersionsRestored = countInserted(dao.insertVersionsIgnore(conflictVersions))
+                }
+            }
+            val versionsRestored = snapshotVersionsRestored + conflictVersionsRestored
 
             var positionsUpdated = 0
             val positionsByBook = snapshot.positions.groupBy { identity.book(it.bookId) }
@@ -187,7 +203,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 annotationsRestored = annotationsRestored,
                 annotationsSkipped = snapshot.annotations.size - annotationsRestored,
                 versionsRestored = versionsRestored,
-                versionsSkipped = snapshot.versions.size - versionsRestored,
+                versionsSkipped = snapshot.versions.size - snapshotVersionsRestored,
                 positionsUpdated = positionsUpdated,
                 positionsSkipped = snapshot.positions.size - positionsUpdated,
             )
@@ -233,6 +249,50 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
     /** Libros sin archivo disponible (tras restauración o borrado del almacenamiento). */
     fun missingFiles(books: List<BookEntity>): List<BookEntity> =
         books.filter { it.localPath.isBlank() || !File(it.localPath).exists() }
+
+    internal data class VersionKey(val annotationId: String, val body: String, val color: Int)
+    internal data class AnnotationConflictResolution(
+        val applyIncoming: Boolean,
+        val preservedVersion: AnnotationVersionEntity?,
+    )
+
+    companion object {
+        /**
+         * Resolves concurrent annotation edits deterministically across devices
+         * and preserves the losing text/color as an [AnnotationVersionEntity]
+         * so offline edits are never silently lost.
+         */
+        internal fun resolveAnnotationConflict(
+            existing: AnnotationEntity,
+            incoming: AnnotationEntity,
+        ): AnnotationConflictResolution {
+            val applyIncoming = when {
+                incoming.updatedAt != existing.updatedAt -> incoming.updatedAt > existing.updatedAt
+                (incoming.deletedAt != null) != (existing.deletedAt != null) -> incoming.deletedAt != null
+                (incoming.deletedAt ?: -1L) != (existing.deletedAt ?: -1L) ->
+                    (incoming.deletedAt ?: -1L) > (existing.deletedAt ?: -1L)
+                incoming.body != existing.body -> incoming.body > existing.body
+                else -> incoming.color > existing.color
+            }
+            val preserved = if (existing.body != incoming.body || existing.color != incoming.color) {
+                val losing = if (applyIncoming) existing else incoming
+                AnnotationVersionEntity(
+                    id = conflictVersionId(losing),
+                    annotationId = losing.id,
+                    body = losing.body,
+                    color = losing.color,
+                    savedAt = losing.updatedAt,
+                )
+            } else null
+            return AnnotationConflictResolution(applyIncoming, preserved)
+        }
+
+        private fun conflictVersionId(note: AnnotationEntity): String =
+            UUID.nameUUIDFromBytes(
+                "conflict-v1|${note.id}|${note.updatedAt}|${note.color}|${note.body}"
+                    .toByteArray(Charsets.UTF_8)
+            ).toString()
+    }
 }
 
 /** Resultado de una restauración con recuentos reales de inserciones y omisiones. */

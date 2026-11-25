@@ -1,0 +1,2 @@
+- Conserva el texto y color de ediciones concurrentes offline sobre una misma nota en el historial de versiones al sincronizar, evitando pérdidas silenciosas.
+- Resuelve empates exactos de marca temporal de forma determinista para que los dispositivos converjan al mismo estado.

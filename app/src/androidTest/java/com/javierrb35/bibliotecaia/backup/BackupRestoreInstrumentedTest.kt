@@ -112,6 +112,62 @@ class BackupRestoreInstrumentedTest {
         }
     }
 
+    @Test fun concurrentOfflineAnnotationEditsConvergeAndPreserveBothTexts() = withDb { dbA ->
+        withDb { dbB ->
+            runBlocking {
+                val baseBook = book("shared-book", "/offline/quijote.epub")
+                val baseNote = AnnotationEntity("note-conflict", "shared-book", "chapter:1",
+                    "En un lugar", "Texto común", "NOTE", 1, 10L, 10L)
+                val baseSnapshot = LibrarySnapshot(
+                    books = listOf(baseBook),
+                    categories = emptyList(), tags = emptyList(), collections = emptyList(),
+                    bookCategories = emptyList(), bookTags = emptyList(), collectionBooks = emptyList(),
+                    annotations = listOf(baseNote),
+                    versions = emptyList(),
+                    positions = emptyList(),
+                )
+                val mgrA = BackupManager(dbA, "0.1.0")
+                val mgrB = BackupManager(dbB, "0.1.0")
+                val baseJson = BackupCodec.toJson(baseSnapshot, "0.1.0", 10L)
+                mgrA.restoreJson(baseJson, synchronize = true)
+                mgrB.restoreJson(baseJson, synchronize = true)
+
+                // Both devices edit the exact same note offline without seeing each other.
+                val repoA = com.javierrb35.bibliotecaia.data.ReadingRepository(dbA)
+                val repoB = com.javierrb35.bibliotecaia.data.ReadingRepository(dbB)
+                repoA.editAnnotation("note-conflict", 10L, "Edición dispositivo A", 1)
+                repoB.editAnnotation("note-conflict", 10L, "Edición dispositivo B", 2)
+                // Force deterministic newer timestamp on B while preserving A's divergent body.
+                val editedA = dbA.readingDao().annotation("note-conflict")!!.copy(updatedAt = 100L)
+                val editedB = dbB.readingDao().annotation("note-conflict")!!.copy(updatedAt = 200L)
+                dbA.readingDao().updateAnnotation(editedA)
+                dbB.readingDao().updateAnnotation(editedB)
+
+                val exportA = mgrA.exportJson(300L)
+                val exportB = mgrB.exportJson(300L)
+                mgrA.restoreJson(exportB, synchronize = true)
+                mgrB.restoreJson(exportA, synchronize = true)
+
+                // Both devices must converge to the exact same live note and retain A's losing edit.
+                val finalA = dbA.readingDao().annotation("note-conflict")!!
+                val finalB = dbB.readingDao().annotation("note-conflict")!!
+                assertEquals("Edición dispositivo B", finalA.body)
+                assertEquals(finalA.body, finalB.body)
+                assertEquals(finalA.updatedAt, finalB.updatedAt)
+
+                val versionsA = dbA.readingDao().versions("note-conflict").map { it.body }.toSet()
+                val versionsB = dbB.readingDao().versions("note-conflict").map { it.body }.toSet()
+                assertTrue(versionsA.containsAll(setOf("Texto común", "Edición dispositivo A")))
+                assertEquals(versionsA, versionsB)
+
+                // Idempotent: re-syncing does not duplicate conflict versions.
+                val beforeCount = dbA.readingDao().versions("note-conflict").size
+                mgrA.restoreJson(exportB, synchronize = true)
+                assertEquals(beforeCount, dbA.readingDao().versions("note-conflict").size)
+            }
+        }
+    }
+
     @Test fun brokenReferenceRollsBackEntireRestore() = withDb { db ->
         runBlocking {
             val incomplete = snapshot().copy(
