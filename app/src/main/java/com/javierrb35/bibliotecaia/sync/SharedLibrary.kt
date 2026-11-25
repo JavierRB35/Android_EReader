@@ -316,7 +316,7 @@ object SharedLibrary {
                     require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
                     require(db.backupDao().booksAll().all { book ->
                         published.receipts[book.contentHash].orEmpty().any { receipt ->
-                            val item = published.items[receipt.name]
+                            val item = published.resolve(receipt)
                             SharedNamedOriginals.validName(receipt.name) && item != null &&
                                 receipt.bytes == book.sizeBytes &&
                                 target.verify(item, book.contentHash, book.sizeBytes)
@@ -357,17 +357,22 @@ object SharedLibrary {
             receipt
         }
     }
-    private data class Inventory(val receipts: Map<String, List<Receipt>>, val items: Map<String, SharedDocumentStore.Item>,
-                                 val states: List<String>, val errors: List<String>) {
+    private data class Inventory(val receipts: Map<String, List<Receipt>>, val items: Map<String, List<SharedDocumentStore.Item>>,
+                                 val states: List<String>, val errors: List<String>, val store: SharedStore) {
+        fun resolve(receipt: Receipt): SharedDocumentStore.Item? = items[receipt.name].orEmpty().firstOrNull { item ->
+            (item.size < 0 || item.size == receipt.bytes) && try {
+                store.verify(item, receipt.hash, receipt.bytes)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { false }
+        }
         fun available(hash: String): Boolean = receipts[hash].orEmpty().any {
-            val item = items[it.name]
-            item != null && (item.size < 0 || item.size == it.bytes)
+            resolve(it) != null
         }
         fun availableHashes(): Set<String> = receipts.keys.filter(::available).toSet()
     }
     private fun inventory(store: SharedStore): Inventory {
         val files = store.list()
-        val items = files.groupBy { it.name }.filterValues { it.size == 1 }.mapValues { it.value.single() }
+        val items = files.groupBy { it.name }
         val states = mutableListOf<String>()
         val found = mutableListOf<Receipt>()
         val errors = store.readErrors.toMutableList()
@@ -395,7 +400,7 @@ object SharedLibrary {
             catch (e: Exception) { errors.add("No se pudo leer " + item.name.take(32)) }
             }
         }
-        return Inventory(found.distinct().groupBy { it.hash }, items, states, errors)
+        return Inventory(found.distinct().groupBy { it.hash }, items, states, errors, store)
     }
 
     /**
@@ -407,7 +412,7 @@ object SharedLibrary {
      */
     private fun findVerifiedUnpublishedOriginal(store: SharedStore, inv: Inventory,
                                                book: BookEntity): Receipt? {
-        return inv.items.values.asSequence().filter { item ->
+        return inv.items.values.asSequence().flatten().filter { item ->
             objectName.matchEntire(item.name)?.groupValues?.get(1) == book.contentHash &&
                 (item.size < 0 || item.size == book.sizeBytes)
         }.sortedBy { it.name }.firstOrNull { item ->
@@ -537,7 +542,7 @@ object SharedLibrary {
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {
-            val item = inv.items[receipt.name] ?: continue
+            val item = inv.resolve(receipt) ?: continue
             try {
                 require(receipt.bytes == book.sizeBytes)
                 store.extract(item, target, book.contentHash, book.sizeBytes)
@@ -590,7 +595,7 @@ object SharedLibrary {
                 val inv = inventory(store)
                 val book = db.bookDao().findById(id) ?: error("Libro no encontrado.")
                 require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
-                    val item = inv.items[receipt.name]
+                    val item = inv.resolve(receipt)
                     item != null && receipt.bytes == book.sizeBytes &&
                         runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
                 }) { "No se pudo comprobar el original central. Se conserva el archivo local." }
@@ -621,7 +626,7 @@ object SharedLibrary {
             require(book.localPath == imported.localPath && book.contentHash == imported.contentHash &&
                 book.sizeBytes == imported.sizeBytes && CentralCatalogue.local(book)) { "El original local ha cambiado." }
             require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
-                val item = inv.items[receipt.name]
+                val item = inv.resolve(receipt)
                 item != null && receipt.bytes == book.sizeBytes &&
                     runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
             }) { "No se pudo comprobar el original central de " + book.title }

@@ -28,8 +28,7 @@ internal object SharedNamedOriginals {
     }
 
     /** Search existing native files by actual content, not title or filename.
-     * Fail closed when a potential match is inaccessible. Names duplicated by
-     * the provider cannot safely become name-based receipts.
+     * Fail closed when a potential match is inaccessible. Receipts resolve duplicate names by verified hash and size.
      */
     fun find(store: SharedStore, book: BookEntity): SharedDocumentStore.Item? = find(store, book, store.list())
 
@@ -42,9 +41,6 @@ internal object SharedNamedOriginals {
             try { store.verify(it, book.contentHash, book.sizeBytes) }
             catch (_: DocumentTooLargeException) { false }
         } ?: return null
-        require(listing.count { it.name == match.name } == 1) {
-            "Hay varios archivos con el mismo nombre; no se puede identificar el original con seguridad."
-        }
         return match
     }
 

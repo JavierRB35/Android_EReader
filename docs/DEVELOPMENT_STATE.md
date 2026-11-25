@@ -8,6 +8,10 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## Colisiones SAF — rama derivada de #119
+
+- Base 5c8ab9f, rama fix/saf-hash-collisions-20261125 aislada mientras CI de #119 activo. c3acc49 conserva todos los candidatos por nombre y verifica hash/tamaño al resolver recibos; d22928e reutiliza originales homónimos; 751dd18 prueba dos bases Room con archivos homónimos del mismo tamaño y distinto contenido, sin escrituras de originales. CI y Drive físico pendientes. No se elimina ningún original. PDF instrumental aislado despriorizado por propietario; conservar prueba. Integrar con #119 cuando finalice su CI, sin fusionar WIP.
+
 ## Corrección SAF e instrumentación — 25/11/2026
 
 - #120 integrada en main 4ae9d425 con 4/4 gates. #119: logs confirman selector antiguo en SettingsBackupJourneyDeviceTest y fallo independiente de hint PDF. Corregido selector e5ff677; identidad SAF por authority/documentId y enrutado exclusivo JSON b568c92; tamaño desconocido y nombre seguro 92ce93f. CI nuevo pendiente. Colisiones de nombres ya existentes siguen fail-closed por recibos basados en nombre; no afirmar resueltas. Pendiente prueba PDF, cobertura DocumentsProvider, migración y Drive A/B. No activar ni fusionar WIP.

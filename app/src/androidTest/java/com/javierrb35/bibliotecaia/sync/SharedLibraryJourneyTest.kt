@@ -56,13 +56,46 @@ class SharedLibraryJourneyTest {
             assertArrayEquals(first.readBytes(), File(folder, first.name).readBytes())
             assertArrayEquals(other.readBytes(), File(folder, distinct.name).readBytes())
             assertEquals(2, store.list().size)
-            assertThrows(IllegalArgumentException::class.java) {
-                SharedNamedOriginals.ensure(store, a.copy(fileName = "../escape.epub"), first)
-            }
+            assertEquals(item, SharedNamedOriginals.ensure(store, a.copy(fileName = "../escape.epub"), first))
             assertThrows(IllegalArgumentException::class.java) {
                 SharedNamedOriginals.ensure(store, a, other)
             }
         } finally { root.deleteRecursively() }
+    }
+
+    @Test fun duplicateDisplayNamesResolveByContentOnBothDevices() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "collision-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val first = File(root, "first.epub").apply { writeText("AAAA") }
+        val second = File(root, "second.epub").apply { writeText("BBBB") }
+        val base = TestStore(cloud, namedOriginals = true)
+        val store = object : SharedStore by base {
+            override fun list() = base.list() + listOf(first, second).map {
+                SharedDocumentStore.Item("Same.epub", Uri.fromFile(it), it.length())
+            }
+        }
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val books = listOf(first, second).mapIndexed { index, file ->
+                BookEntity("collision-$index", "Libro $index", null, BookFormat.EPUB,
+                    "Same.epub", file.absolutePath, SharedDocumentStore.hash(file.readBytes()), file.length(), 1L)
+            }
+            books.forEach { a.bookDao().insert(it) }
+            val hashes = books.map { it.contentHash }.toSet()
+            assertEquals(hashes, SharedLibrary.syncStore(store, a, "a".repeat(32)).hashes)
+            assertEquals(hashes, SharedLibrary.syncStore(store, b, "b".repeat(32)).hashes)
+            for (book in books) {
+                val remote = b.bookDao().findByHash(book.contentHash)!!
+                val target = File(root, "restored-" + book.id)
+                SharedLibrary.stageFromStore(store, remote, target)
+                assertArrayEquals(File(book.localPath).readBytes(), target.readBytes())
+            }
+            assertTrue(cloud.listFiles()!!.none { it.isFile })
+            assertEquals("AAAA", first.readText())
+            assertEquals("BBBB", second.readText())
+        } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 
     @Test fun namedFolderTwoDevicesShareReadableOriginalsAndReadingPosition() = runBlocking {
