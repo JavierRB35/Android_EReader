@@ -7,6 +7,21 @@ from urllib.parse import quote
 
 PREFIXES = ("feature/", "feat/", "fix/", "refactor/", "chore/", "test/")
 
+# Explicitly reviewed pending work branches of this release coordinator.
+# They may have been included in a prior publication before cleanup was live.
+# All normal merge/ancestry/HEAD/protection/dependency checks still apply.
+REVIEWED_BACKLOG = {
+    102: "fix/ai-setup-independent-providers-20261125",
+    104: "fix/reliable-update-detection-20261125",
+    93: "chore/repository-cleanup-20261125",
+    94: "fix/multipage-selection-autoscroll-20261125",
+    101: "feat/windows-calibre-migrator",
+}
+
+
+def in_cleanup_scope(number, branch, already_published):
+    return not already_published or REVIEWED_BACKLOG.get(number) == branch
+
 
 def run(*args):
     return subprocess.check_output(args, text=True).strip()
@@ -67,9 +82,12 @@ def main():
             if branch in seen:
                 continue
             seen.add(branch)
-            # Only branches introduced by this publication. Old/WIP branches
-            # need separate review, especially if another agent still uses them.
-            if not ancestor(merge, a.sha) or (a.previous and ancestor(merge, a.previous)):
+            # New integrations plus the explicit reviewed backlog. Never sweep
+            # unrelated historical/WIP branches.
+            if not ancestor(merge, a.sha):
+                continue
+            already_published = bool(a.previous and ancestor(merge, a.previous))
+            if not in_cleanup_scope(pr["number"], branch, already_published):
                 continue
             try:
                 meta = api(f"repos/{a.repo}/branches/{quote(branch, safe='')}")

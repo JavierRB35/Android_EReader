@@ -1,6 +1,6 @@
 import unittest
 from release_guard import official, require_newer
-from cleanup_published_branches import candidate
+from cleanup_published_branches import candidate, in_cleanup_scope
 
 
 def fixture(tag="v0.1.128"):
@@ -44,3 +44,9 @@ class CleanupPolicyTest(unittest.TestCase):
         self.assertIsNone(candidate(dict(pr, merged_at=None), repo, set()))
         for branch in ("main", "wip/other", "release/one"):
             self.assertIsNone(candidate(dict(pr, head=dict(pr["head"], ref=branch)), repo, set()))
+
+    def test_only_reviewed_backlog_can_be_cleaned_after_previous_release(self):
+        self.assertTrue(in_cleanup_scope(104, "fix/reliable-update-detection-20261125", True))
+        self.assertFalse(in_cleanup_scope(104, "fix/different", True))
+        self.assertFalse(in_cleanup_scope(99, "wip/transactional-coordinator-v1", True))
+        self.assertTrue(in_cleanup_scope(105, "fix/strict-release-and-cleanup-20261125", False))
