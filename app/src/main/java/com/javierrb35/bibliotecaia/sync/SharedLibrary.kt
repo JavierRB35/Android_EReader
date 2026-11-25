@@ -280,14 +280,16 @@ object SharedLibrary {
         }
 
     private fun receipts(state: JSONObject): List<Receipt> {
-        require(state.getInt("version") == 1)
+        val version = state.getInt("version")
+        require(version in 1..2)
         val array = state.getJSONArray("originals")
         require(array.length() <= 10000)
         return (0 until array.length()).map { i ->
             val row = array.getJSONObject(i)
             val receipt = Receipt(row.getString("hash"), row.getString("name"), row.getLong("bytes"))
-            require(objectName.matchEntire(receipt.name)?.groupValues?.get(1) == receipt.hash &&
-                receipt.bytes in 1L..(512L * 1024 * 1024))
+            val legacy = objectName.matchEntire(receipt.name)?.groupValues?.get(1) == receipt.hash
+            require((legacy || (version == 2 && SharedNamedOriginals.validName(receipt.name) &&
+                receipt.hash.matches(Regex("[a-f0-9]{64}")))) && receipt.bytes in 1L..(512L * 1024 * 1024))
             receipt
         }
     }
@@ -356,6 +358,10 @@ object SharedLibrary {
             OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash) {
             "Original local no válido: " + book.title.take(80)
         }
+        if (store.namedOriginals) {
+            val item = SharedNamedOriginals.ensure(store, book, file)
+            return Receipt(book.contentHash, item.name, book.sizeBytes)
+        }
         val name = "bia-book-" + book.contentHash + "-" + UUID.randomUUID() + ".bin"
         file.inputStream().use { store.create(name, "application/octet-stream", it, book.contentHash, book.sizeBytes) }
         return Receipt(book.contentHash, name, book.sizeBytes)
@@ -375,7 +381,8 @@ object SharedLibrary {
         receipts.filter { it.hash in known }.distinct().sortedBy { it.name }.forEach {
             array.put(JSONObject().put("hash", it.hash).put("name", it.name).put("bytes", it.bytes))
         }
-        val bytes = JSONObject().put("version", 1).put("snapshot", json)
+        val version = if (store.namedOriginals) 2 else 1
+        val bytes = JSONObject().put("version", version).put("snapshot", json)
             .put("originals", array).toString().toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_STATE)
         val hash = SharedDocumentStore.hash(bytes)
@@ -414,8 +421,9 @@ object SharedLibrary {
             for (book in db.backupDao().booksAll()) {
                 if (book.contentHash in available || !CentralCatalogue.local(book)) continue
                 try {
-                    val receipt = findVerifiedUnpublishedOriginal(store, inv, book)
-                        ?: upload(store, book, File(book.localPath))
+                    val receipt = if (store.namedOriginals) upload(store, book, File(book.localPath))
+                        else findVerifiedUnpublishedOriginal(store, inv, book)
+                            ?: upload(store, book, File(book.localPath))
                     known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
                     available.add(book.contentHash)
                 } catch (e: CancellationException) { throw e }
