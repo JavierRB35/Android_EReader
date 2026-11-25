@@ -14,6 +14,10 @@ class StorageSetupOutcomeTest {
             StorageSetupOutcome.first(good.copy(otherDevice = false)))
         assertEquals(StorageSetupOutcome.Issue.PROGRESS_READ,
             StorageSetupOutcome.first(good.copy(progressRead = false)))
+        assertEquals(StorageSetupOutcome.Issue.PROGRESS_WRITE,
+            StorageSetupOutcome.first(good.copy(progressWritten = false, otherDevice = false, progressRead = false)))
+        assertEquals(StorageSetupOutcome.Issue.BACKUP_RECOVERY,
+            StorageSetupOutcome.first(good.copy(backupRecovery = true, backupAccess = false)))
         assertEquals(StorageSetupOutcome.Issue.NONE, StorageSetupOutcome.first(good))
     }
 }

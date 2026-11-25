@@ -474,11 +474,13 @@ class SettingsActivity : AppCompatActivity() {
         unifiedStatus.text = buildString {
             append(if (ready && peers > 0 && position.lastSuccess > 0) "Todo preparado"
                 else if (ready) "Preparado en este dispositivo"
-                else "Necesitamos comprobar tu biblioteca")
-            append("\nBiblioteca: ").append(if (lib) "disponible" else "pendiente")
-            append("\nCopia de seguridad: ").append(if (copy) "guardada" else "pendiente")
-            append("\nAvances de lectura: ").append(if (progress) "guardados automáticamente" else "pendientes")
-            append("\n").append(if (peers > 0) "Otros dispositivos detectados: $peers" else "Aún no se ha detectado otro dispositivo")
+                else "Tu configuración necesita una comprobación")
+            if (ready) {
+                append("\nTus libros, copia y avances se guardan automáticamente.")
+                append("\n").append(if (peers > 0) "Otros dispositivos detectados: $peers" else "Para leer en otro equipo, configúralo en la misma ubicación.")
+            } else {
+                append("\nPulsa el botón para identificar el problema y resolverlo paso a paso. Tus libros locales no se borrarán.")
+            }
         }
         unifiedAction.text = if (ready) "Comprobar configuración" else if (SharedLibrary.configured(app)) "Resolver configuración" else "Configurar biblioteca"
     }
