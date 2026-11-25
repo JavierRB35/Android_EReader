@@ -17,13 +17,18 @@ import java.util.UUID
  * Room databases and a shared test folder. Does not assert Google Drive support. */
 @RunWith(AndroidJUnit4::class)
 class SharedLibraryJourneyTest {
-    private class TestStore(private val dir: File) : SharedStore {
-        override fun list() = dir.listFiles().orEmpty().filter { it.isFile }.map {
+    private class TestStore(private val dir: File, override val namedOriginals: Boolean = false) : SharedStore {
+        private val metadata get() = File(dir, "_Sincronizacion")
+        override fun list() = (dir.listFiles().orEmpty().toList() +
+            if (namedOriginals) metadata.listFiles().orEmpty().toList() else emptyList()).filter { it.isFile }.map {
             SharedDocumentStore.Item(it.name, Uri.fromFile(it), it.length())
         }
         override fun open(item: SharedDocumentStore.Item): InputStream = File(item.uri.path!!).inputStream()
         override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item {
-            val file = File(dir, name)
+            val target = if (namedOriginals && name.startsWith("bia-state-")) metadata.apply {
+                check(isDirectory || mkdirs())
+            } else dir
+            val file = File(target, name)
             check(file.createNewFile())
             source.use { input -> file.outputStream().use { input.copyTo(it) } }
             val item = SharedDocumentStore.Item(name, Uri.fromFile(file), file.length())
@@ -58,6 +63,37 @@ class SharedLibraryJourneyTest {
                 SharedNamedOriginals.ensure(store, a, other)
             }
         } finally { root.deleteRecursively() }
+    }
+
+    @Test fun namedFolderTwoDevicesShareReadableOriginalsAndReadingPosition() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "named-sync-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val file = File(root, "Mi libro.epub").apply { writeText("original contents") }
+        val hash = SharedDocumentStore.hash(file.readBytes())
+        val book = BookEntity("a", "Libro", null, BookFormat.EPUB, file.name,
+            file.absolutePath, hash, file.length(), 1L)
+        val store = TestStore(folder, namedOriginals = true)
+        try {
+            a.bookDao().insert(book)
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:8", .4f, 100L))
+            assertTrue(SharedLibrary.syncStore(store, a, "a".repeat(32)).errors.isEmpty())
+            assertArrayEquals(file.readBytes(), File(folder, file.name).readBytes())
+            assertEquals(listOf(file.name), folder.listFiles()!!.filter { it.isFile }.map { it.name })
+            assertTrue(File(folder, "_Sincronizacion").listFiles()!!.any { it.name.endsWith(".json") })
+            assertEquals(setOf(hash), SharedLibrary.syncStore(store, b, "b".repeat(32)).hashes)
+            val remote = b.bookDao().findByHash(hash)!!
+            val staged = File(root, "copy.epub")
+            SharedLibrary.stageFromStore(store, remote, staged)
+            assertArrayEquals(file.readBytes(), staged.readBytes())
+            b.readingDao().savePosition(ReadingPositionEntity(remote.id, "page:3", .1f, 200L))
+            assertTrue(SharedLibrary.syncStore(store, b, "b".repeat(32)).errors.isEmpty())
+            assertTrue(SharedLibrary.syncStore(store, a, "a".repeat(32)).errors.isEmpty())
+            assertEquals("page:3", a.readingDao().position(book.id)!!.locator)
+            assertEquals(1, folder.listFiles()!!.count { it.isFile })
+        } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 
     @Test fun interruptedPublicationReusesVerifiedOriginalWithoutTrustingFilename() = runBlocking {
