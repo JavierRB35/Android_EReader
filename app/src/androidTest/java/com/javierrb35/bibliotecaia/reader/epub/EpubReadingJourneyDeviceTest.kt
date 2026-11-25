@@ -167,9 +167,8 @@ class EpubReadingJourneyDeviceTest {
                 assertTrue(marked(view.text, quote))
                 assertTrue(MarkedTextTap.idsAt(view.text, start + 2).isEmpty())
             }
-            // New contract: short tap toggles concentration; only a real
-            // platform long press on the stored marked range opens its modal.
-            PlatformNoteTap.holdOnText(instrumentation,
+            // A normal tap on the painted note must open the modal.
+            PlatformNoteTap.tapOnText(instrumentation,
                 reading.findViewById(R.id.epub_native_text), start + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))
@@ -213,7 +212,7 @@ class EpubReadingJourneyDeviceTest {
             // Platform-level tap, AFTER closing/reopening the book and switching
             // rendering modes. This goes through the Activity window, not a
             // synthetic dispatchTouchEvent() on the view or its ScrollView.
-            PlatformNoteTap.holdOnText(instrumentation,
+            PlatformNoteTap.tapOnText(instrumentation,
                 reopened.findViewById(R.id.epub_native_text), start + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Nota EPUB real")).check(matches(isDisplayed()))

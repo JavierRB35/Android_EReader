@@ -45,7 +45,7 @@ object MarkedTextTap {
         onMarks: (List<AnnotationEntity>) -> Unit
     ) {
         val slop = ViewConfiguration.get(text.context).scaledTouchSlop
-        val maxTapDuration = ViewConfiguration.getLongPressTimeout() / 2
+        val maxTapDuration = ViewConfiguration.getLongPressTimeout()
         var downX = 0f
         var downY = 0f
         var active = false

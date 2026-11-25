@@ -182,9 +182,8 @@ class MobiReadingJourneyDeviceTest {
                 assertTrue(exactMark(displayedText.text, quote))
                 assertTrue(MarkedTextTap.idsAt(displayedText.text, quoteOffset + 2).isEmpty())
             }
-            // Only a sustained touch on a painted note opens its modal;
-            // short touches are reserved for concentration.
-            PlatformNoteTap.holdOnText(instrumentation, displayedText, quoteOffset + 2)
+            // A normal short touch on the painted note opens its modal.
+            PlatformNoteTap.tapOnText(instrumentation, displayedText, quoteOffset + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).inRoot(isDialog()).perform(click())
@@ -259,7 +258,7 @@ class MobiReadingJourneyDeviceTest {
             val visibleQuoteAt = reopenedText.text.indexOf(quote)
             assertTrue("Reopened note's quote must be visible in this chunk",
                 visibleQuoteAt >= 0)
-            PlatformNoteTap.holdOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
+            PlatformNoteTap.tapOnText(instrumentation, reopenedText, visibleQuoteAt + 2)
             onView(withText("Tu anotación")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Primera reflexión")).check(matches(isDisplayed()))
             onView(withText("Cerrar")).inRoot(isDialog()).perform(click())

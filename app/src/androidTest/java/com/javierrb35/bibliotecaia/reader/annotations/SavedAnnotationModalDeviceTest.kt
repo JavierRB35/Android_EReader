@@ -1,14 +1,11 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
-import android.os.SystemClock
-import android.graphics.Rect
 import android.text.Selection
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.UnderlineSpan
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -183,30 +180,13 @@ class SavedAnnotationModalDeviceTest {
                 val char = from + 5
                 val line = layout.getLineForOffset(char)
                 scrolling.scrollTo(0, (layout.getLineTop(line) - 100).coerceAtLeast(0))
-                val rect = Rect(0, 0, target.width, target.height)
-                scrolling.offsetDescendantRectToMyCoords(target, rect)
-                val x = rect.left + target.totalPaddingLeft + layout.getPrimaryHorizontal(char)
-                val y = rect.top + target.totalPaddingTop +
-                    (layout.getLineTop(line) + layout.getLineBottom(line)) / 2f
                 assertTrue("The test should actually scroll", scrolling.scrollY > 0)
                 assertEquals(emptyList<String>(), MarkedTextTap.idsAt(target.text, char))
-                val now = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(now, now,
-                    MotionEvent.ACTION_DOWN, x, y, 0)
-                // Deliberate 320ms tap (not just a perfect 75ms emulator
-                // tap). This must remain below Android's long-press window.
-                val up = MotionEvent.obtain(now, now + 320,
-                    MotionEvent.ACTION_UP, x + 1f, y + 1f, 0)
-                try {
-                    // The parent dispatcher sees the touch even if the
-                    // selectable child consumes its own ACTION_UP.
-                    scrolling.dispatchTouchEvent(down)
-                    scrolling.dispatchTouchEvent(up)
-                } finally {
-                    down.recycle()
-                    up.recycle()
-                }
             }
+            // Use screen coordinates and the actual Android window dispatch.
+            // offsetDescendantRectToMyCoords returns content coordinates, not
+            // viewport coordinates; synthetic events previously missed the glyph.
+            PlatformNoteTap.tapOnText(instrumentation, target, from + 5, durationMs = 320L)
             instrumentation.waitForIdleSync()
             onView(withText("Tu anotación")).check(matches(isDisplayed()))
             onView(withText(body)).check(matches(isDisplayed()))

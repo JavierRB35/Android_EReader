@@ -26,6 +26,7 @@ class PdfPageView(context: Context) : View(context) {
     private val matrix = Matrix()
     private var marks: List<PdfPaintedMark> = emptyList()
     private var onMarkedLongPress: ((List<String>) -> Unit)? = null
+    private var onMarkedTap: ((List<String>) -> Unit)? = null
     private var onShortTap: (() -> Unit)? = null
     private var onUnmarkedLongPress: (() -> Unit)? = null
     private var onHorizontalSwipe: ((Int) -> Unit)? = null
@@ -48,6 +49,7 @@ class PdfPageView(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
     fun onMarkedLongPress(listener: (List<String>) -> Unit) { onMarkedLongPress = listener }
+    fun onMarkedTap(listener: (List<String>) -> Unit) { onMarkedTap = listener }
     fun onShortTap(listener: () -> Unit) { onShortTap = listener }
     fun onUnmarkedLongPress(listener: () -> Unit) { onUnmarkedLongPress = listener }
     fun onHorizontalSwipe(listener: (Int) -> Unit) { onHorizontalSwipe = listener }
@@ -102,7 +104,10 @@ class PdfPageView(context: Context) : View(context) {
             }
             override fun onDoubleTap(e: MotionEvent): Boolean { fit(); return true }
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                onShortTap?.invoke()
+                if (multiTouch || scaleDetector.isInProgress) return true
+                val ids = markedIdsAt(e.x, e.y)
+                if (ids.isNotEmpty() && onMarkedTap != null) onMarkedTap?.invoke(ids)
+                else onShortTap?.invoke()
                 performClick()
                 return true
             }
