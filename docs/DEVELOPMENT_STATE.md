@@ -8,6 +8,10 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## Corrección SAF e instrumentación — 25/11/2026
+
+- #120 integrada en main 4ae9d425 con 4/4 gates. #119: logs confirman selector antiguo en SettingsBackupJourneyDeviceTest y fallo independiente de hint PDF. Corregido selector e5ff677; identidad SAF por authority/documentId y enrutado exclusivo JSON b568c92; tamaño desconocido y nombre seguro 92ce93f. CI nuevo pendiente. Colisiones de nombres ya existentes siguen fail-closed por recibos basados en nombre; no afirmar resueltas. Pendiente prueba PDF, cobertura DocumentsProvider, migración y Drive A/B. No activar ni fusionar WIP.
+
 ## Continuidad activa — agente único ChatGPT (25/11/2026)
 
 - Codex agotó sus tokens según propietario; ChatGPT retoma el desarrollo y la automatización horaria activa. #120 aporta conservación de conflictos de notas, HEAD fbb152f, CI pendiente de completar; revisar antes de fusionar.
