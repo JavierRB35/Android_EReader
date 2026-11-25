@@ -3,6 +3,8 @@ package com.javierrb35.bibliotecaia.ui
 import android.content.Context
 import android.content.Intent
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.matcher.RootMatchers.isDialog
+import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -20,16 +22,15 @@ class SharedSettingsJourneyDeviceTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext
         app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
-        val activity = instrumentation.startActivitySync(Intent(app, SettingsActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
-            onView(withText("Elegir ubicación")).check(matches(isDisplayed()))
-            onView(withText("No encuentro mi carpeta")).check(matches(isDisplayed()))
-            onView(withText("Continuar más tarde")).perform(click())
+            onView(withText("Elegir ubicación")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("No encuentro mi carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
             onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
         } finally {
-            instrumentation.runOnMainSync { activity.finish() }
+            scenario.close()
             app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
         }
     }
