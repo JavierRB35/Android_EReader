@@ -255,7 +255,7 @@ jobs:
           fi
           # Use the most recent published official APK, not an arbitrary tag.
           previous="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq '.[] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v[0-9]+\\\\.[0-9]+\\\\.[0-9]+$")) | . as $r | select(any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk")) and any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk.sha256"))) | .tag_name' | sed -n '1p')"
+            --jq '.[] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v[0-9]+[.][0-9]+[.][0-9]+$")) | . as $r | select(any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk")) and any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk.sha256"))) | .tag_name' | sed -n '1p')"
           base_sha=""
           if [[ -n "$previous" ]]; then
             base_sha="$(git rev-parse "refs/tags/$previous^{commit}")"

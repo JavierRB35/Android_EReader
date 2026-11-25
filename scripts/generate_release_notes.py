@@ -28,7 +28,7 @@ def collect(base, head):
     result = []
     for commit in git("rev-list", "--first-parent", "--reverse", f"{base}..{head}").splitlines():
         changes = []
-        for path in git("diff-tree", "--first-parent", "-m", "--no-commit-id", "--name-only", "--diff-filter=A", "-r", commit, "--", "docs/release-notes/").splitlines():
+        for path in git("diff", "--name-only", "--diff-filter=A", commit + "^", commit, "--", "docs/release-notes/").splitlines():
             if not path.endswith(".md"):
                 continue
             for line in git("show", f"{commit}:{path}").splitlines():
@@ -36,7 +36,7 @@ def collect(base, head):
                     changes.append(clean(line))
         if not changes:
             subject = git("show", "-s", "--format=%s", commit)
-            subject = re.sub(r"\\s*\\(#\\d+\\)\\s*$", "", subject)
+            subject = re.sub(r"\s*\(#\d+\)\s*$", "", subject)
             changes.append(clean(subject))
         for change in changes:
             if change and change not in result:
