@@ -1,0 +1,11 @@
+# Integración Android — #103 (WIP)
+
+Integra snapshots de #106 3f0ea4f, #110 cb99c47, #111 4f348cd en rama separada. No fusionar esta rama como sustitución de las PR independientes; integrar sus HEAD validados y reconciliar el diff de este incremento al final. No modifica ramas de los agentes 2/3.
+
+- OnboardingPort concreto: el alta exige código de autorización entregado por un proveedor explícito (no existe todavía gateway que lo consuma), el join usa la identidad de biblioteca recibida y vault cifrado; resume conserva identidad/código y confirma únicamente respuesta validada. No se crean ZIP ni JSON por dispositivo.
+- Journal Room v7, migración 6→7 aditiva: cursor, proyección central y outbox por libraryId/deviceId, máximo una mutación no reconciliada por entidad. Persiste operación y payload antes de red; ACK solo se retira tras delta que acredita revisión, conflicto conserva payload local. Páginas de 10, ejecución acotada, cursor + réplica + ACK en la misma transacción. No usar el journal para sustituir datos de lectura hasta conectar sus mutaciones y aplicar materialización de dominio en esa transacción; no hay worker ni activación ni escrituras remotas reales.
+- Tests: dos instalaciones lógicas con pérdida de respuesta de join (doble de transporte), Room instrumental con reapertura, ACK y conflicto durable, aislamiento de identidad. Añadir prueba real de migración v6 y gates de A/B con gateway antes de activar.
+- Pendiente: gateway real con bootstrap de un uso, secretos mínimos, endpoints; mapeo de todas las entidades y reconciliación explícita de conflictos; importación de originales y backup Drive; prueba física. No afirmar sincronización efectiva hasta completar esas fases. Sin datos reales.
+
+## Consolidación del trabajo del Agente 2
+Incluye vista final #111 bdfddfe, CoordinatorOnboardingHost (ciclo de vida del host, operaciones IO, render Main), y las pruebas instrumentales explícitas de journal y vista en el script startup existente. El run anterior de #112 no incluía esas dos clases: no acreditar prueba instrumental hasta nuevo CI. El host sigue sin registrarse/activarse en producción; requiere gateway configurado, aprobación segura, inventario y materialización.
