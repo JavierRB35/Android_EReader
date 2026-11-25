@@ -79,22 +79,22 @@ object SharedLibrary {
         return mode + "\n" + prefs(context).getString("status", "Pendiente de comprobar.").orEmpty()
     }
 
-    data class SavedConnection(val uri: Uri, val files: Boolean, val peers: Set<String>) {
+    data class SavedConnection(val uri: Uri, val files: Boolean, val peers: Set<String>, val named: Boolean = false) {
         val label: String get() = (if (files) "Contenedor" else "Carpeta") +
             " · " + (uri.lastPathSegment ?: uri.authority ?: "Almacenamiento").takeLast(90)
         internal fun encode() = JSONObject().put("uri", uri.toString()).put("files", files)
-            .put("peers", org.json.JSONArray(peers.sorted())).toString()
+            .put("peers", org.json.JSONArray(peers.sorted())).put("named", named).toString()
         companion object {
             internal fun decode(value: String): SavedConnection {
                 val obj = JSONObject(value)
                 val peers = obj.getJSONArray("peers")
                 return SavedConnection(Uri.parse(obj.getString("uri")), obj.getBoolean("files"),
-                    (0 until peers.length()).map { peers.getString(it) }.toSet())
+                    (0 until peers.length()).map { peers.getString(it) }.toSet(), obj.optBoolean("named", false))
             }
         }
     }
     private fun currentConnection(context: Context): SavedConnection? = uri(context)?.let {
-        SavedConnection(it, fileMode(context), filePeers(context).map(Uri::toString).toSet())
+        SavedConnection(it, fileMode(context), filePeers(context).map(Uri::toString).toSet(), namedFolderMode(context))
     }
     fun previousConnections(context: Context): List<SavedConnection> =
         prefs(context).getStringSet("previous_connections", emptySet()).orEmpty()
@@ -107,11 +107,11 @@ object SharedLibrary {
         val history = previousConnections(context).filter { it.uri != connection.uri }.toMutableList()
         if (old != null && old.uri != connection.uri) history.add(old)
         val edit = prefs(context).edit().putString("tree", connection.uri.toString())
-            .putString("mode", if (connection.files) "files" else "folder")
+            .putString("mode", if (connection.files) "files" else if (connection.named) "named_folder" else "folder")
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
             .remove("owner_mismatch")
-        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
+        if (old?.uri != connection.uri || old?.named != connection.named) edit.remove("hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
     }
@@ -121,18 +121,18 @@ object SharedLibrary {
             if (connection.files) {
                 SharedFileStore(context, connection.uri, connection.peers.map(Uri::parse),
                     ReadingPositionSafSync.deviceId(context)).use { }
-            } else folderStore(context, connection.uri).use { it.list() }
+            } else folderStore(context, connection.uri, connection.named).use { it.list() }
             activate(context, connection)
         }
         schedule(context)
         sync(context, db)
     }
 
-    private fun folderStore(context: Context, tree: Uri): SharedDocumentStore {
+    private fun folderStore(context: Context, tree: Uri, named: Boolean = false): SharedDocumentStore {
         require(context.contentResolver.persistedUriPermissions.any {
             it.uri == tree && it.isReadPermission && it.isWritePermission
         }) { "La carpeta central no tiene permiso persistente de lectura y escritura." }
-        return SharedDocumentStore(context, tree)
+        return SharedDocumentStore(context, tree, named)
     }
     private fun filePeers(context: Context): List<Uri> =
         prefs(context).getStringSet("file_peers", emptySet()).orEmpty().map(Uri::parse)
@@ -140,8 +140,9 @@ object SharedLibrary {
         val selected = requireNotNull(uri(context)) { "Conecta una biblioteca central." }
         return if (prefs(context).getString("mode", "folder") == "files")
             SharedFileStore(context, selected, filePeers(context), ReadingPositionSafSync.deviceId(context))
-        else folderStore(context, selected)
+        else folderStore(context, selected, namedFolderMode(context))
     }
+    fun namedFolderMode(context: Context): Boolean = configured(context) && prefs(context).getString("mode", "folder") == "named_folder"
     fun fileMode(context: Context): Boolean = configured(context) && prefs(context).getString("mode", "folder") == "files"
     suspend fun connectFile(context: Context, db: AppDatabase, own: Uri, newDocument: Boolean = false) = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -259,6 +260,63 @@ object SharedLibrary {
                         "No se han podido comprobar todos los originales. Se conserva la conexión anterior."
                     }
                     activate(context, SavedConnection(tree, false, emptySet()))
+                    publishStatus(context, moved.hashes, moved.errors)
+                    moved
+                }
+                Result(result.hashes.size, result.errors)
+            }.also { schedule(context) }
+        }
+
+    /**
+     * Explicit new-layout migration. Do not create a second per-device ZIP or
+     * convert an existing legacy tree in place. The old connection remains
+     * available until all active originals are independently verified.
+     */
+    suspend fun connectNamedFolder(context: Context, db: AppDatabase, tree: Uri): Result =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val previous = currentConnection(context)
+                val owner = ReadingPositionSafSync.deviceId(context)
+                val result = folderStore(context, tree, named = true).use { target ->
+                    target.probe()
+                    val existing = inventory(target)
+                    require(existing.errors.isEmpty()) { existing.errors.joinToString(" · ") }
+                    require(target.list().none { objectName.matches(it.name) }) {
+                        "Esta carpeta contiene originales del formato anterior. Elige una carpeta distinta para la biblioteca legible; la anterior se conservará."
+                    }
+                    // Pull old metadata before staging missing originals. Never delete
+                    // either source files or local copies. A failed migration can retry.
+                    if (previous != null && previous.uri != tree) {
+                        store(context).use { source ->
+                            val restored = pullStore(source, db, context.filesDir)
+                            require(restored.errors.isEmpty()) { restored.errors.joinToString(" · ") }
+                            val sourceInventory = inventory(source)
+                            for (book in db.backupDao().booksAll()) {
+                                if (CentralCatalogue.local(book) || SharedNamedOriginals.find(target, book) != null) continue
+                                val temp = File.createTempFile("migrate-named-", ".bin", context.cacheDir)
+                                try {
+                                    verifiedCopy(source, sourceInventory, book, temp)
+                                    val linked = OriginalLinker(context.filesDir).link(temp, listOf(book))
+                                        ?: error("No se pudo conservar el original de " + book.title)
+                                    db.bookDao().update(linked)
+                                } finally { temp.delete() }
+                            }
+                        }
+                    }
+                    val moved = syncStore(target, db, owner, context.filesDir)
+                    require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
+                    // Verify all originals, not just receipt names or byte counts.
+                    val published = inventory(target)
+                    require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
+                    require(db.backupDao().booksAll().all { book ->
+                        published.receipts[book.contentHash].orEmpty().any { receipt ->
+                            val item = published.items[receipt.name]
+                            SharedNamedOriginals.validName(receipt.name) && item != null &&
+                                receipt.bytes == book.sizeBytes &&
+                                target.verify(item, book.contentHash, book.sizeBytes)
+                        }
+                    }) { "No se han verificado todos los originales; se conserva la conexión anterior." }
+                    activate(context, SavedConnection(tree, false, emptySet(), named = true))
                     publishStatus(context, moved.hashes, moved.errors)
                     moved
                 }
@@ -419,9 +477,15 @@ object SharedLibrary {
             val known = inv.receipts.toMutableMap()
             val available = inv.availableHashes().toMutableSet()
             for (book in db.backupDao().booksAll()) {
-                if (book.contentHash in available || !CentralCatalogue.local(book)) continue
+                if (book.contentHash in available) continue
+                if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
                 try {
-                    val receipt = if (store.namedOriginals) upload(store, book, File(book.localPath))
+                    val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book) else null
+                    val receipt = if (existing != null) Receipt(book.contentHash, existing.name, book.sizeBytes)
+                        else if (!CentralCatalogue.local(book)) {
+                            if (store.namedOriginals) errors.add(book.title.take(80) + ": original no disponible.")
+                            continue
+                        } else if (store.namedOriginals) upload(store, book, File(book.localPath))
                         else findVerifiedUnpublishedOriginal(store, inv, book)
                             ?: upload(store, book, File(book.localPath))
                     known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
