@@ -163,6 +163,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<View>(R.id.btnStorageSetup).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java).putExtra(StorageSetupWizard.EXTRA_OPEN, true))
+        }
         PremiumBottomBar.bind(this, findViewById(R.id.mainNavigation), R.id.navLibrary) {
             openImportPicker()
         }
@@ -200,6 +203,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        findViewById<View>(R.id.btnStorageSetup).visibility =
+            if (StorageSetupWizard.pending(applicationContext)) View.VISIBLE else View.GONE
         setCentralMode(centralFlow.value.first)
         lifecycleScope.launch {
             if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null) {

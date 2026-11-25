@@ -46,10 +46,7 @@ object BackupRoutine {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val uri = prefs.getString(TARGET_URI, null)?.let(Uri::parse)
             ?.takeIf { picked ->
-                context.contentResolver.persistedUriPermissions.any { permission ->
-                    permission.uri == picked && permission.isReadPermission &&
-                        permission.isWritePermission
-                }
+                com.javierrb35.bibliotecaia.sync.StorageGrants.allows(context, picked, true)
             }
         return Status(
             uri = uri,
@@ -61,6 +58,9 @@ object BackupRoutine {
                     .getString("uri", null) != null,
         )
     }
+
+    fun savedDestination(context: Context): Uri? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TARGET_URI, null)?.let(Uri::parse)
 
     /** A separately connected archive is read-only; the configured backup remains
      * the single writer. Never make a new device overwrite a shared ZIP. */
