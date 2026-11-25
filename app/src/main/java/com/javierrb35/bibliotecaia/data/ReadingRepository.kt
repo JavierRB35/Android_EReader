@@ -32,7 +32,13 @@ class ReadingRepository(
             dao.updateBookProgress(bookId, bounded, now)
             changed = true
         }
-        if (changed) requestSync()
+        if (changed) appContext?.let {
+            ReadingPositionSafSync.requestPublish(it)
+            // Keep the old transport until all JSON files have been linked.
+            if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(it) &&
+                !ReadingPositionSafSync.fastReady(it))
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(it)
+        }
     }
 
     private fun requestSync() {

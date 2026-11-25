@@ -77,7 +77,7 @@ object ReadingPositionFileCodec {
 
     /**
      * The timestamp is the real local movement's timestamp, not the polling time.
-     * Device ID resolves exact ties deterministically; clock skew/offline concurrent
+     * Locator/progress and then device ID resolve exact timestamp ties deterministically; clock skew/offline concurrent
      * movements remain an explicit limitation of serverless synchronization.
      */
     fun newest(records: Iterable<ReadingPositionRecord>): Map<String, ReadingPositionRecord> {
@@ -86,7 +86,11 @@ object ReadingPositionFileCodec {
             validate(record)
             val previous = result[record.contentHash]
             if (previous == null || record.updatedAt > previous.updatedAt ||
-                (record.updatedAt == previous.updatedAt && record.deviceId > previous.deviceId)) {
+                (record.updatedAt == previous.updatedAt &&
+                    (record.locator > previous.locator ||
+                        (record.locator == previous.locator &&
+                            (record.progress > previous.progress ||
+                                (record.progress == previous.progress && record.deviceId > previous.deviceId)))))) {
                 result[record.contentHash] = record
             }
         }
