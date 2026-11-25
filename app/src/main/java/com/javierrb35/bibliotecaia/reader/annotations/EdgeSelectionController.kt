@@ -40,12 +40,21 @@ internal class EdgeSelectionController(
     private var buffer: Spannable? = null
     private var pointerX = 0f
     private var pointerY = 0f
+    private var gripOffsetX = 0f
+    private var gripOffsetY = 0f
+    private var moved = false
     private var lastFrame = 0L
     private var remainder = 0f
     private var observer: ViewTreeObserver? = null
     private var disposed = false
     private var unavailable = false
     val isDragging: Boolean get() = active != null
+
+    // Expose real popup coordinates to the instrumented input-pipeline test.
+    internal fun gripCenterOnScreen(leading: Boolean): Pair<Float, Float>? {
+        val grip = if (leading) start else end
+        return if (grip.popup.isShowing) grip.centerOnScreen() else null
+    }
 
     // Use public APIs only. Older Android retains its native handles as a
     // fallback; the additional handles are offset horizontally on that API.
@@ -111,7 +120,8 @@ internal class EdgeSelectionController(
         if (!scroll.isShown || !text.isShown || !scroll.hasWindowFocus() ||
             !scroll.getLocalVisibleRect(viewport)) return false
         scroll.getLocationOnScreen(origin)
-        viewport.offset(origin[0], origin[1])
+        // getLocalVisibleRect uses the scrolled content coordinate system.
+        viewport.offset(origin[0] - scroll.scrollX, origin[1] - scroll.scrollY)
         return viewport.width() > 0 && viewport.height() > 0
     }
 
@@ -164,6 +174,11 @@ internal class EdgeSelectionController(
             inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
             animationStyle = 0
             if (Build.VERSION.SDK_INT >= 29) setIsLaidOutInScreen(true)
+        }
+        fun centerOnScreen(): Pair<Float, Float> {
+            val pos = IntArray(2)
+            view.getLocationOnScreen(pos)
+            return (pos[0] + size / 2f) to (pos[1] + 14f * density)
         }
         private var lastX = Int.MIN_VALUE
         private var lastY = Int.MIN_VALUE
@@ -218,6 +233,15 @@ internal class EdgeSelectionController(
                 buffer = spannable
                 pointerX = event.rawX
                 pointerY = event.rawY
+                text.getLocationOnScreen(textOrigin)
+                val layout = text.layout ?: run { finishDrag(); return false }
+                val offset = if (grip.leading) selection.first else selection.second
+                val line = layout.getLineForOffset(offset)
+                gripOffsetX = pointerX - (textOrigin[0] + text.totalPaddingLeft -
+                    text.scrollX + layout.getPrimaryHorizontal(offset))
+                gripOffsetY = pointerY - (textOrigin[1] + text.totalPaddingTop -
+                    text.scrollY + layout.getLineBottom(line) - 1)
+                moved = false
                 lastFrame = SystemClock.uptimeMillis()
                 remainder = 0f
                 scroll.parent?.requestDisallowInterceptTouchEvent(true)
@@ -225,6 +249,7 @@ internal class EdgeSelectionController(
                 return true
             }
             MotionEvent.ACTION_MOVE -> if (active === grip) {
+                moved = true
                 pointerX = event.rawX
                 pointerY = event.rawY
                 if (visibleViewport()) updateRange()
@@ -232,7 +257,7 @@ internal class EdgeSelectionController(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL,
             MotionEvent.ACTION_POINTER_DOWN -> if (active === grip) {
-                if (event.actionMasked == MotionEvent.ACTION_UP && visibleViewport()) {
+                if (event.actionMasked == MotionEvent.ACTION_UP && moved && visibleViewport()) {
                     pointerX = event.rawX
                     pointerY = event.rawY
                     updateRange()
@@ -261,8 +286,8 @@ internal class EdgeSelectionController(
             return
         }
         text.getLocationOnScreen(textOrigin)
-        val x = pointerX.coerceIn(viewport.left.toFloat(), (viewport.right - 1).toFloat())
-        val y = (pointerY - 14f * density)
+        val x = (pointerX - gripOffsetX).coerceIn(viewport.left.toFloat(), (viewport.right - 1).toFloat())
+        val y = (pointerY - gripOffsetY)
             .coerceIn(viewport.top.toFloat(), (viewport.bottom - 1).toFloat())
         val offset = text.getOffsetForPosition(x - textOrigin[0], y - textOrigin[1])
         val a = if (grip.leading) offset.coerceIn(0, fixed - 1) else fixed
@@ -294,7 +319,7 @@ internal class EdgeSelectionController(
                 if (pixels != 0) {
                     val before = scroll.scrollY
                     scroll.scrollBy(0, pixels)
-                    if (scroll.scrollY != before) updateRange()
+                    if (scroll.scrollY != before) { moved = true; updateRange() }
                 }
             }
             if (active != null) scroll.postOnAnimation(this)

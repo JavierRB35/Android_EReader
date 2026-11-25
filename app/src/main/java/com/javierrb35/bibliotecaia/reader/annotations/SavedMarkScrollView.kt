@@ -32,6 +32,8 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     private var textView: TextView? = null
     private var edgeSelection: EdgeSelectionController? = null
     private var selectionGesture = false
+    internal fun selectionGripCenterOnScreen(leading: Boolean): Pair<Float, Float>? =
+        edgeSelection?.gripCenterOnScreen(leading)
     private var marksAt: ((Int) -> List<AnnotationEntity>)? = null
     private var onMarkTap: ((List<AnnotationEntity>) -> Unit)? = null
     private var onUnmarkedTap: (() -> Unit)? = null
