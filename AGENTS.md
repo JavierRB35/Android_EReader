@@ -13,6 +13,14 @@ Referencia funcional: Scriptura para Android.
 4. `docs/product/requirements.md` — requisitos funcionales condensados.
 5. `docs/architecture/decisions.md` (ADRs) y `docs/architecture/overview.md`.
 
+## Directriz obligatoria de versionado y publicación — 25/11/2026
+
+- Toda nueva APK oficial debe tener un `versionName` semánticamente **superior** y un `versionCode` numéricamente **superior** a los de la publicación oficial anterior y a los máximos oficiales publicados. Nunca reutilizar ni reemplazar un número de versión, aunque el cambio sea mínimo.
+- La etiqueta GitHub `vX.Y.Z`, el nombre del archivo APK y su `versionName` interno deben coincidir. Mantener el identificador de paquete y la firma original; verificar el SHA-256.
+- Es obligatorio bloquear automáticamente la publicación si cualquiera de los dos identificadores no aumenta, si el tag ya existe, o si no se puede verificar la correspondencia de versiones y firma. No omitir controles para forzar una release. En caso de reintento de un commit ya publicado, comprobar la release existente sin sobrescribirla.
+- Antes de declarar la publicación completada, comprobar los assets APK/checksum, el commit integrado, la release pública marcada como última y su detección desde una versión anterior. Diferenciar comprobación automatizada de prueba física pendiente. Informar de la versión y del enlace directo de descarga.
+- Ejemplo: si la última APK oficial es `v0.1.128`, la próxima debe ser `v0.1.129` o superior, con un `versionCode` superior. Volver a publicar como 128 impide que las instalaciones 128 detecten el cambio.
+
 ## Notas de actualización (obligatorio)
 
 - Cada PR funcional incluye un fragmento nuevo en `docs/release-notes/<identificador>.md`, con viñetas breves en español sobre cambios que verá el usuario. No describir funciones pendientes como entregadas. El publicador obtiene las notas de los cambios integrados desde la última APK oficial. Los avisos deben mostrar qué incorpora la versión, no solo su número.
