@@ -8,6 +8,13 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## Continuidad activa — agente único ChatGPT (25/11/2026)
+
+- Codex agotó sus tokens según propietario; ChatGPT retoma el desarrollo y la automatización horaria activa. #120 aporta conservación de conflictos de notas, HEAD fbb152f, CI pendiente de completar; revisar antes de fusionar.
+- PR #119: cuatro checks verdes en HEAD anterior e2afdeb (no extrapolar al HEAD nuevo). Nuevo incremento: conexión de carpeta legible persistida, migración aditiva con verificación de originales antes de cambiar conexión, asistente de una sola selección de árbol y metadatos en _Sincronizacion. Sin crear ZIP de biblioteca, backup ni JSON de avances durante la configuración nueva. Canal JSON histórico preservado, se lee antes de migrar y se suspende en modalidad nueva. Pruebas de selector y dos bases Room actualizadas, no ejecutadas aún en el HEAD nuevo.
+- Restricciones pendientes: prueba física SAF A/B, originales existentes sin catálogo (importación controlada), concurrencia real del proveedor. No fusionar antes de validar; no eliminar archivos históricos. Si la carpeta antigua contiene .bin, elegir otra carpeta para migrar, sin borrarlos. Publicación automática por eventos de main, pendiente acreditación.
+- Próxima acción: revisar CI del último HEAD #119, completar importación controlada de originales preexistentes y pruebas de migración/recuperación; cerrar solo incrementos verificables. No reactivar OAuth ni gateway.
+
 ## PRIORIDAD ACTUAL — P0 #103, biblioteca única Drive sin OAuth propio
 
 - Estado: #106/#108/#110/#111/#109/#114 fusionadas históricamente; #115/#116 suspendidas y conservadas. No activar gateway ni usar contenedores por dispositivo. No confundir código disponible con función terminada.
