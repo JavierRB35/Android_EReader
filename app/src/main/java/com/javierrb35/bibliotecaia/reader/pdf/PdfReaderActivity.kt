@@ -60,6 +60,7 @@ class PdfReaderActivity : AppCompatActivity() {
     private val positionWrites = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private val positionMutex = kotlinx.coroutines.sync.Mutex()
     @Volatile private var positionRevision = 0L
+    private var lastQueuedPage: Int? = null
     private var bookTitle = "PDF"
     private var contentHash = ""
     private var marks: List<AnnotationEntity> = emptyList()
@@ -143,8 +144,11 @@ class PdfReaderActivity : AppCompatActivity() {
                     ?: error("El libro ya no está en la biblioteca.")
                 bookTitle = book.title
                 contentHash = book.contentHash
-                if (pendingRestore < 0) pendingRestore = parsePage(intent.getStringExtra("locator")
-                    ?: repository.position(bookId)?.locator)
+                val explicit = intent.getStringExtra("locator")
+                val stored = repository.position(bookId)?.locator
+                if (pendingRestore < 0) pendingRestore = parsePage(explicit ?: stored)
+                if (explicit == null && stored != null && parsePage(stored) == pendingRestore)
+                    lastQueuedPage = pendingRestore
                 withContext(Dispatchers.IO) {
                     ParcelFileDescriptor.open(File(book.localPath), ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                         service?.send(Message.obtain(null, PdfRenderService.OPEN).apply {
@@ -292,6 +296,15 @@ class PdfReaderActivity : AppCompatActivity() {
         val id = bookId
         val location = locator(index)
         val progress = (index + 1).toFloat() / total
+        if (lastQueuedPage == index) {
+            if (publishExit) positionWrites.launch {
+                positionMutex.lock()
+                positionMutex.unlock()
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(app)
+            }
+            return
+        }
+        lastQueuedPage = index
         val revision = ++positionRevision
         positionWrites.launch {
             positionMutex.lock()

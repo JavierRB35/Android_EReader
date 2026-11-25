@@ -97,6 +97,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
     @Volatile private var positionRevision = 0L
+    private var lastQueuedOffset: Int? = null
     private var touchX = 0f
     private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
@@ -236,6 +237,8 @@ class MobiReaderActivity : AppCompatActivity() {
                 if (text.isBlank()) error("No se encontró texto legible en este MOBI.")
                 title = book.title
                 loaded = true
+                lastQueuedOffset = saved.takeIf { repository.position(bookId) != null &&
+                    intent.getStringExtra("locator") == null }
                 showChunk(saved.coerceIn(0, text.lastIndex))
                 launch {
                     repository.observeAnnotations(bookId).collect { notes ->
@@ -351,6 +354,14 @@ class MobiReaderActivity : AppCompatActivity() {
         val bounded = at.coerceIn(0, text.length)
         val location = locator(bounded)
         val progress = bounded.toFloat() / text.length
+        if (lastQueuedOffset == bounded) {
+            if (publishExit) positionWrites.launch {
+                positionMutex.withLock { }
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
+            }
+            return
+        }
+        lastQueuedOffset = bounded
         val revision = ++positionRevision
         val repo = ReadingRepository(applicationContext)
         // UNDISPATCHED schedules this write before the Activity can finish;
