@@ -36,8 +36,6 @@ object AiKeyStore {
             val payload = Base64.encodeToString(iv, Base64.NO_WRAP) + ":" +
                 Base64.encodeToString(encrypted, Base64.NO_WRAP)
             prefs(context).edit().putString(alias, payload).apply()
-            // As in Scriptura: a new Groq key invalidates the prior forwarding consent.
-            if (provider == AiClients.GROQ) AiFallbackConsent.revoke(context)
             true
         } catch (e: Exception) {
             Log.w("AiKeyStore", "no se pudo guardar la clave de $provider", e)
@@ -62,7 +60,6 @@ object AiKeyStore {
     }
 
     fun deleteKey(context: Context, provider: String) {
-        if (provider == AiClients.GROQ) AiFallbackConsent.revoke(context)
         prefs(context).edit().remove(alias(provider)).apply()
         try {
             val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }

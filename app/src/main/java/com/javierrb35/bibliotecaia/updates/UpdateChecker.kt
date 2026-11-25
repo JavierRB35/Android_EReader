@@ -70,7 +70,7 @@ object UpdateChecker {
             ReleaseInfo(
                 tagName = tag,
                 versionName = tag.removePrefix("v"),
-                notes = json.optString("body").take(600),
+                notes = UpdateNotes.fromReleaseBody(json.optString("body")),
                 htmlUrl = page,
                 apkUrl = apk,
                 sha256Url = sha,

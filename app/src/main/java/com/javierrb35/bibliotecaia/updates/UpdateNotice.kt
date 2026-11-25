@@ -38,29 +38,32 @@ internal object UpdateNotice {
 
         // Persist only when actually surfaced to the user; never consume a new
         // version on network errors or before the Activity is visible.
-        val message = "Biblioteca IA ${release.versionName} ya está disponible." +
-            if (release.notes.isBlank()) "" else "\n\n${release.notes}"
+        val message = "Biblioteca IA ${release.versionName} ya está disponible.\n\n" +
+            UpdateNotes.detail(release.notes)
         try {
             if (activity is MainActivity) {
-                AlertDialog.Builder(activity)
-                    .setTitle("Actualización disponible")
-                    .setMessage(message)
-                    .setPositiveButton("Instalar actualización") { _, _ ->
-                        UpdateInstaller.start(activity, release)
-                    }
-                    .setNegativeButton("Más tarde", null)
-                    .show()
+                showDetails(activity, release, message)
             } else {
                 val root = activity.findViewById<android.view.View>(android.R.id.content)
-                Snackbar.make(root, "Biblioteca IA ${release.versionName} disponible",
-                    Snackbar.LENGTH_LONG)
-                    .setAction("Instalar") { UpdateInstaller.start(activity, release) }
+                Snackbar.make(root, "Biblioteca IA ${release.versionName}: " +
+                    UpdateNotes.preview(release.notes), Snackbar.LENGTH_LONG)
+                    .setAction("Ver cambios") { showDetails(activity, release, message) }
                     .show()
             }
             prefs.edit().putString(LAST_SHOWN, release.tagName).apply()
         } catch (_: RuntimeException) {
             // A destroyed foreground screen should never crash reading.
         }
+    }
+
+    private fun showDetails(activity: Activity, release: UpdateChecker.ReleaseInfo, message: String) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        AlertDialog.Builder(activity)
+            .setTitle("Actualización disponible")
+            .setMessage(message)
+            .setPositiveButton("Instalar actualización") { _, _ -> UpdateInstaller.start(activity, release) }
+            .setNegativeButton("Más tarde", null)
+            .show()
     }
 
     fun notifyIfNew(context: Context, release: UpdateChecker.ReleaseInfo) {
@@ -86,7 +89,8 @@ internal object UpdateNotice {
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("Nueva versión: Biblioteca IA ${release.versionName}")
-            .setContentText("Pulsa para instalarla desde Biblioteca IA.")
+            .setContentText(UpdateNotes.preview(release.notes))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(UpdateNotes.detail(release.notes)))
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

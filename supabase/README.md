@@ -1,7 +1,5 @@
-# Supabase — infraestructura histórica, fuera del alcance vigente
+# Supabase — infraestructura histórica y coordinador privado
 
-**No desplegar, configurar credenciales ni habilitar sincronización remota Supabase para BibliotecaAI.** La decisión vinculante del propietario del 20/11/2026 excluye cuentas, OAuth y sincronización Supabase. Consultar [ADR-008](../docs/architecture/adr-008-saf-drive-byok-v1.md) y [sincronización de posiciones SAF](../docs/architecture/reading-position-sync-saf-20261123.md).
+La infraestructura histórica de cuentas, OAuth y sincronización Supabase queda fuera del alcance vigente (ADR-008). No reactivar ni ejecutar `migrations/0001_initial_schema.sql` sobre infraestructura existente. Migraciones históricas y PR #5 se conservan como trazabilidad.
 
-Se conserva `migrations/0001_initial_schema.sql` exclusivamente como referencia histórica y de trazabilidad. No ejecutarlo sobre infraestructura existente. El despliegue anterior se documentó en [PR #5](https://github.com/JavierRB35/Android_EReader/pull/5); las migraciones aplicadas fueron `20261120145506_initial_schema_hardened` y `20261120145627_secure_updated_at_search_path`. No se elimina ni modifica el servicio externo sin una orden específica.
-
-El procedimiento de configuración anterior queda en el historial Git, no como instrucciones operativas. La aplicación vigente utiliza almacenamiento local y SAF, con claves IA BYOK independientes.
+El nuevo coordinador privado de biblioteca única (#99/#103, ADR-009 en #98) tiene autorización limitada, separada de la arquitectura histórica. Solo se admite el trabajo aislado y pruebas sintéticas según su contrato de seguridad; no activar el cliente Android, exponer credenciales ni mover datos reales hasta validar el sistema integral. No modificar o eliminar infraestructura ajena.

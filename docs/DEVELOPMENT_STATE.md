@@ -1,6 +1,6 @@
 # DEVELOPMENT_STATE — Estado vivo del desarrollo
 
-> **Nota de mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. El estado real de integración y publicación se verifica en `main`, PR y releases. OAuth/Gmail/Supabase remoto no forman parte de la arquitectura vigente; consultar ADR-008 y los documentos posteriores de sincronización SAF.
+> **Mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. Verificar main, PR y releases. OAuth/Gmail no se admiten; la infraestructura histórica Supabase no se reactiva. El coordinador privado nuevo y limitado de #99/#103 es un desarrollo diferente, no desplegado en Android.
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
@@ -8,6 +8,19 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## DIRECTRIZ DE VERSIONADO OBLIGATORIA — 25/11/2026
+- Por orden del propietario, `versionName` y `versionCode` aumentan estrictamente en cada nueva APK oficial. Prohibido reutilizar tags/versiones o sobrescribir una release. Obligatoria validación automática contra el máximo publicado, coincidencia tag/APK, firma y checksum, detección desde versión anterior.
+- Directriz registrada en AGENTS.md, protocolo y docs/automatic-updates.md. Este commit es documental: el refuerzo del control explícito de monotonía en el workflow deberá verificarse/implementarse en la siguiente modificación del publicador (coordinar PR #104). No atribuir al presente commit cambios ejecutables.
+ 
+## CONFIGURACIÓN IA — claves independientes y respaldo predeterminado, 25/11/2026
+- Ajustes vuelve a enlazar a configuración IA y muestra estado por proveedor al regresar. Dos campos independientes, vacíos y enmascarados, con guardado cifrado, prueba real independiente, enlace oficial y eliminación confirmada.
+- Gemini principal; Groq respaldo para cuota/servidor/timeout por defecto en nuevas configuraciones. Se preserva el consentimiento legado desactivado cuando existía una clave (no distinguible de revocación expresa), con activación visible; no se transmiten fragmentos a un proveedor previamente desautorizado sin acción del usuario. Se preservan claves existentes, modelo Gemini y decisión del lector. Sin credenciales reales en tests.
+- Prueba Android AiSetupJourneyDeviceTest añadida al gate startup QA; estado: implementación en rama, CI y conexión con claves reales pendientes.
+## INVESTIGACIÓN CI — pérdida de foco en Ajustes, 25/11/2026
+- PR #100, HEAD `34762e511faa8f28154843da1680699cac02bf61`: dos intentos de [startup smoke](https://github.com/JavierRB35/Android_EReader/actions/runs/45614799099) fallan en los mismos cuatro tests de Ajustes con `RootViewWithoutFocusException`, 16/20 correctos. PR #99 reproduce el patrón. La causa exacta de la ventana que toma foco no aparece en los logs existentes.
+- Causa de no determinismo identificada por inspección: el smoke ejecutaba debug 0.1.0 con QA_BUILD=false y consultas a Releases reales; UpdateRuntime puede presentar avisos asíncronos que interfieran en recorridos de UI. Se usa la variante QA aislada ya existente (`-PBIBLIOTECA_QA=true`) para el smoke completo, sin retirar ninguna prueba ni cambiar el APK de producción. Añadidos diagnósticos de ventanas, actividades, energía y logcat ante un fallo, conservando el código de salida original.
+- El intento c962703 falló antes de los tests: el runner ejecuta cada línea de `script` por separado, rompiendo el bloque if/fi. Se extrae a `scripts/android-startup-smoke.sh`, se invoca en una sola línea y se añade `sh -n` previo. Se conserva la suite y el código de salida.
+- Hipótesis de foco pendiente de confirmar con CI del nuevo HEAD; no afirmar causa raíz ni publicación hasta resultados. QA de selector usa monitor sintético, no Drive real. Coordinar la corrección común con PR #99 y restantes ramas tras comprobarla.
 ## BORRADO DE NOTAS Y SUS MARCADOS — 23/11/2026
 
 - Rama `fix/note-deletion-clears-highlight-20261123`. Cuando se elimina una `NOTE` con selección de texto, `ReadingRepository.setDeleted` envía a la papelera **en una sola transacción Room** esa nota y cualquier subrayado simple (`HIGHLIGHT` sin texto de nota propio) que corresponda al **mismo libro, locator exacto y cita exacta**. No elimina subrayados de otros lugares que tengan idénticas palabras ni marcadores, ni toca los libros originales.
@@ -114,7 +127,7 @@ Proyecto organizado en **worktrees paralelos** (uno = un agente = una rama):
 | `biblioteca-epub/` | `feature/reader-epub` | Motor EPUB | **ADOPTADO** → `integration/epub-adopted` → main (`789c163`): Readium 3.0.3, EpubOpener/Safety/Reader, 6 tests seguridad + test instrumentado VERDE en emulador |
 | `biblioteca-formats/` | `feature/reader-pdf-mobi` | PDF + MOBI | **INTEGRADO** (`4c577f0`) + refinamiento PalmDOC **ADOPTADO** (`2ea9980`) |
 | `biblioteca-integration/` | `feature/reader-integration` | Wiring (chat Codex) | **ADOPTADO** → `integration/wiring-adopted` → main (`3ab0159`): ficha→«Abrir lector»→ReaderRouter, navegación 3 espacios, KnowledgeActivity, BoundedZipInputStream; **verificado en emulador leyendo el Quijote real con Readium** |
-| `biblioteca-auth/` | `feature/google-auth` | Google Auth | **ADOPTADO** → `integration/auth-adopted` → main (`35120b3`): auth/ (Credential Manager, SecureSessionStore), AccountActivity registrada, guardia de clave pública anón en build.gradle, docs/architecture/adr-008-saf-drive-byok-v1.md (sustituye el antiguo procedimiento OAuth); 58/58 tests |
+| `biblioteca-auth/` | `feature/google-auth` | Google Auth | **ADOPTADO** → `integration/auth-adopted` → main (`35120b3`): auth/ (Credential Manager, SecureSessionStore), AccountActivity registrada, guardia de clave pública anón en build.gradle, docs/architecture/adr-008-saf-drive-byok-v1.md (sustituye procedimiento OAuth); 58/58 tests |
 | `Androdi_EReader/` | `main` | Coordinador canal ZCode | Integra, verifica y publica; adopciones anunciadas en COORDINATION.md |
 
 **Reglas:** 1 worktree = 1 agente = 1 rama; no tocar el worktree ajeno ni cambiar su rama; no duplicar investigaciones; push frecuentes en la propia rama; fusiones a `main` solo de trabajos verificados y coordinados. El push a `main` puede chocar con otros coordinadores: `git fetch` + merge antes de push.
@@ -167,7 +180,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 | Incremento | Bloqueo | Acción del propietario |
 |---|---|---|
 | 5-6 — Sync + multiusuario | **REVISIÓN DEL PROPIETARIO INTEGRADA**: sus 3 hallazgos corregidos vía PR #5 (fusionado `929b08b`, repo alineado con el esquema endurecido `initial_schema_hardened` YA DESPLEGADO: append-only real en versiones, `user_id default auth.uid()`, FKs compuestas de tenant en 10 relaciones, API solo autenticada). **Bug de pérdida corregido** (`c2884ac`): el motor JAMÁS descarta la cola por errores HTTP — fallo registrado en la entrada (intentos+error), aislamiento fila a fila cuando un lote falla, 4xx permanente se conserva para revisión. 77/77 tests. Pendiente: propietario aplica claves en `local.properties` + OAuth Google (punto B) para pruebas con sesión real |
-| 5 — Google Auth real | Google Cloud sin configurar (OAuth) | **CANCELADO** por directriz posterior: ver `docs/architecture/adr-008-saf-drive-byok-v1.md`; no configurar OAuth ni Supabase |
+| 5 — Google Auth real | Google Cloud sin configurar (OAuth) | **CANCELADO** por directriz posterior: ver ADR-008; no configurar OAuth ni la sincronización histórica Supabase |
 | 7-8 — IA (Gemini/Groq) | ~~Sin claves~~ **IMPLEMENTADO (BYOK)**: AiKeyStore cifrado (Keystore AES-GCM), Gemini + Groq con errores diferenciados, asistente guiado con PRUEBA REAL, chat con RAG por capítulos, referencias [n], anti-spoilers por progreso, historial JSON. **Pendiente:** verificación con claves reales del propietario (asistente→Guardar y probar) y análisis de imágenes |
 | 3 — OCR | PDFs escaneados de prueba | ML Kit (evaluar tamaño en AndroidIDE) |
 
@@ -214,3 +227,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 - Al tocar el estado se abre selector explícito de estado; favorito, IA, edición de metadatos, apertura de lector y revinculación de original por hash se conservan.
 - Evidencia: [Android UI instrumentado #44805098468](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098468) **SUCCESS, 2/2**, probado con viewport reducido a `900×1900 px` y sin desplazamiento vertical; [quality gate #44805098643](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098643) **SUCCESS**; [OCR/lector emulador #44805098464](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098464) **SUCCESS**. Smoke de arranque separado en curso al documentar.
 - Limitación: no se ha verificado el diseño aún en el Samsung físico ni a escalas de fuente extremas. No distribuir APK ni afirmar aceptación de dispositivo hasta confirmar.
+
+
+## Cierre obligatorio de modificaciones — 25/11/2026
+- Directriz del propietario: validar → fusionar en main → publicar nueva APK oficial verificada → eliminar rama de trabajo fusionada, tras verificar HEAD y ausencia de dependencias o cambios pendientes. Registrada en AGENTS.md y protocolo. Se mantienen las puertas de calidad, la numeración creciente y la conservación de ramas activas/protegidas. Cambio documental; no se eliminan ramas existentes en esta actuación.
