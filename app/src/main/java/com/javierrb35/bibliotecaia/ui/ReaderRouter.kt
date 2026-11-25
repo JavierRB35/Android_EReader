@@ -16,12 +16,21 @@ object ReaderRouter {
             val db = AppDatabase.get(activity)
             try {
                 if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(activity.applicationContext, db)
+                    val result = com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(activity.applicationContext, db)
+                    if (result.errors.isNotEmpty()) Toast.makeText(activity,
+                        "No se pudo comprobar la posición de todos los dispositivos. Se abrirá la última posición disponible.",
+                        Toast.LENGTH_LONG).show()
                 } else {
                     com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.refresh(activity.applicationContext, db)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) { /* Reading remains available offline. */ }
+            catch (e: Exception) {
+                if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(activity)) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(activity.applicationContext, e)
+                    Toast.makeText(activity, "No se pudo actualizar la posición desde la biblioteca. Lectura sin conexión.",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
             val book = db.bookDao().findById(bookId)
             if (book == null) {
                 Toast.makeText(activity, "No se encuentra el libro de origen", Toast.LENGTH_LONG).show()

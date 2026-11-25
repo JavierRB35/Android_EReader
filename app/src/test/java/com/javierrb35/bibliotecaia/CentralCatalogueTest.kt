@@ -13,6 +13,19 @@ class CentralCatalogueTest {
     private fun book(id: String, path: String = "") = BookEntity(id, id, null,
         BookFormat.EPUB, "${id}.epub", path, id, 1L, 1L)
 
+    @Test fun removedLocalOriginalDisappearsButCanBeDownloadedAgain() {
+        val file = folder.newFile()
+        val downloaded = book("one", file.absolutePath)
+        val verified = setOf("one")
+        assertEquals(listOf(downloaded), CentralCatalogue.visible(listOf(downloaded), false, verified))
+        file.delete()
+        val evicted = downloaded.copy(localPath = "")
+        assertEquals(emptyList<BookEntity>(), CentralCatalogue.visible(listOf(evicted), false, verified))
+        assertEquals(listOf(evicted), CentralCatalogue.visible(listOf(evicted), true, verified))
+        val restored = evicted.copy(localPath = folder.newFile().absolutePath)
+        assertEquals(listOf(restored), CentralCatalogue.visible(listOf(restored), false, verified))
+    }
+
     @Test fun staleMetadataNeverAppearsAsDownloadableOrLocal() {
         val local = book("local", folder.newFile().absolutePath)
         val remote = book("remote")

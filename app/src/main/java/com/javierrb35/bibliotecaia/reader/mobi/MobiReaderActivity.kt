@@ -345,7 +345,7 @@ class MobiReaderActivity : AppCompatActivity() {
         val obj = JSONObject(json ?: "{}")
         if (obj.optString("format") == "MOBI") obj.optInt("offset", 0) else 0
     }.getOrDefault(0)
-    private fun savePosition(at: Int) {
+    private fun savePosition(at: Int, publishExit: Boolean = false) {
         if (!loaded || text.isEmpty()) return
         val id = bookId
         val bounded = at.coerceIn(0, text.length)
@@ -363,6 +363,7 @@ class MobiReaderActivity : AppCompatActivity() {
                         repo.savePosition(id, location, progress)
                     }
                 }
+                if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -373,7 +374,7 @@ class MobiReaderActivity : AppCompatActivity() {
     override fun onPause() {
         speech.stop()
         pendingPosition?.cancel()
-        if (loaded) savePosition(visibleOffset())
+        if (loaded) savePosition(visibleOffset(), publishExit = true)
         super.onPause()
     }
     override fun onDestroy() {

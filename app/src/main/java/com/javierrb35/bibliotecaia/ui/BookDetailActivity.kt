@@ -44,6 +44,7 @@ class BookDetailActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_BOOK_ID = "book_id"
+        const val RESULT_LOCAL_REMOVED = android.app.Activity.RESULT_FIRST_USER + 21
 
         fun start(context: Context, bookId: String) {
             context.startActivity(
@@ -391,6 +392,7 @@ class BookDetailActivity : AppCompatActivity() {
                         }
                         Toast.makeText(this@BookDetailActivity,
                             R.string.detail_remove_local_done, Toast.LENGTH_LONG).show()
+                        setResult(RESULT_LOCAL_REMOVED)
                         finish()
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled

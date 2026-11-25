@@ -53,6 +53,15 @@ class MainActivity : AppCompatActivity() {
     private val favoriteOnlyFlow = MutableStateFlow(false)
     private val collectionFlow = MutableStateFlow("")
     private val centralFlow = MutableStateFlow(false to null as Set<String>?)
+    private val detailLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == BookDetailActivity.RESULT_LOCAL_REMOVED) {
+            // A successful removal always returns to the downloaded-only shelf.
+            setCentralMode(false)
+            findViewById<View>(R.id.recentBookCard).visibility = View.GONE
+        }
+    }
+    private fun openDetail(id: String) = detailLauncher.launch(
+        Intent(this, BookDetailActivity::class.java).putExtra("book_id", id))
     private val centralPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -123,7 +132,7 @@ class MainActivity : AppCompatActivity() {
 
         recycler = findViewById(R.id.recyclerBooks)
         emptyState = findViewById(R.id.txtEmpty)
-        adapter = BookAdapter { book -> BookDetailActivity.start(this, book.id) }
+        adapter = BookAdapter { book -> openDetail(book.id) }
         applyViewMode(loadViewMode())
         recycler.adapter = adapter
 
@@ -207,6 +216,12 @@ class MainActivity : AppCompatActivity() {
             // Do not treat a failed peer read as evidence that the remote is current.
             val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
             val remoteChecked = if (shared) {
+                try {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.pull(applicationContext, db)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.recordFailure(applicationContext, e)
+                }
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(applicationContext)
                 false
             } else ReadingPositionSafSync.refresh(applicationContext, db)
@@ -319,7 +334,7 @@ class MainActivity : AppCompatActivity() {
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(R.string.central_missing_title)
                 .setItems(missing.map { it.title }.toTypedArray()) { _, index ->
-                    BookDetailActivity.start(this@MainActivity, missing[index].id)
+                    openDetail(missing[index].id)
                 }
                 .setNegativeButton(R.string.dialog_cancel, null).show()
         }

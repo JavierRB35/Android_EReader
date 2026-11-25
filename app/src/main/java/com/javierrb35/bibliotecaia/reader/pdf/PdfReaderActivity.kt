@@ -57,6 +57,9 @@ class PdfReaderActivity : AppCompatActivity() {
     private var generation = 0
     private var renderedPage = -1
     private var pendingRestore = 0
+    private val positionWrites = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val positionMutex = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var positionRevision = 0L
     private var bookTitle = "PDF"
     private var contentHash = ""
     private var marks: List<AnnotationEntity> = emptyList()
@@ -194,7 +197,7 @@ class PdfReaderActivity : AppCompatActivity() {
                             }
                             status.text = "$bookTitle · ${page + 1} / $count"
                             controls(true)
-                            repository.savePosition(bookId, locator(page), (page + 1).toFloat() / count)
+                            persistDisplayedPage(page, count)
                         }
                     } catch (cancel: CancellationException) { throw cancel }
                     catch (_: OutOfMemoryError) { failure("No hay memoria suficiente para mostrar esta página.") }
@@ -283,8 +286,29 @@ class PdfReaderActivity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); super.onSaveInstanceState(outState) }
+    private fun persistDisplayedPage(index: Int, total: Int, publishExit: Boolean = false) {
+        if (index < 0 || total <= 0 || index >= total) return
+        val app = applicationContext
+        val id = bookId
+        val location = locator(index)
+        val progress = (index + 1).toFloat() / total
+        val revision = ++positionRevision
+        positionWrites.launch {
+            positionMutex.lock()
+            try {
+                if (revision == positionRevision)
+                    ReadingRepository(app).savePosition(id, location, progress)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                android.util.Log.e("BibliotecaPdfPosition", "Unable to persist reading position", e)
+            } finally { positionMutex.unlock() }
+            if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(app)
+        }
+    }
+
     override fun onStop() {
         speech.stop()
+        if (renderedPage >= 0) persistDisplayedPage(renderedPage, count, publishExit = true)
         super.onStop()
     }
     override fun onDestroy() {
