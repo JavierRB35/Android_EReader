@@ -18,6 +18,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.util.zip.ZipInputStream
 
 class CompleteBackupArchiveTest {
     @get:Rule val dir = TemporaryFolder()
@@ -77,6 +78,47 @@ class CompleteBackupArchiveTest {
         assertEquals("comentario", snapshot.annotations.single().body)
         assertEquals(1, snapshot.versions.size)
         assertEquals(.6f, snapshot.positions.single().progress, 0f)
+    }
+
+    @Test fun portableNamesHaveTitlesExtensionsAndNoCaseInsensitiveCollisions() {
+        val first = book("a", "one.epub", "A".toByteArray()).copy(title = "El Quijote")
+        val second = book("b", "two.epub", "B".toByteArray()).copy(title = "EL QUIJOTE")
+        val third = book("c", "three.pdf", "C".toByteArray()).copy(title = "Ensayo: teoría/lectura")
+        val fourth = book("d", "four.mobi", "D".toByteArray()).copy(title = "CON")
+        val all = listOf(first, second, third, fourth)
+        val bytes = write(all)
+        val entries = mutableMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                entries[entry.name] = zip.readBytes()
+                zip.closeEntry()
+            }
+        }
+        assertArrayEquals("A".toByteArray(), entries.getValue("books/El Quijote.epub"))
+        assertArrayEquals("B".toByteArray(), entries.getValue("books/EL QUIJOTE (2).epub"))
+        assertArrayEquals("C".toByteArray(), entries.getValue("books/Ensayo_ teoría_lectura.pdf"))
+        assertArrayEquals("D".toByteArray(), entries.getValue("books/_CON.mobi"))
+        assertEquals(5, entries.size)
+        assertEquals(4, CompleteBackupArchive.read(ByteArrayInputStream(bytes),
+            dir.newFolder("named")).bookCount)
+    }
+
+    @Test fun oldBinArchiveStillRestores() {
+        val original = book("legacy", "old.epub", "Original legacy".toByteArray())
+        val stream = ByteArrayOutputStream()
+        ZipOutputStream(stream).use { zip ->
+            zip.putNextEntry(ZipEntry("biblioteca.json"))
+            zip.write(json(listOf(original)).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry(CompleteBackupArchive.entryName(original.id)))
+            zip.write(File(original.localPath).readBytes())
+            zip.closeEntry()
+        }
+        val content = CompleteBackupArchive.read(ByteArrayInputStream(stream.toByteArray()),
+            dir.newFolder("legacy"))
+        assertArrayEquals(File(original.localPath).readBytes(),
+            content.staged.getValue(CompleteBackupArchive.entryName(original.id)).readBytes())
     }
 
     @Test fun selectiveReadVerifiesAllButStagesOnlyRequestedOriginal() {
