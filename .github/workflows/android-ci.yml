@@ -28,8 +28,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate release notes generation
-        run: python3 -m unittest discover -s scripts -p test_generate_release_notes.py
+      - name: Validate release notes and publication policies
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
