@@ -3,14 +3,14 @@ begin;
 create role bia_originals_caller nologin nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
 create table bia_coord.drive_folders (
   library_id uuid primary key references bia_coord.libraries(id),
-  folder_id text not null unique check (folder_id ~ '^[A-Za-z0-9_-]{1,256}$'),
+  folder_id text not null unique check (length(folder_id) between 1 and 256 and folder_id ~ '^[A-Za-z0-9_-]+$'),
   unique(library_id,folder_id)
 );
 create table bia_coord.original_reservations (
   library_id uuid not null,
   folder_id text not null,
   sha256 text not null check (sha256 ~ '^[a-f0-9]{64}$'),
-  file_id text not null unique check (file_id ~ '^[A-Za-z0-9_-]{1,256}$'),
+  file_id text not null unique check (length(file_id) between 1 and 256 and file_id ~ '^[A-Za-z0-9_-]+$'),
   size_bytes bigint not null check (size_bytes between 1 and 536870912),
   storage_version text check (storage_version is null or storage_version ~ '^[0-9]{1,30}$'),
   verified_at timestamptz,
@@ -35,7 +35,7 @@ begin
   perform bia_coord.require_device(p_library,p_device,p_token);
   if p_hash is null or p_hash !~ '^[a-f0-9]{64}$'
     or p_size is null or p_size not between 1 and 536870912
-    or p_candidate is null or p_candidate !~ '^[A-Za-z0-9_-]{1,256}$'
+    or p_candidate is null or length(p_candidate) not between 1 and 256 or p_candidate !~ '^[A-Za-z0-9_-]+$'
     then raise exception 'invalid original' using errcode='22023'; end if;
   select folder_id into v_folder from bia_coord.drive_folders where library_id=p_library;
   if not found or p_folder is distinct from v_folder then
