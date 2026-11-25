@@ -60,3 +60,9 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/test_private_pairing.sql
       - name: Concurrent sessions
         run: bash supabase/coordinator/test_private_concurrency.sh
+      - name: Private gateway authorization tests
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/gateway/gateway.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/gateway/test_gateway.sql
+      - name: HTTP gateway contract tests
+        run: node --test supabase/coordinator/gateway/handler.test.mjs
