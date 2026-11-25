@@ -145,7 +145,10 @@ object ReadingPositionSafSync {
                 val old = prefs(app).getStringSet(AUTO_PEERS, emptySet()).orEmpty()
                 // Retain a previously discovered peer on temporary listing
                 // failures; do not mistake an offline device for a removed one.
-                val combined = (old + found).take(10).toSet()
+                val listed = items.map { it.uri.toString() }.toSet()
+                val manual = manualPeers(app).map(Uri::toString).toSet()
+                val combined = (found + old.filter { it !in listed && it !in manual &&
+                    CloudSetupFolder.permitted(app, Uri.parse(it), false) }).take(10).toSet()
                 if (combined != old) {
                     prefs(app).edit().putStringSet(AUTO_PEERS, combined).remove(BOOTSTRAP).apply()
                     changes.value += 1
@@ -232,8 +235,11 @@ object ReadingPositionSafSync {
                 }
                 val old = own(app)
                 if (old != null && old != uri) {
-                    requireGrant(app, old, write = true)
-                    recoverPending(app, old)
+                    if (CloudSetupFolder.permitted(app, old, true)) recoverPending(app, old)
+                    else require(!emergency(app, old).isFile &&
+                        !File(app.filesDir, "reading-position-sync-rollback.json").isFile) {
+                        "Recupera primero el acceso al archivo anterior; hay una copia de emergencia."
+                    }
                 }
                 val current = read(app, uri, allowEmpty = true)
                 val id = deviceId(app)
@@ -261,8 +267,13 @@ object ReadingPositionSafSync {
                 uri != com.javierrb35.bibliotecaia.backup.BackupRoutine.status(app).uri) {
                 "Selecciona el JSON de posiciones del otro dispositivo."
             }
-            val existing = peers(app).filter { it != uri }.map { readPeer(app, it, emptySet()).deviceId }.toSet()
-            val data = readPeer(app, uri, existing)
+            val data = readPeer(app, uri, emptySet())
+            val already = peers(app).filter { it != uri }.any { linked ->
+                try { readPeer(app, linked, emptySet()).deviceId == data.deviceId }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { false }
+            }
+            if (already || uri in peers(app)) return@withLock
             require(data.deviceId != deviceId(app)) {
                 "Ese archivo también pertenece a este dispositivo."
             }

@@ -28,10 +28,9 @@ internal interface SharedContainerAccess {
 }
 private class SafContainerAccess(context: Context) : SharedContainerAccess {
     private val resolver = context.contentResolver
+    private val app = context.applicationContext
     override fun requireGrant(uri: Uri, write: Boolean) {
-        require(resolver.persistedUriPermissions.any {
-            it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
-        }) { "Falta permiso persistente para el contenedor." }
+        require(CloudSetupFolder.permitted(app, uri, write)) { "Falta permiso persistente para el contenedor." }
     }
     override fun input(uri: Uri) = resolver.openInputStream(uri)
         ?: throw IOException("Contenedor inaccesible.")

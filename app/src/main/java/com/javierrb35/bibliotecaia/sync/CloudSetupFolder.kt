@@ -52,6 +52,51 @@ internal object CloudSetupFolder {
 
     fun backupName(context: Context) = "BibliotecaIA-copia-" + deviceLabel(context) + ".zip"
 
+    private val containerName = Regex("^BibliotecaIA-(?!copia-|completa|lectura-).+-[a-f0-9]{8}(?:-[a-f0-9]{8})?(?: \\(\\d+\\))?\\.zip$",
+        RegexOption.IGNORE_CASE)
+
+    /** Preserve the transport already present in the chosen folder. A new
+     * installation must not accidentally create a folder-mode library beside
+     * another device's file-mode library. Never infer ownership from a name. */
+    suspend fun prepareLibrary(context: Context, database: AppDatabase, tree: Uri) =
+        withContext(Dispatchers.IO) {
+            if (!SharedLibrary.configured(context)) {
+                val candidates = SharedDocumentStore(context, tree).use { it.list() }
+                    .filter { containerName.matches(it.name) }
+                if (candidates.isEmpty()) {
+                    val result = SharedLibrary.connect(context, database, tree)
+                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                } else {
+                    val id = ReadingPositionSafSync.deviceId(context)
+                    val matches = candidates.filter { it.name.contains(id.take(8), ignoreCase = true) }
+                    require(matches.size <= 1) { "Hay varios archivos de este dispositivo. Revisa la conexión." }
+                    val own = matches.singleOrNull()?.uri ?: create(context, tree,
+                        "BibliotecaIA-" + deviceLabel(context) + ".zip", "application/zip")
+                    val result = SharedLibrary.connectFile(context, database, own, newDocument = matches.isEmpty())
+                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                }
+            }
+            if (SharedLibrary.fileMode(context)) {
+                val own = SharedLibrary.uri(context)
+                val linked = SharedLibrary.linkedFiles(context)
+                val candidates = SharedDocumentStore(context, tree).use { it.list() }
+                    .filter { containerName.matches(it.name) && it.uri != own &&
+                        !it.name.contains(ReadingPositionSafSync.deviceId(context).take(8), ignoreCase = true) }
+                for (candidate in candidates.take(10)) {
+                    // File-only links previously granted through a picker can
+                    // have a different URI for the same document. Compare IDs.
+                    fun same(a: Uri, b: Uri): Boolean = a == b ||
+                        (a.authority == b.authority && runCatching {
+                            DocumentsContract.getDocumentId(a) == DocumentsContract.getDocumentId(b)
+                        }.getOrDefault(false))
+                    if (linked.any { same(it, candidate.uri) }) continue
+                    try { SharedLibrary.addFilePeer(context, database, candidate.uri) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { /* Owner validation failed; do not link it. */ }
+                }
+            }
+        }
+
     suspend fun prepareBackup(context: Context, database: AppDatabase, tree: Uri): BackupRoutine.Result? =
         withContext(Dispatchers.IO) {
             val state = BackupRoutine.status(context)

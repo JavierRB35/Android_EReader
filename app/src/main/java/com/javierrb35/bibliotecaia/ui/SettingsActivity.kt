@@ -77,10 +77,7 @@ class SettingsActivity : AppCompatActivity() {
             when (operation) {
                 "folder" -> {
                     CloudSetupFolder.remember(app, uri)
-                    if (!SharedLibrary.configured(app)) {
-                        val result = SharedLibrary.connect(app, db, uri)
-                        require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
-                    }
+                    CloudSetupFolder.prepareLibrary(app, db, uri)
                     ReadingPositionSafSync.prepareFolder(app, db)
                 }
                 "library" -> {
@@ -132,7 +129,11 @@ class SettingsActivity : AppCompatActivity() {
         wizardLinkMore = linkMore
         val app = applicationContext
         if (CloudSetupFolder.tree(app) != null) {
-            wizardRun { ReadingPositionSafSync.prepareFolder(app, db) }
+            wizardRun {
+                CloudSetupFolder.tree(app)?.let { CloudSetupFolder.prepareLibrary(app, db, it) }
+                ReadingPositionSafSync.prepareFolder(app, db)
+                if (wizardLinkMore && SharedLibrary.peerCount(app) > 0) wizardLinkMore = false
+            }
         } else if (SharedLibrary.configured(app) && ReadingPositionSafSync.hasOwn(app) &&
             BackupRoutine.status(app).uri != null) {
             wizardFileOnly = true
@@ -200,8 +201,7 @@ class SettingsActivity : AppCompatActivity() {
         when {
             !SharedLibrary.configured(app) -> {
                 if (folder != null) wizardRun {
-                    val result = SharedLibrary.connect(app, db, folder)
-                    require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                    CloudSetupFolder.prepareLibrary(app, db, folder)
                 } else wizardStep("1 de 4 · Tu biblioteca",
                     "Elige dónde guardar la biblioteca de este dispositivo. BibliotecaAI ya ha preparado el nombre.",
                     "Elegir ubicación") {
@@ -235,11 +235,11 @@ class SettingsActivity : AppCompatActivity() {
                     wizardPick("backup", "application/zip", CloudSetupFolder.backupName(app))
                 }
             }
-            SharedLibrary.fileMode(app) && (SharedLibrary.peerCount(app) == 0 || wizardLinkMore) ->
+            SharedLibrary.fileMode(app) && folder == null && (SharedLibrary.peerCount(app) == 0 || wizardLinkMore) ->
                 wizardStep("4 de 4 · Otro móvil o tablet",
                     "Si quieres conectar otro dispositivo, configura primero BibliotecaAI en él. Después selecciona su archivo de biblioteca. Si aún no tienes otro dispositivo, puedes terminar más tarde.",
                     "Vincular otro dispositivo") { wizardPick("peer-library", "application/zip") }
-            SharedLibrary.fileMode(app) && !ReadingPositionSafSync.fastReady(app) ->
+            SharedLibrary.fileMode(app) && folder == null && !ReadingPositionSafSync.fastReady(app) ->
                 wizardStep("4 de 4 · Continuar en otro dispositivo",
                     "Selecciona el archivo de lectura creado por el otro dispositivo (empieza por BibliotecaIA-lectura). No tienes que escribir ni modificar su nombre.",
                     "Vincular lectura") { wizardPick("peer-position", "*/*") }

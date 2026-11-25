@@ -54,9 +54,7 @@ object SharedLibrary {
     }
     fun hasAccess(context: Context): Boolean {
         val selected = uri(context) ?: return false
-        return context.contentResolver.persistedUriPermissions.any {
-            it.uri == selected && it.isReadPermission && it.isWritePermission
-        }
+        return CloudSetupFolder.permitted(context, selected, true)
     }
     fun needsRepair(context: Context): Boolean {
         val status = prefs(context).getString("status", "").orEmpty()
