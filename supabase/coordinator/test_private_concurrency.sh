@@ -41,6 +41,8 @@ declare hold text := current_setting('bia.hold'); blocked integer := 0;
 begin
   if hold <> 'wait' then perform pg_sleep(hold::numeric); return; end if;
   while clock_timestamp() < deadline loop
+    -- Statistics snapshots are cached within a transaction; refresh each poll.
+    perform pg_stat_clear_snapshot();
     select count(*) into blocked from pg_stat_activity
      where datname = current_database() and wait_event_type = 'Lock'
        and pg_backend_pid() = any (pg_blocking_pids(pid));
