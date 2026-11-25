@@ -104,4 +104,37 @@ class SharedLibraryJourneyTest {
             assertEquals(setOf(first.contentHash, second.contentHash), SharedLibrary.syncStore(store, a, ownerA).hashes)
         } finally { a.close(); b.close(); root.deleteRecursively() }
     }
+    @Test fun batchCentralEvictionVerifiesAllBeforeRemovingAnyLocalOriginal() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "batch-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(cloud)
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        fun original(id: String): BookEntity {
+            val file = File(root, "books/$id/$id.pdf").apply { parentFile!!.mkdirs(); writeText(id) }
+            return BookEntity(id, id, null, BookFormat.PDF, file.name, file.absolutePath,
+                SharedDocumentStore.hash(file.readBytes()), file.length(), 1L)
+        }
+        try {
+            val books = listOf(original("one"), original("two"))
+            books.forEach { db.bookDao().insert(it) }
+            assertTrue(SharedLibrary.syncStore(store, db, "a".repeat(32), root).errors.isEmpty())
+            val missing = cloud.listFiles()!!.first { it.name.startsWith("bia-book-" + books.last().contentHash) }
+            assertTrue(missing.delete())
+            try {
+                SharedLibrary.evictVerifiedBatch(store, db, root, books)
+                fail("Missing remote original must block all eviction")
+            } catch (_: IllegalArgumentException) {}
+            assertTrue(books.all { File(it.localPath).isFile })
+            assertTrue(SharedLibrary.syncStore(store, db, "a".repeat(32), root).errors.isEmpty())
+            SharedLibrary.evictVerifiedBatch(store, db, root, books)
+            for (book in books) {
+                assertFalse(File(book.localPath).exists())
+                assertTrue(db.bookDao().findById(book.id)!!.localPath.isBlank())
+                val recovered = File(root, "recovered-" + book.id)
+                SharedLibrary.stageFromStore(store, book, recovered)
+                assertEquals(book.contentHash, SharedDocumentStore.hash(recovered.readBytes()))
+            }
+        } finally { db.close(); root.deleteRecursively() }
+    }
 }

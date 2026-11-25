@@ -502,6 +502,39 @@ object SharedLibrary {
             }
         }
     }
+    /** Caller has just verified a complete owned backup. Validate every remote
+     * original again before removing any of this batch's temporary local files.
+     * Never touch a pre-existing downloaded copy (the importer rejects duplicates). */
+    suspend fun evictVerifiedImports(context: Context, db: AppDatabase, expectedUri: Uri,
+                                     books: List<BookEntity>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
+            store(context).use { store -> evictVerifiedBatch(store, db, context.filesDir, books) }
+            changes.value += 1
+        }
+    }
+
+    internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
+                                            books: List<BookEntity>) {
+        val inv = inventory(store)
+        require(inv.errors.isEmpty()) { "No se ha podido verificar la biblioteca." }
+        val latest = books.map { imported ->
+            val book = db.bookDao().findById(imported.id) ?: error("No se encuentra el libro importado.")
+            require(book.localPath == imported.localPath && book.contentHash == imported.contentHash &&
+                book.sizeBytes == imported.sizeBytes && CentralCatalogue.local(book)) { "El original local ha cambiado." }
+            require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
+                val item = inv.items[receipt.name]
+                item != null && receipt.bytes == book.sizeBytes &&
+                    runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
+            }) { "No se pudo comprobar el original central de " + book.title }
+            book
+        }
+        for (book in latest) {
+            LocalBookCopyRemover.delete(filesDir, book)
+            check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
+        }
+    }
+
     /** Independent portable ZIP export can recover non-downloaded originals
      * from the shared folder without changing the local download state. */
     internal fun stageFromStore(store: SharedStore, book: BookEntity, file: File) =
