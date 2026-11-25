@@ -1,15 +1,13 @@
 package com.javierrb35.bibliotecaia.ai
 
 import android.content.Intent
-import android.net.Uri
-import android.graphics.Typeface
-import android.view.Gravity
 import android.content.res.ColorStateList
+import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.switchmaterial.SwitchMaterial
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -17,172 +15,206 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.javierrb35.bibliotecaia.R
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.javierrb35.bibliotecaia.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Asistente de configuración IA (BYOK, Prompt Maestro §13): explica cómo obtener la
- * clave, abre la página oficial del proveedor, la guarda cifrada en Keystore, la
- * PRUEBA realmente contra el servicio y permite eliminarla. Errores diferenciados.
- */
+/** Two independent credentials. Never prefill, copy or persist a plaintext draft. */
 class AiSetupActivity : AppCompatActivity() {
+    private data class ProviderCard(
+        val provider: String,
+        val name: String,
+        val input: TextInputEditText,
+        val status: TextView,
+        val save: MaterialButton,
+        val test: MaterialButton,
+        val delete: MaterialButton,
+        var busy: Boolean = false
+    )
 
-    private var provider: String = AiClients.GEMINI
-    private val providerButtons = mutableMapOf<String, MaterialButton>()
-
-    private lateinit var status: TextView
-    private lateinit var keyInput: TextInputEditText
-    private lateinit var keyLayout: TextInputLayout
-    private lateinit var groqFallbackToggle: SwitchMaterial
+    private lateinit var fallback: SwitchMaterial
+    private lateinit var fallbackStatus: TextView
     private lateinit var modelButton: MaterialButton
+    private val cards = mutableMapOf<String, ProviderCard>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(24))
+            isFocusableInTouchMode = true
         }
-        val root = ScrollView(this).apply {
+        setContentView(ScrollView(this).apply {
             setBackgroundColor(getColor(R.color.bia_background))
+            isFillViewport = true
             addView(layout)
+        })
+
+        header(layout, "Configurar inteligencia artificial")
+        hint(layout, "Gemini es el proveedor principal y Groq el respaldo automático. Introduce las claves por separado; puedes utilizar solo uno de los servicios.")
+
+        addProvider(layout, AiClients.GEMINI, "Gemini", "Proveedor principal", AiClients.GEMINI_KEYS_URL)
+        modelButton = action(layout, getString(R.string.ai_gemini_model_label, AiModelSettings.current(this))) {
+            chooseGeminiModel()
         }
-        setContentView(root)
+        addProvider(layout, AiClients.GROQ, "Groq", "Proveedor de respaldo", AiClients.GROQ_KEYS_URL)
 
-        header(layout, getString(R.string.ai_setup_title))
-        hint(layout, getString(R.string.ai_setup_intro))
-
-        section(layout, getString(R.string.ai_provider))
-        val providerButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        layout.addView(providerButtons)
-        listOf(AiClients.GEMINI to getString(R.string.ai_provider_gemini),
-               AiClients.GROQ to getString(R.string.ai_provider_groq)).forEach { (id, label) ->
-            providerButtons.addView(MaterialButton(this).apply {
-                text = label
-                isAllCaps = false
-                minHeight = dp(48)
-                cornerRadius = dp(15)
-                this@AiSetupActivity.providerButtons[id] = this
-                setOnClickListener { selectProvider(id) }
-            }, LinearLayout.LayoutParams(0, dp(52), 1f).apply {
-                marginEnd = dp(5)
-            })
-        }
-
-        modelButton = MaterialButton(this).apply {
-            text = getString(R.string.ai_gemini_model_label, AiModelSettings.current(this@AiSetupActivity))
-            isAllCaps = false
+        section(layout, "Respaldo automático")
+        hint(layout, "Si Gemini agota su cuota, falla temporalmente o supera el tiempo de espera, Groq puede recibir la misma consulta y sus fragmentos. Se activa por defecto al guardar una clave Groq; puedes desactivarlo aquí.")
+        fallback = SwitchMaterial(this).apply {
+            text = "Usar Groq automáticamente"
+            contentDescription = "Respaldo automático con Groq"
+            isChecked = AiFallbackConsent.preferred(this@AiSetupActivity)
+            setTextColor(getColor(R.color.bia_text))
             minHeight = dp(48)
-            cornerRadius = dp(15)
-            setOnClickListener { chooseGeminiModel() }
         }
-        layout.addView(modelButton)
+        layout.addView(fallback)
+        fallbackStatus = statusView(layout)
+        fallback.setOnCheckedChangeListener { _, checked ->
+            AiFallbackConsent.setEnabled(this, checked)
+            refreshFallback()
+        }
+        refreshFallback()
+        hint(layout, "Las claves se guardan cifradas en este dispositivo. La prueba usa una consulta de ejemplo, nunca tus libros. Los fragmentos reales solo se envían cuando consultas la IA.")
+        layout.requestFocus()
+    }
 
-        section(layout, getString(R.string.ai_key_section))
-        hint(layout, getString(R.string.ai_key_howto_gemini))
-        hint(layout, getString(R.string.ai_key_howto_groq))
-        action(layout, getString(R.string.ai_open_gemini_keys)) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AiClients.GEMINI_KEYS_URL)))
+    private fun addProvider(parent: LinearLayout, provider: String, name: String, role: String, url: String) {
+        section(parent, "$name · $role")
+        val status = statusView(parent)
+        val keyLayout = TextInputLayout(this).apply {
+            hint = "Clave API de $name"
+            endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
         }
-        action(layout, getString(R.string.ai_open_groq_keys)) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AiClients.GROQ_KEYS_URL)))
-        }
-
-        keyLayout = TextInputLayout(this).apply {
-            hint = getString(R.string.ai_key_hint)
-            isPasswordVisibilityToggleEnabled = true
-        }
-        keyLayout.endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
-        keyInput = TextInputEditText(this).apply {
-            transformationMethod = android.text.method.PasswordTransformationMethod.getInstance()
-            setTextColor(ContextCompat.getColor(this@AiSetupActivity, R.color.bia_text))
-        }
-        keyLayout.addView(keyInput)
-        layout.addView(keyLayout)
-
-        action(layout, getString(R.string.ai_save_and_test), primary = true) { saveAndTest() }
-        action(layout, getString(R.string.ai_delete_key)) { deleteKey() }
-
-        section(layout, getString(R.string.ai_status_section))
-        status = TextView(this).apply {
-            textSize = 14f
-            setTextColor(ContextCompat.getColor(this@AiSetupActivity, R.color.bia_text_secondary))
-            setPadding(0, dp(12), 0, dp(12))
-        }
-        layout.addView(status)
-        hint(layout, getString(R.string.ai_privacy_note))
-
-        // Scriptura parity: separate affirmative consent, not inferred from the API key.
-        section(layout, getString(R.string.ai_fallback_section))
-        hint(layout, getString(R.string.ai_fallback_description))
-        groqFallbackToggle = SwitchMaterial(this).apply {
-            text = getString(R.string.ai_fallback_toggle)
-            textSize = 14f
-            minHeight = dp(52)
+        val input = TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            contentDescription = "Clave API de $name"
+            isSaveEnabled = false
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             setTextColor(getColor(R.color.bia_text))
         }
-        layout.addView(groqFallbackToggle)
-        refreshFallbackControl()
-
-        selectProvider(AiClients.GEMINI)
-    }
-
-    private fun selectProvider(id: String) {
-        provider = id
-        providerButtons.forEach { (key, control) ->
-            val active = key == provider
-            control.backgroundTintList = ColorStateList.valueOf(
-                getColor(if (active) R.color.bia_accent else R.color.bia_surface_high))
-            control.setTextColor(getColor(if (active) R.color.bia_background else R.color.bia_text))
+        keyLayout.addView(input)
+        parent.addView(keyLayout)
+        if (provider == AiClients.GROQ) {
+            hint(parent, "Al guardar esta clave autorizas el respaldo automático descrito abajo, salvo que lo hayas desactivado.")
         }
-        refreshStatus()
-    }
-
-    private fun refreshStatus() {
-        val stored = AiKeyStore.getKey(this, provider) != null
-        status.text = getString(
-            R.string.ai_status,
-            providerName(provider),
-            if (stored) getString(R.string.ai_stored) else getString(R.string.ai_not_stored),
-        )
-        if (::groqFallbackToggle.isInitialized) refreshFallbackControl()
-    }
-
-    private fun refreshFallbackControl() {
-        groqFallbackToggle.setOnCheckedChangeListener(null)
-        groqFallbackToggle.isChecked = AiFallbackConsent.enabled(this)
-        groqFallbackToggle.setOnCheckedChangeListener { _, checked ->
-            if (!checked) {
-                AiFallbackConsent.revoke(this)
-                refreshFallbackControl()
-                return@setOnCheckedChangeListener
-            }
-            if (AiKeyStore.getKey(this, AiClients.GROQ).isNullOrBlank()) {
-                Toast.makeText(this, R.string.ai_fallback_key_missing, Toast.LENGTH_LONG).show()
-                refreshFallbackControl()
-                return@setOnCheckedChangeListener
-            }
-            // Never transmit another provider's book fragments based on key setup alone.
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.ai_fallback_consent_title)
-                .setMessage(R.string.ai_fallback_consent_text)
-                .setNegativeButton(android.R.string.cancel) { _, _ -> refreshFallbackControl() }
-                .setOnCancelListener { refreshFallbackControl() }
-                .setPositiveButton(R.string.ai_fallback_allow) { _, _ ->
-                    AiFallbackConsent.setEnabled(this, true)
-                    refreshFallbackControl()
-                }.show()
-            // The visual switch remains OFF until authorization is confirmed.
-            groqFallbackToggle.setOnCheckedChangeListener(null)
-            groqFallbackToggle.isChecked = false
-            groqFallbackToggle.setOnCheckedChangeListener { _, next ->
-                if (next) refreshFallbackControl()
+        val save = action(parent, "Guardar clave $name", primary = true) { saveKey(cards.getValue(provider)) }
+        val test = action(parent, "Probar $name") { testKey(cards.getValue(provider)) }
+        val delete = action(parent, "Eliminar clave $name") { confirmDelete(cards.getValue(provider)) }
+        action(parent, "Obtener clave de $name") {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (_: android.content.ActivityNotFoundException) {
+                Toast.makeText(this, "No hay un navegador disponible.", Toast.LENGTH_SHORT).show()
             }
         }
+        val card = ProviderCard(provider, name, input, status, save, test, delete)
+        cards[provider] = card
+        refreshCard(card)
+    }
+
+    private fun statusView(parent: LinearLayout): TextView = TextView(this).apply {
+        textSize = 14f
+        setTextColor(getColor(R.color.bia_text_secondary))
+        setPadding(0, dp(6), 0, dp(8))
+        parent.addView(this)
+    }
+
+    private fun refreshCard(card: ProviderCard, message: String? = null) {
+        val saved = !AiKeyStore.getKey(this, card.provider).isNullOrBlank()
+        card.status.text = "${card.name}: " + (message ?: if (saved) "clave guardada (cifrada). Puedes probarla." else "sin clave configurada.")
+        card.input.isEnabled = !card.busy
+        card.save.isEnabled = !card.busy
+        card.test.isEnabled = saved && !card.busy
+        card.delete.isEnabled = saved && !card.busy
+        if (card.provider == AiClients.GEMINI && ::modelButton.isInitialized) {
+            modelButton.isEnabled = !card.busy
+        }
+    }
+
+    private fun refreshFallback() {
+        val hasGroq = !AiKeyStore.getKey(this, AiClients.GROQ).isNullOrBlank()
+        fallbackStatus.text = when {
+            !fallback.isChecked -> "Respaldo desactivado."
+            !hasGroq -> "Preparado: falta guardar la clave Groq."
+            else -> "Respaldo activo: Gemini → Groq."
+        }
+    }
+
+    private fun saveKey(card: ProviderCard) {
+        val key = card.input.text?.toString()?.trim().orEmpty()
+        if (key.isBlank()) {
+            card.input.error = "Introduce la clave de ${card.name}."
+            return
+        }
+        // Preserve the reader's existing explicit opt-out; new configurations default to on.
+        val preferred = AiFallbackConsent.preferred(this)
+        if (!AiKeyStore.saveKey(this, card.provider, key)) {
+            refreshCard(card, "no se pudo guardar la clave. La prueba no se ha realizado.")
+            return
+        }
+        if (card.provider == AiClients.GROQ) {
+            AiFallbackConsent.setEnabled(this, preferred)
+        }
+        card.input.text?.clear()
+        card.input.error = null
+        refreshCard(card)
+        refreshFallback()
+    }
+
+    private fun testKey(card: ProviderCard) {
+        val key = AiKeyStore.getKey(this, card.provider) ?: return
+        val model = AiModelSettings.current(this)
+        card.busy = true
+        refreshCard(card, "probando conexión…")
+        lifecycleScope.launch {
+            val result = try {
+                val answer = withContext(Dispatchers.IO) {
+                    AiClients.ask(card.provider, key, "Responde únicamente: OK",
+                        fragments = listOf("Prueba de funcionamiento."), history = emptyList(),
+                        geminiModel = model)
+                }
+                "conexión correcta · ${answer.model}"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AiClients.AiException) {
+                when (e.kind) {
+                    AiClients.AiErrorKind.INVALID_KEY -> "clave inválida."
+                    AiClients.AiErrorKind.PERMISSION -> "clave sin permiso."
+                    AiClients.AiErrorKind.QUOTA -> "cuota agotada."
+                    AiClients.AiErrorKind.MODEL -> "modelo no disponible."
+                    AiClients.AiErrorKind.TIMEOUT -> "tiempo de espera agotado."
+                    AiClients.AiErrorKind.NETWORK -> "sin conexión."
+                    AiClients.AiErrorKind.SERVER -> "servicio temporalmente no disponible."
+                    else -> "respuesta no válida del proveedor."
+                }
+            } catch (_: Exception) {
+                "no se pudo comprobar la conexión."
+            }
+            card.busy = false
+            refreshCard(card, result)
+        }
+    }
+
+    private fun confirmDelete(card: ProviderCard) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Eliminar clave ${card.name}")
+            .setMessage("Solo se eliminará la clave de ${card.name} de este dispositivo.")
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton("Eliminar") { _, _ ->
+                AiKeyStore.deleteKey(this, card.provider)
+                card.input.text?.clear()
+                refreshCard(card)
+                refreshFallback()
+            }.show()
     }
 
     private fun chooseGeminiModel() {
@@ -204,51 +236,13 @@ class AiSetupActivity : AppCompatActivity() {
             .setPositiveButton(R.string.ai_gemini_model_save) { _, _ ->
                 try {
                     AiModelSettings.save(this, input.text?.toString().orEmpty())
-                    modelButton.text = getString(R.string.ai_gemini_model_label,
-                        AiModelSettings.current(this))
+                    modelButton.text = getString(R.string.ai_gemini_model_label, AiModelSettings.current(this))
+                    refreshCard(cards.getValue(AiClients.GEMINI))
                 } catch (_: IllegalArgumentException) {
                     Toast.makeText(this, R.string.ai_gemini_model_invalid, Toast.LENGTH_LONG).show()
                 }
             }.show()
     }
-
-    private fun saveAndTest() {
-        val key = keyInput.text?.toString()?.trim().orEmpty()
-        if (key.isEmpty()) {
-            Toast.makeText(this, R.string.ai_key_required, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (!AiKeyStore.saveKey(this, provider, key)) {
-            Toast.makeText(this, R.string.ai_keystore_error, Toast.LENGTH_LONG).show()
-            return
-        }
-        status.text = getString(R.string.ai_testing)
-        lifecycleScope.launch {
-            try {
-                val answer = withContext(Dispatchers.IO) {
-                    AiClients.ask(provider, key, "Responde únicamente: OK",
-                        fragments = listOf("Prueba de funcionamiento."), history = emptyList(),
-                        geminiModel = AiModelSettings.current(applicationContext))
-                }
-                status.text = getString(R.string.ai_test_ok, answer.model)
-                Toast.makeText(this@AiSetupActivity, R.string.ai_test_ok_toast, Toast.LENGTH_SHORT).show()
-            } catch (e: AiClients.AiException) {
-                status.text = getString(R.string.ai_test_failed, e.message ?: "")
-            } catch (e: Exception) {
-                status.text = getString(R.string.ai_test_failed, e.message ?: "")
-            }
-            refreshStatus()
-        }
-    }
-
-    private fun deleteKey() {
-        AiKeyStore.deleteKey(this, provider)
-        refreshStatus()
-        Toast.makeText(this, R.string.ai_deleted, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun providerName(id: String): String =
-        if (id == AiClients.GEMINI) getString(R.string.ai_provider_gemini) else getString(R.string.ai_provider_groq)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -297,8 +291,8 @@ class AiSetupActivity : AppCompatActivity() {
         })
     }
 
-    private fun action(parent: LinearLayout, text: String, primary: Boolean = false, onClick: () -> Unit) {
-        parent.addView(MaterialButton(this).apply {
+    private fun action(parent: LinearLayout, text: String, primary: Boolean = false, onClick: () -> Unit): MaterialButton {
+        val button = MaterialButton(this).apply {
             this.text = text
             isAllCaps = false
             textSize = 14f
@@ -308,9 +302,11 @@ class AiSetupActivity : AppCompatActivity() {
                 getColor(if (primary) R.color.bia_accent else R.color.bia_surface_high))
             setTextColor(getColor(if (primary) R.color.bia_background else R.color.bia_text))
             setOnClickListener { onClick() }
-        }, LinearLayout.LayoutParams(-1, -2).apply {
-            topMargin = dp(8)
+        }
+        parent.addView(button, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(6)
         })
+        return button
     }
 
     private fun hint(parent: LinearLayout, text: String) {

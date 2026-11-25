@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia
 
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
+import com.javierrb35.bibliotecaia.updates.UpdateNotes
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -104,5 +105,28 @@ class UpdateCheckerVersionTest {
     fun `segmentos no numericos cuentan como cero`() {
         assertTrue(UpdateChecker.isNewer("0.1.x", "0.1.1"))
         assertFalse(UpdateChecker.isNewer("0.1.x", "0.1"))
+    }
+    @Test
+    fun `resumen de cambios visible y metadatos tecnicos excluidos`() {
+        val body = "## Cambios de esta versión\n- Acceso directo a Drive\n- Importación múltiple\n\nCompilación del commit abc"
+        val release = requireNotNull(UpdateChecker.parseLatest(
+            org.json.JSONObject(officialRelease()).put("body", body).toString(), "0.1.0"))
+        org.junit.Assert.assertEquals("Cambios de esta versión\n• Acceso directo a Drive\n• Importación múltiple", release.notes)
+        org.junit.Assert.assertEquals("Acceso directo a Drive", UpdateNotes.preview(release.notes))
+    }
+
+    @Test
+    fun `version antigua con texto generico no inventa cambios`() {
+        val summary = UpdateNotes.fromReleaseBody("Actualización Android firmada y comprobada. Compilación del commit abc. Serie de desarrollo; instalación voluntaria desde la aplicación.")
+        assertTrue(summary.isBlank())
+        assertTrue(UpdateNotes.detail(summary).contains("No se ha publicado"))
+        assertTrue(UpdateNotes.preview(summary).contains("No se ha publicado"))
+    }
+
+    @Test
+    fun `resumen largo se limita sin eliminar la primera mejora`() {
+        val text = UpdateNotes.fromReleaseBody("## Cambios\n- Drive\n" + "a".repeat(6000))
+        assertTrue(text.length <= 4000)
+        org.junit.Assert.assertEquals("Drive", UpdateNotes.preview(text))
     }
 }
