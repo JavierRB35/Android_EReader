@@ -60,3 +60,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/test_private_pairing.sql
       - name: Concurrent sessions
         run: bash supabase/coordinator/test_private_concurrency.sh
+      - name: Original registry authorization and idempotency
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/originals/registry.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/coordinator/originals/test_registry.sql
