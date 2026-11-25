@@ -274,6 +274,12 @@ object SharedLibrary {
      */
     suspend fun connectNamedFolder(context: Context, db: AppDatabase, tree: Uri): Result =
         withContext(Dispatchers.IO) {
+            // Preserve any newer positions from the previous standalone JSON channel.
+            if (!namedFolderMode(context) && ReadingPositionSafSync.hasOwn(context)) {
+                require(ReadingPositionSafSync.refresh(context, db)) {
+                    "No se pudieron comprobar los avances anteriores. Se conserva la conexión anterior."
+                }
+            }
             mutex.withLock {
                 val previous = currentConnection(context)
                 val owner = ReadingPositionSafSync.deviceId(context)
@@ -692,7 +698,7 @@ object SharedLibrary {
     }
     fun publishReadingExit(context: Context) {
         val app = context.applicationContext
-        ReadingPositionSafSync.requestPublish(app)
+        if (!namedFolderMode(app)) ReadingPositionSafSync.requestPublish(app)
         if (!configured(app) || ReadingPositionSafSync.fastReady(app)) return
         schedule(app, immediate = true)
         exitRequests.trySend(app)
