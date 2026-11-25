@@ -14,6 +14,8 @@ import java.util.UUID
  * are never advertised by a verified receipt. No remote delete or overwrite. */
 internal interface SharedStore : java.io.Closeable {
     val readErrors: List<String> get() = emptyList()
+    // Opt-in for the new folder layout; legacy ZIP and existing folders remain readable.
+    val namedOriginals: Boolean get() = false
     fun commit() {}
     override fun close() {}
     fun list(): List<SharedDocumentStore.Item>
@@ -39,15 +41,18 @@ internal interface SharedStore : java.io.Closeable {
     }
 }
 
-internal class SharedDocumentStore(context: Context, private val tree: Uri) : SharedStore {
+internal class SharedDocumentStore(context: Context, private val tree: Uri,
+    override val namedOriginals: Boolean = false) : SharedStore {
     private val resolver = context.contentResolver
     private val root = DocumentsContract.buildDocumentUriUsingTree(tree,
         DocumentsContract.getTreeDocumentId(tree))
-    data class Item(val name: String, val uri: Uri, val size: Long)
-    override fun list(): List<Item> {
+    data class Item(val name: String, val uri: Uri, val size: Long, val directory: Boolean = false)
+    private val technicalName = "_Sincronizacion"
+    private fun childrenOf(parent: Uri): List<Item> {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,
-            DocumentsContract.getTreeDocumentId(tree))
-        val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE)
+            DocumentsContract.getDocumentId(parent))
+        val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE,
+            Document.COLUMN_MIME_TYPE)
         return resolver.query(children, columns, null, null, null)?.use { c ->
             // A cloud provider may return an empty placeholder while loading.
             // Never treat this as proof that a previously saved file was deleted.
@@ -57,18 +62,47 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
             buildList {
                 while (c.moveToNext()) add(Item(c.getString(1),
                     DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)),
-                    if (c.isNull(2)) -1L else c.getLong(2)))
+                    if (c.isNull(2)) -1L else c.getLong(2), c.getString(3) == Document.MIME_TYPE_DIR))
             }
         } ?: throw IOException("El proveedor no permite listar esta carpeta.")
+    }
+    private fun technicalFolder(create: Boolean): Uri? {
+        val before = childrenOf(root)
+        val candidates = before.filter { it.name.equals(technicalName, ignoreCase = true) }
+        require(candidates.size <= 1 && candidates.all { it.directory && it.name == technicalName }) {
+            "La carpeta técnica es ambigua; no se modificará."
+        }
+        candidates.singleOrNull()?.let { return it.uri }
+        if (!create) return null
+        val created = DocumentsContract.createDocument(resolver, root, Document.MIME_TYPE_DIR, technicalName)
+            ?: throw IOException("El proveedor no permite crear la carpeta técnica.")
+        require(before.none { it.uri == created }) { "El proveedor devolvió una carpeta existente." }
+        val matching = childrenOf(root).filter { it.name.equals(technicalName, ignoreCase = true) }
+        require(matching.size == 1 && matching.single().directory &&
+            matching.single().name == technicalName && matching.single().uri == created) {
+            "No se pudo verificar una única carpeta técnica; no se escribirán metadatos."
+        }
+        return created
+    }
+    override fun list(): List<Item> {
+        val files = childrenOf(root).filterNot { it.directory }
+        // Preserve the legacy catalogue at root; never move or delete it.
+        // New metadata is isolated; unrelated nested files are not scanned.
+        val metadata = if (namedOriginals) technicalFolder(false)?.let { folder ->
+            childrenOf(folder).filter { !it.directory && it.name.startsWith("bia-state-") }
+        }.orEmpty() else emptyList()
+        return files + metadata
     }
     override fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
         ?: throw IOException("No se puede leer " + item.name)
     override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
-        val before = list()
+        val parent = if (namedOriginals && name.startsWith("bia-state-"))
+            requireNotNull(technicalFolder(true)) else root
+        val before = childrenOf(parent)
         require(before.none { it.name.equals(name, ignoreCase = true) }) {
             "Ya existe un documento con ese nombre; no se sobrescribirá."
         }
-        val uri = DocumentsContract.createDocument(resolver, root, mime, name)
+        val uri = DocumentsContract.createDocument(resolver, parent, mime, name)
             ?: throw IOException("El proveedor no permite crear documentos.")
         // Check the returned identity BEFORE opening a writable stream.
         require(before.none { it.uri == uri }) {
@@ -81,7 +115,7 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
         val actual = resolver.openInputStream(uri)?.use { digest(it, size) }
             ?: throw IOException("No se puede verificar el documento nuevo.")
         require(actual == (hash to size)) { "El proveedor no devolvió los bytes guardados." }
-        val item = list().singleOrNull { it.uri == uri && it.name == name }
+        val item = childrenOf(parent).singleOrNull { it.uri == uri && it.name == name && !it.directory }
             ?: throw IOException("El documento escrito no aparece todavía en la carpeta.")
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
