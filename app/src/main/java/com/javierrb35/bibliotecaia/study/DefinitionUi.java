@@ -14,6 +14,8 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import com.javierrb35.bibliotecaia.ai.DefinitionAi;
+import kotlinx.coroutines.Job;
 
 /** Menú de selección nativo + explicación navegable. Utilizado también en pruebas Android. */
 public final class DefinitionUi {
@@ -244,6 +246,16 @@ public final class DefinitionUi {
     }
 
     public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate){
+        showWithDefinition(activity,word,geminiEnabled,delegate,DefinitionAi.configured(activity),DefinitionAi::request);
+    }
+
+    interface DefinitionLoader {
+        Job request(Activity activity,String query,DefinitionAi.Callback callback);
+    }
+
+    // Injectable only for UI tests; production always uses the existing BYOK route.
+    static void showWithDefinition(Activity activity,String word,boolean geminiEnabled,Delegate delegate,
+                                   boolean definitionConfigured,DefinitionLoader loader){
         final String query=WordMeaning.searchPhrase(word);
         if(query==null){
             delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
@@ -273,14 +285,49 @@ public final class DefinitionUi {
             .setView(scroll)
             .setNegativeButton("Cerrar",(d,w)->d.dismiss())
             .create();
+        // Keep Wikipedia accessible immediately, even if the AI is offline.
+        addLink(activity,content,"Wikipedia · Buscar «"+query+"»",
+            WordMeaning.wikipediaSearchUrl(query),dialog,delegate);
+        addText(activity,content,"Definición generada por IA",17,NAVY,true,16);
+        TextView aiResult=addText(activity,content,definitionConfigured?
+            "Consultando la IA…":"Configura Gemini o Groq en Ajustes para obtener una definición.",
+            16,NAVY,false,6);
+        aiResult.setTextIsSelectable(true);
+        TextView aiSource=addText(activity,content,
+            "Respuesta orientativa, independiente de Wikipedia. Solo se envía la expresión seleccionada.",
+            12,MUTED,false,6);
+        TextView retry=addText(activity,content,"Reintentar definición IA",14,GOLD,true,8);
+        retry.setMinHeight(dp(activity,44));
+        retry.setGravity(Gravity.CENTER_VERTICAL);
+        retry.setVisibility(View.GONE);
+        final Job[] pending={null};
+        final Runnable load=()->{
+            if(!definitionConfigured||!dialog.isShowing())return;
+            if(pending[0]!=null)pending[0].cancel(null);
+            retry.setVisibility(View.GONE);
+            aiResult.setText("Consultando la IA…");
+            pending[0]=loader.request(activity,query,new DefinitionAi.Callback(){
+                @Override public void onAnswer(String text,String provider){
+                    if(!dialog.isShowing())return;
+                    aiResult.setText(text);
+                    aiSource.setText("Generada por "+provider+" · Respuesta orientativa, independiente de Wikipedia.");
+                }
+                @Override public void onError(String message){
+                    if(!dialog.isShowing())return;
+                    aiResult.setText(message);
+                    retry.setVisibility(View.VISIBLE);
+                }
+            });
+        };
+        retry.setOnClickListener(v->load.run());
+        dialog.setOnDismissListener(d->{if(pending[0]!=null)pending[0].cancel(null);});
+
         String catholic=WordMeaning.oneWord(query)?WordMeaning.catholicArticleUrl(query):null;
         if(catholic!=null){
             addLink(activity,content,"Enciclopedia Católica · Abrir artículo",catholic,dialog,delegate);
         } else {
             addText(activity,content,"Enciclopedia Católica: no hay un artículo verificado para este término.",12,MUTED,false,10);
         }
-        addLink(activity,content,"Wikipedia · Buscar «"+query+"»",
-            WordMeaning.wikipediaSearchUrl(query),dialog,delegate);
         addLink(activity,content,"Wikcionario · Buscar «"+query+"»",
             WordMeaning.wiktionarySearchUrl(query),dialog,delegate);
         if(geminiEnabled){
@@ -306,7 +353,7 @@ public final class DefinitionUi {
                 android.util.Log.e("BibliotecaIADefinir","No se pudo ajustar el tamaño del globo",error);
             }
         });
-        try{dialog.show();}
+        try{dialog.show();load.run();}
         catch(RuntimeException error){
             android.util.Log.e("BibliotecaIADefinir","No se pudo mostrar la definición",error);
             delegate.showError("No se pudo abrir el globo de la definición.");

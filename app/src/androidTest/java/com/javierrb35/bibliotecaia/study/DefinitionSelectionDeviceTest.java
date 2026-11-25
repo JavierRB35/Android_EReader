@@ -37,6 +37,24 @@ public class DefinitionSelectionDeviceTest {
         };
     }
 
+    @Test public void definitionModalDisplaysAiResultAndWikipediaTogether() {
+        try(androidx.test.core.app.ActivityScenario<com.javierrb35.bibliotecaia.ui.MainActivity> scenario =
+                androidx.test.core.app.ActivityScenario.launch(com.javierrb35.bibliotecaia.ui.MainActivity.class)){
+            scenario.onActivity(activity->DefinitionUi.showWithDefinition(activity,"piedra angular",false,
+                noExternalRequests(),true,(a,query,callback)->{
+                    assertEquals("piedra angular",query);
+                    callback.onAnswer("Elemento fundamental de una estructura.","Gemini");
+                    return null;
+                }));
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Wikipedia · Buscar «piedra angular»"))
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()));
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Elemento fundamental de una estructura."))
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()));
+            androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Cerrar"))
+                .perform(androidx.test.espresso.action.ViewActions.click());
+        }
+    }
+
     @Test public void preservesPlatformItemsAndForwardsTheirClickToAndroid() {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
             Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
