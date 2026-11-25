@@ -11,7 +11,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.javierrb35.bibliotecaia.BuildConfig
-import kotlinx.coroutines.CancellationException
+import com.javierrb35.bibliotecaia.ui.SplashActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +35,7 @@ internal object UpdateRuntime : Application.ActivityLifecycleCallbacks {
     private var job: Job? = null
     private var active: WeakReference<Activity>? = null
     private var lastCheckUptime: Long = -FOREGROUND_INTERVAL_MS
+    private var cachedRelease: UpdateChecker.ReleaseInfo? = null
 
     fun initialize(application: Application) {
         application.registerActivityLifecycleCallbacks(this)
@@ -49,10 +50,11 @@ internal object UpdateRuntime : Application.ActivityLifecycleCallbacks {
     }
 
     override fun onActivityResumed(activity: Activity) {
-        // Resume the user's explicitly requested install after Android has
-        // authorized this app as an installer. No background/silent installs.
+        // Splash lasts only two seconds. Do not start a request there which
+        // would be cancelled during navigation and consume the polling interval.
+        if (activity is SplashActivity) return
         UpdateInstaller.resumeAfterPermission(activity)
-        val forcePrompt = activity.intent?.getBooleanExtra(UpdateNotice.EXTRA_SHOW_UPDATE, false) == true
+        var forcePrompt = activity.intent?.getBooleanExtra(UpdateNotice.EXTRA_SHOW_UPDATE, false) == true
         if (forcePrompt) {
             activity.intent?.removeExtra(UpdateNotice.EXTRA_SHOW_UPDATE)
             lastCheckUptime = -FOREGROUND_INTERVAL_MS
@@ -63,23 +65,28 @@ internal object UpdateRuntime : Application.ActivityLifecycleCallbacks {
             while (isActive && active?.get() === activity &&
                 !activity.isFinishing && !activity.isDestroyed) {
                 val elapsed = SystemClock.elapsedRealtime() - lastCheckUptime
-                if (elapsed < FOREGROUND_INTERVAL_MS) {
-                    delay(FOREGROUND_INTERVAL_MS - elapsed)
-                    continue
-                }
-                lastCheckUptime = SystemClock.elapsedRealtime()
-                val release = try {
-                    withContext(Dispatchers.IO) {
-                        UpdateChecker.latestRelease(BuildConfig.VERSION_NAME)
+                if (elapsed >= FOREGROUND_INTERVAL_MS) {
+                    val result = withContext(Dispatchers.IO) {
+                        UpdateChecker.check(BuildConfig.VERSION_NAME)
                     }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    null
+                    // A cancelled request must not delay the next resumed screen.
+                    lastCheckUptime = SystemClock.elapsedRealtime()
+                    when (result) {
+                        is UpdateChecker.CheckResult.Available -> cachedRelease = result.release
+                        UpdateChecker.CheckResult.Current -> cachedRelease = null
+                        is UpdateChecker.CheckResult.Unavailable -> Unit
+                    }
                 }
-                if (release != null && isActive && active?.get() === activity)
+                val release = cachedRelease
+                if (release != null && isActive && active?.get() === activity &&
+                    activity.hasWindowFocus()) {
                     UpdateNotice.showIfNew(activity, release, force = forcePrompt)
-                delay(FOREGROUND_INTERVAL_MS)
+                    forcePrompt = false
+                }
+                // Deliver cached results when focus returns, without another HTTP request.
+                delay(if (release != null && !activity.hasWindowFocus()) 500L
+                    else (FOREGROUND_INTERVAL_MS -
+                        (SystemClock.elapsedRealtime() - lastCheckUptime)).coerceAtLeast(500L))
             }
         }
     }

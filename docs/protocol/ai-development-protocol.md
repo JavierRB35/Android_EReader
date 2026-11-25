@@ -1,5 +1,14 @@
 # PROTOCOLO DE DESARROLLO ASISTIDO POR INTELIGENCIA ARTIFICIAL
 
+## Directriz obligatoria de versionado y publicación — 25/11/2026
+
+- Toda nueva APK oficial debe tener un `versionName` semánticamente **superior** y un `versionCode` numéricamente **superior** a los de la publicación oficial anterior y a los máximos oficiales publicados. Nunca reutilizar ni reemplazar un número de versión, aunque el cambio sea mínimo.
+- La etiqueta GitHub `vX.Y.Z`, el nombre del archivo APK y su `versionName` interno deben coincidir. Mantener el identificador de paquete y la firma original; verificar el SHA-256.
+- Es obligatorio bloquear automáticamente la publicación si cualquiera de los dos identificadores no aumenta, si el tag ya existe, o si no se puede verificar la correspondencia de versiones y firma. No omitir controles para forzar una release. En caso de reintento de un commit ya publicado, comprobar la release existente sin sobrescribirla.
+- Antes de declarar la publicación completada, comprobar los assets APK/checksum, el commit integrado, la release pública marcada como última y su detección desde una versión anterior. Diferenciar comprobación automatizada de prueba física pendiente. Informar de la versión y del enlace directo de descarga.
+- Ejemplo: si la última APK oficial es `v0.1.128`, la próxima debe ser `v0.1.129` o superior, con un `versionCode` superior. Volver a publicar como 128 impide que las instalaciones 128 detecten el cambio.
+
+
 > Versión: 1.0 · Ámbito: desarrollo, mantenimiento, evolución, refactorización, depuración y entrega de software.
 > Objetivo: maximizar la productividad real, la calidad y la continuidad del proyecto, minimizando el consumo innecesario de tiempo, tokens, operaciones, compilaciones y pruebas.
 > Documento facilitado por el propietario del proyecto. Transcripción fiel desde el PDF original. **Lectura completa obligatoria antes de modificar cualquier archivo.**
@@ -393,6 +402,17 @@ Evita: abstracciones prematuras, interfaces innecesarias, clases sin responsabil
 
 ---
 
+## Cierre obligatorio de cada modificación — 25/11/2026
+
+Toda modificación autorizada, incluida una corrección pequeña o un cambio documental, debe llegar a `main`, quedar incluida en una publicación oficial verificada y cerrar su rama de trabajo. La directriz constituye autorización permanente para integrar, publicar y limpiar la rama propia de trabajos terminados y validados, sin pedir una nueva confirmación para cada paso.
+
+1. Trabajar en una rama identificable, registrar los cambios y abrir PR. Coordinar con otras ramas y resolver conflictos sin perder cambios ajenos.
+2. Validar todos los controles pertinentes sobre el HEAD exacto; no fusionar trabajos incompletos, WIP ni pruebas fallidas o pendientes.
+3. Fusionar en `main` por el procedimiento permitido del repositorio, verificando que se conserva todo el contenido previsto. No eludir protecciones.
+4. Verificar CI de `main` y publicación oficial con versión estrictamente superior, APK firmada, checksum, notas de cambios y commit integrado. Una publicación posterior puede incluir varias modificaciones ya fusionadas; no duplicar releases ni publicar una APK obsoleta.
+5. Solo después de verificar la publicación, eliminar la rama de trabajo remota ya fusionada, comprobando que su HEAD no ha avanzado, que no contiene cambios sin integrar y que ninguna PR abierta depende de ella. Conservar `main`, ramas protegidas, ramas activas o compartidas y etiquetas de release. No eliminar ramas mediante borrados masivos, ni si hay dudas sobre dependencias o integridad.
+6. Registrar PR, commit, resultado CI, versión, enlace directo de descarga y confirmación de limpieza. Si hay bloqueo o una dependencia pendiente, dejar constancia y conservar la rama; no declarar completada la entrega.
+
 ## 14. GESTIÓN DE GIT Y CAMBIOS
 
 Git constituye el mecanismo principal de trazabilidad y recuperación del código.
@@ -415,7 +435,7 @@ Antes de fusionar: 1. Comprueba que los criterios de aceptación están satisfec
 
 No hagas "push", merges, publicaciones o despliegues si el usuario no los ha autorizado explícitamente o no existe una autorización previa aplicable.
 
-Cuando el usuario indique expresamente que debe fusionarse con "main", prepara la integración y ejecútala conforme a los permisos y reglas del repositorio. No anules protecciones de ramas para acelerar una entrega.
+En BibliotecaAI, la directriz permanente de cierre autoriza y exige integrar en main los trabajos autorizados y validados, publicar y eliminar exclusivamente las ramas propias fusionadas y publicadas según sus condiciones. No anules protecciones de ramas para acelerar una entrega.
 
 ### 14.4. Acciones destructivas
 

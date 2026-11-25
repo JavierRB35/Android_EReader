@@ -49,6 +49,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Validate startup smoke shell syntax
+        run: sh -n scripts/android-startup-smoke.sh
+
       - name: Run real app launch instrumentation on Android 34
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,7 +61,9 @@ jobs:
           profile: pixel_4
           disable-animations: true
           emulator-boot-timeout: 600
-          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.SplashActivityLaunchTest,com.javierrb35.bibliotecaia.MainActivityLaunchTest,com.javierrb35.bibliotecaia.BookDetailLaunchTest,com.javierrb35.bibliotecaia.EpubReaderLaunchTest,com.javierrb35.bibliotecaia.backup.SingleFileBackupInstrumentedTest,com.javierrb35.bibliotecaia.backup.BackupRestoreInstrumentedTest,com.javierrb35.bibliotecaia.sync.SharedLibraryJourneyTest,com.javierrb35.bibliotecaia.sync.SharedFileStoreJourneyTest,com.javierrb35.bibliotecaia.ui.SharedSettingsJourneyDeviceTest,com.javierrb35.bibliotecaia.ui.SettingsBackupJourneyDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+          # Existing isolated QA variant: no asynchronous live release prompts.
+          # Keep the entire startup/storage suite and propagate any failure.
+          script: sh scripts/android-startup-smoke.sh
 
       - name: Archive instrumented test report
         if: always()

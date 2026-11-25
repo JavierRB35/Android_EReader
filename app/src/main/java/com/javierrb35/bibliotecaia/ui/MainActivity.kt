@@ -163,6 +163,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<View>(R.id.btnStorageSetup).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java).putExtra(StorageSetupWizard.EXTRA_OPEN, true))
+        }
         PremiumBottomBar.bind(this, findViewById(R.id.mainNavigation), R.id.navLibrary) {
             openImportPicker()
         }
@@ -215,6 +218,8 @@ class MainActivity : AppCompatActivity() {
             if (needsSetup && collectionFlow.value.isEmpty() &&
                 !getSharedPreferences("cloud_setup_wizard", MODE_PRIVATE).getBoolean("offered", false))
                 View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btnStorageSetup).visibility =
+            if (StorageSetupWizard.pending(applicationContext)) View.VISIBLE else View.GONE
         setCentralMode(centralFlow.value.first)
         lifecycleScope.launch {
             if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null) {
@@ -232,6 +237,7 @@ class MainActivity : AppCompatActivity() {
             val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
             val remoteChecked = if (shared) {
                 try {
+                    ReadingPositionSafSync.ensureAutomaticFolder(applicationContext, db)
                     ReadingPositionSafSync.refreshForRead(applicationContext, db)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {

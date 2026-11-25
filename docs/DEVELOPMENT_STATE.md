@@ -6,6 +6,22 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## DIRECTRIZ DE VERSIONADO OBLIGATORIA — 25/11/2026
+- Por orden del propietario, `versionName` y `versionCode` aumentan estrictamente en cada nueva APK oficial. Prohibido reutilizar tags/versiones o sobrescribir una release. Obligatoria validación automática contra el máximo publicado, coincidencia tag/APK, firma y checksum, detección desde versión anterior.
+- Directriz registrada en AGENTS.md, protocolo y docs/automatic-updates.md. Este commit es documental: el refuerzo del control explícito de monotonía en el workflow deberá verificarse/implementarse en la siguiente modificación del publicador (coordinar PR #104). No atribuir al presente commit cambios ejecutables.
+ 
+## DETECCIÓN FIABLE DE ACTUALIZACIONES — 25/11/2026
+- v0.1.128 publicada, repositorio público y ambos assets presentes. Detectados fallos de diseño: polling iniciado en Splash consumía intervalo aunque se cancelara; aviso transitorio consumía permanentemente el tag; errores de red indistinguibles de versión actual.
+- Corrección: omitir Splash, intervalo desde respuesta, caché en proceso, avisos diferenciados y diagnóstico/reintento desde Ajustes. Conserva validación firma/checksum y notificaciones Android. Pruebas JVM clasificación respuesta; CI y validación física pendientes. La causa exacta de cada dispositivo no se conoce sin su diagnóstico.
+## CONFIGURACIÓN IA — claves independientes y respaldo predeterminado, 25/11/2026
+- Ajustes vuelve a enlazar a configuración IA y muestra estado por proveedor al regresar. Dos campos independientes, vacíos y enmascarados, con guardado cifrado, prueba real independiente, enlace oficial y eliminación confirmada.
+- Gemini principal; Groq respaldo para cuota/servidor/timeout por defecto en nuevas configuraciones. Se preserva el consentimiento legado desactivado cuando existía una clave (no distinguible de revocación expresa), con activación visible; no se transmiten fragmentos a un proveedor previamente desautorizado sin acción del usuario. Se preservan claves existentes, modelo Gemini y decisión del lector. Sin credenciales reales en tests.
+- Prueba Android AiSetupJourneyDeviceTest añadida al gate startup QA; estado: implementación en rama, CI y conexión con claves reales pendientes.
+## INVESTIGACIÓN CI — pérdida de foco en Ajustes, 25/11/2026
+- PR #100, HEAD `34762e511faa8f28154843da1680699cac02bf61`: dos intentos de [startup smoke](https://github.com/JavierRB35/Android_EReader/actions/runs/45614799099) fallan en los mismos cuatro tests de Ajustes con `RootViewWithoutFocusException`, 16/20 correctos. PR #99 reproduce el patrón. La causa exacta de la ventana que toma foco no aparece en los logs existentes.
+- Causa de no determinismo identificada por inspección: el smoke ejecutaba debug 0.1.0 con QA_BUILD=false y consultas a Releases reales; UpdateRuntime puede presentar avisos asíncronos que interfieran en recorridos de UI. Se usa la variante QA aislada ya existente (`-PBIBLIOTECA_QA=true`) para el smoke completo, sin retirar ninguna prueba ni cambiar el APK de producción. Añadidos diagnósticos de ventanas, actividades, energía y logcat ante un fallo, conservando el código de salida original.
+- El intento c962703 falló antes de los tests: el runner ejecuta cada línea de `script` por separado, rompiendo el bloque if/fi. Se extrae a `scripts/android-startup-smoke.sh`, se invoca en una sola línea y se añade `sh -n` previo. Se conserva la suite y el código de salida.
+- Hipótesis de foco pendiente de confirmar con CI del nuevo HEAD; no afirmar causa raíz ni publicación hasta resultados. QA de selector usa monitor sintético, no Drive real. Coordinar la corrección común con PR #99 y restantes ramas tras comprobarla.
 ## BORRADO DE NOTAS Y SUS MARCADOS — 23/11/2026
 
 - Rama `fix/note-deletion-clears-highlight-20261123`. Cuando se elimina una `NOTE` con selección de texto, `ReadingRepository.setDeleted` envía a la papelera **en una sola transacción Room** esa nota y cualquier subrayado simple (`HIGHLIGHT` sin texto de nota propio) que corresponda al **mismo libro, locator exacto y cita exacta**. No elimina subrayados de otros lugares que tengan idénticas palabras ni marcadores, ni toca los libros originales.
@@ -212,3 +228,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 - Al tocar el estado se abre selector explícito de estado; favorito, IA, edición de metadatos, apertura de lector y revinculación de original por hash se conservan.
 - Evidencia: [Android UI instrumentado #44805098468](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098468) **SUCCESS, 2/2**, probado con viewport reducido a `900×1900 px` y sin desplazamiento vertical; [quality gate #44805098643](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098643) **SUCCESS**; [OCR/lector emulador #44805098464](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098464) **SUCCESS**. Smoke de arranque separado en curso al documentar.
 - Limitación: no se ha verificado el diseño aún en el Samsung físico ni a escalas de fuente extremas. No distribuir APK ni afirmar aceptación de dispositivo hasta confirmar.
+
+
+## Cierre obligatorio de modificaciones — 25/11/2026
+- Directriz del propietario: validar → fusionar en main → publicar nueva APK oficial verificada → eliminar rama de trabajo fusionada, tras verificar HEAD y ausencia de dependencias o cambios pendientes. Registrada en AGENTS.md y protocolo. Se mantienen las puertas de calidad, la numeración creciente y la conservación de ramas activas/protegidas. Cambio documental; no se eliminan ramas existentes en esta actuación.

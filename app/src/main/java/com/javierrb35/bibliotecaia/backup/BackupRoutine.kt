@@ -29,6 +29,7 @@ object BackupRoutine {
     private const val LAST_ERROR = "last_error"
     private const val CENTRAL_READ_URI = "central_read_uri"
     private const val SHARED_AUTO_URI = "shared_auto_backup_uri"
+    private const val DELETION_FINGERPRINT = "backup_deletions"
     private const val SHARED_INTERVAL_MS = 12L * 60 * 60 * 1000
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -46,7 +47,7 @@ object BackupRoutine {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val uri = prefs.getString(TARGET_URI, null)?.let(Uri::parse)
             ?.takeIf { picked ->
-                com.javierrb35.bibliotecaia.sync.CloudSetupFolder.permitted(context, picked, true)
+                com.javierrb35.bibliotecaia.sync.StorageGrants.allows(context, picked, true)
             }
         return Status(
             uri = uri,
@@ -57,6 +58,54 @@ object BackupRoutine {
                 context.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
                     .getString("uri", null) != null,
         )
+    }
+
+    fun savedDestination(context: Context): Uri? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TARGET_URI, null)?.let(Uri::parse)
+
+    /** Create or refresh one portable backup in the chosen location. Each
+     * installation owns its own backup; never race another writer. */
+    suspend fun prepareFolder(context: Context, database: AppDatabase, version: String, tree: Uri): Result {
+        val app = context.applicationContext
+        val grants = com.javierrb35.bibliotecaia.sync.StorageGrants
+        val target = withContext(Dispatchers.IO) {
+            lock.withLock {
+                val items = com.javierrb35.bibliotecaia.sync.SharedDocumentStore(app, tree).use { it.list() }
+                val old = savedDestination(app)
+                val existingOwn = grants.listed(old, tree, items)
+                val recoveryPrefs = app.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
+                val recoveryUri = recoveryPrefs.getString("uri", null)?.let(Uri::parse)
+                if (recoveryUri != null && grants.listed(recoveryUri, tree, items) == null &&
+                    (grants.belongs(recoveryUri, tree) || items.none { it.name.startsWith("BibliotecaIA-copia-") })) {
+                    grants.archiveRollback(File(app.filesDir, "previous-complete-backup.zip"))
+                    check(recoveryPrefs.edit().remove("uri").commit())
+                }
+                require(!status(app).recoveryPending) { "Hay una copia anterior pendiente de recuperar." }
+                if (old != null && existingOwn == null) {
+                    // Forget only references/status; the local library is intact.
+                    check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                        .remove(TARGET_URI).remove(FINGERPRINT).remove(LAST_SUCCESS).remove(LAST_ERROR)
+                        .remove(SHARED_AUTO_URI).remove(DELETION_FINGERPRINT)
+                        .remove("missing_original_titles").remove("central_index_uri")
+                        .remove("central_index_hashes").commit())
+                }
+                val name = "BibliotecaIA-copia-" +
+                    com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(app).take(8) + ".zip"
+                val existing = items.filter { it.name == name }
+                require(existing.size <= 1) { "Hay varias copias con el mismo nombre en la ubicación." }
+                existingOwn?.uri ?: existing.singleOrNull()?.uri ?: grants.create(app, tree, "application/zip", name)
+            }
+        }
+        // A previously created nonempty archive is verified by the existing
+        // replacement routine. Empty documents are new and safe to initialize.
+        val populated = withContext(Dispatchers.IO) {
+            app.contentResolver.openInputStream(target)?.use { it.read() != -1 }
+                ?: error("No se puede comprobar la copia.")
+        }
+        val result = save(app, database, version, true, target, replaceExisting = populated)
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(SHARED_AUTO_URI, target.toString()).apply()
+        return result
     }
 
     /** A separately connected archive is read-only; the configured backup remains
@@ -173,11 +222,16 @@ object BackupRoutine {
             // Only a NEW independently created backup is eligible for auto-write.
             // A legacy ZIP may still be shared by other devices.
             if (prefs.getString(SHARED_AUTO_URI, null) != state.uri.toString()) return
-            if (state.lastSuccess > 0 && System.currentTimeMillis() - state.lastSuccess < SHARED_INTERVAL_MS) return
         } else if (com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.status(app).peerCount > 0) return
         scope.launch {
             try {
-                save(app, AppDatabase.get(app), version, force = false)
+                val database = AppDatabase.get(app)
+                // A permanent deletion is not an ordinary reading update. Refresh
+                // the owned portable copy without waiting for the 12-hour interval.
+                if (shared && state.lastSuccess > 0 &&
+                    System.currentTimeMillis() - state.lastSuccess < SHARED_INTERVAL_MS &&
+                    deletionFingerprint(database) == prefs.getString(DELETION_FINGERPRINT, "")) return@launch
+                save(app, database, version, force = false)
             } catch (_: Exception) {
                 // The last error is persisted; users can inspect it in Ajustes.
                 // A failed automatic refresh must never interrupt reading.
@@ -216,6 +270,7 @@ object BackupRoutine {
                     "Esta biblioteca está conectada en modo lectura. No se sobrescribirá desde otro dispositivo."
                 }
                 val signature = libraryFingerprint(app, database, version)
+                val deletedBefore = deletionFingerprint(database)
                 if (!force && chosenUri == null &&
                     signature == prefs.getString(FINGERPRINT, null) &&
                     current.missingTitles.isEmpty() &&
@@ -238,6 +293,7 @@ object BackupRoutine {
                 check(destinationEdit
                     .putString(FINGERPRINT,
                         if (after == signature) signature else "")
+                    .putString(DELETION_FINGERPRINT, deletedBefore)
                     .putLong(LAST_SUCCESS, System.currentTimeMillis())
                     .putString(LAST_ERROR, "")
                     .putStringSet("missing_original_titles", exported.missingTitles.toSet())
@@ -282,6 +338,12 @@ object BackupRoutine {
      * relationships from the portable JSON plus internal original file metadata.
      * Never includes any API keys or device-specific user credentials.
      */
+    private suspend fun deletionFingerprint(database: AppDatabase): String =
+        database.backupDao().deletedBooksAll().sortedBy { it.contentHash }
+            .joinToString("|") { it.contentHash + ":" + it.deletedAt }
+            .let { value -> if (value.isEmpty()) "" else MessageDigest.getInstance("SHA-256")
+                .digest(value.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) } }
+
     private suspend fun libraryFingerprint(
         context: Context, database: AppDatabase, version: String
     ): String {

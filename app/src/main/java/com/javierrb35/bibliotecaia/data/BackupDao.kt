@@ -41,6 +41,27 @@ interface BackupDao {
     @Query("SELECT * FROM annotation_versions")
     suspend fun versionsAll(): List<AnnotationVersionEntity>
 
+    @Query("SELECT * FROM deleted_books")
+    suspend fun deletedBooksAll(): List<DeletedBookEntity>
+    @Query("SELECT * FROM deleted_books WHERE contentHash = :hash")
+    suspend fun deletedBook(hash: String): DeletedBookEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveDeletedBook(deletion: DeletedBookEntity)
+    @Query("DELETE FROM annotation_versions WHERE annotationId IN (SELECT id FROM annotations WHERE bookId = :id)")
+    suspend fun deleteBookAnnotationVersions(id: String)
+    @Query("DELETE FROM annotations WHERE bookId = :id")
+    suspend fun deleteBookAnnotations(id: String)
+    @Query("DELETE FROM reading_positions WHERE bookId = :id")
+    suspend fun deleteBookPosition(id: String)
+    @Query("DELETE FROM book_categories WHERE bookId = :id")
+    suspend fun deleteBookCategories(id: String)
+    @Query("DELETE FROM book_tags WHERE bookId = :id")
+    suspend fun deleteBookTags(id: String)
+    @Query("DELETE FROM collection_books WHERE bookId = :id")
+    suspend fun deleteBookCollections(id: String)
+    @Query("DELETE FROM books WHERE id = :id")
+    suspend fun deleteBookRow(id: String)
+
     // ---------- Restauración (aditiva; jamás borra ni sobrescribe libros existentes) ----------
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)

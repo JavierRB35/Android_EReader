@@ -22,6 +22,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.R
+import com.javierrb35.bibliotecaia.ai.AiSetupActivity
+import com.javierrb35.bibliotecaia.ai.AiClients
+import com.javierrb35.bibliotecaia.ai.AiKeyStore
+import com.javierrb35.bibliotecaia.ai.AiFallbackConsent
 import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
@@ -34,6 +38,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
+import com.javierrb35.bibliotecaia.updates.UpdateNotes
 import kotlinx.coroutines.Dispatchers
 import java.text.DateFormat
 import java.util.Date
@@ -47,6 +52,7 @@ import kotlinx.coroutines.withContext
 class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
+    private lateinit var aiStatus: TextView
     private var backupBusy = false
     private var sharedBusy = false
     private var wizardActive = false
@@ -78,7 +84,7 @@ class SettingsActivity : AppCompatActivity() {
                 "folder" -> {
                     CloudSetupFolder.remember(app, uri)
                     CloudSetupFolder.prepareLibrary(app, db, uri)
-                    ReadingPositionSafSync.prepareFolder(app, db)
+                    ReadingPositionSafSync.prepareFolder(app, db, uri)
                 }
                 "library" -> {
                     val result = SharedLibrary.connectFile(app, db, uri, newDocument = true)
@@ -131,7 +137,7 @@ class SettingsActivity : AppCompatActivity() {
         if (CloudSetupFolder.tree(app) != null) {
             wizardRun {
                 CloudSetupFolder.tree(app)?.let { CloudSetupFolder.prepareLibrary(app, db, it) }
-                ReadingPositionSafSync.prepareFolder(app, db)
+                CloudSetupFolder.tree(app)?.let { ReadingPositionSafSync.prepareFolder(app, db, it) }
                 if (wizardLinkMore && SharedLibrary.peerCount(app) > 0) wizardLinkMore = false
             }
         } else if (SharedLibrary.configured(app) && ReadingPositionSafSync.hasOwn(app) &&
@@ -215,7 +221,8 @@ class SettingsActivity : AppCompatActivity() {
             }
             !ReadingPositionSafSync.hasOwn(app) -> {
                 if (folder != null) wizardRun {
-                    check(ReadingPositionSafSync.prepareFolder(app, db) && ReadingPositionSafSync.hasOwn(app))
+                    ReadingPositionSafSync.prepareFolder(app, db, folder)
+                    check(ReadingPositionSafSync.hasOwn(app))
                 } else wizardStep("2 de 4 · Continuar leyendo",
                     "Guarda el pequeño archivo de lectura en la misma ubicación. Se actualizará automáticamente al avanzar.",
                     "Elegir ubicación") {
@@ -777,6 +784,7 @@ class SettingsActivity : AppCompatActivity() {
         action(layout, getString(R.string.settings_backup_legacy_short)) {
             if (!backupBusy) importLegacyJson.launch(arrayOf("application/json"))
         }
+        refreshAiStatus()
 
         section(layout, getString(R.string.settings_updates))
         val updatesCard = card(layout)
@@ -789,8 +797,11 @@ class SettingsActivity : AppCompatActivity() {
         section(layout, getString(R.string.settings_about))
         hint(layout, getString(R.string.settings_about_text, BuildConfig.VERSION_NAME))
         refreshBackupStatus()
-        if (intent.getBooleanExtra("open_cloud_wizard", false) && savedInstanceState == null) {
+        val openWizard = intent.getBooleanExtra("open_cloud_wizard", false) ||
+            intent.getBooleanExtra(StorageSetupWizard.EXTRA_OPEN, false)
+        if (openWizard && savedInstanceState == null) {
             intent.removeExtra("open_cloud_wizard")
+            intent.removeExtra(StorageSetupWizard.EXTRA_OPEN)
             layout.post { startWizard() }
         }
     }
@@ -805,10 +816,21 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshAiStatus()
         if (::sharedStatus.isInitialized) refreshSharedPanel()
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
         refreshWizardSummary()
+    }
+
+    private fun refreshAiStatus() {
+        if (!::aiStatus.isInitialized) return
+        val gemini = !AiKeyStore.getKey(this, AiClients.GEMINI).isNullOrBlank()
+        val groq = !AiKeyStore.getKey(this, AiClients.GROQ).isNullOrBlank()
+        aiStatus.text = "Gemini: " + (if (gemini) "configurado" else "sin clave") +
+            " · Groq: " + (if (groq) "configurado" else "sin clave") +
+            if (gemini && AiFallbackConsent.enabled(this)) "\nRespaldo automático activo"
+            else if (groq && !gemini) "\nGroq disponible como proveedor único" else ""
     }
 
     private fun refreshPositionSyncStatus() {
@@ -849,6 +871,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshBackupStatus() {
+        if (!::backupStatus.isInitialized) return
         val state = BackupRoutine.status(this)
         backupStatus.text = when {
             state.recoveryPending -> getString(R.string.settings_backup_recovery_required)
@@ -1048,16 +1071,28 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         lifecycleScope.launch {
-            val release = withContext(Dispatchers.IO) {
-                UpdateChecker.latestRelease(BuildConfig.VERSION_NAME)
+            val result = withContext(Dispatchers.IO) {
+                UpdateChecker.check(BuildConfig.VERSION_NAME)
             }
-            if (release == null) {
-                Toast.makeText(this@SettingsActivity, R.string.updates_none, Toast.LENGTH_SHORT).show()
-                return@launch
+            val release = when (result) {
+                is UpdateChecker.CheckResult.Available -> result.release
+                UpdateChecker.CheckResult.Current -> {
+                    Toast.makeText(this@SettingsActivity, R.string.updates_none, Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                is UpdateChecker.CheckResult.Unavailable -> {
+                    androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("No se pudo comprobar la actualización")
+                        .setMessage(result.reason + "\n\nVersión instalada: " + BuildConfig.VERSION_NAME)
+                        .setPositiveButton("Reintentar") { _, _ -> checkUpdates() }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                    return@launch
+                }
             }
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
-                .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
+                .setMessage(UpdateNotes.detail(release.notes))
                 .setPositiveButton("Instalar actualización") { _, _ ->
                     UpdateInstaller.start(this@SettingsActivity, release)
                 }

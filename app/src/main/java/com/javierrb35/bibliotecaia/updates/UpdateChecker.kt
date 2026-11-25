@@ -70,7 +70,7 @@ object UpdateChecker {
             ReleaseInfo(
                 tagName = tag,
                 versionName = tag.removePrefix("v"),
-                notes = json.optString("body").take(600),
+                notes = UpdateNotes.fromReleaseBody(json.optString("body")),
                 htmlUrl = page,
                 apkUrl = apk,
                 sha256Url = sha,
@@ -78,36 +78,62 @@ object UpdateChecker {
         else null
     }
 
-    /**
-     * Never blocks reading: network errors, rate limits, 404 (no published update)
-     * or malformed release metadata just mean no result on this check.
-     */
-    fun latestRelease(currentVersion: String): ReleaseInfo? {
+    sealed class CheckResult {
+        data class Available(val release: ReleaseInfo) : CheckResult()
+        data object Current : CheckResult()
+        data class Unavailable(val reason: String) : CheckResult()
+    }
+
+    internal fun classifyResponse(status: Int, body: String, currentVersion: String): CheckResult {
+        if (status !in 200..299) return CheckResult.Unavailable(when (status) {
+            403, 429 -> "GitHub ha limitado las consultas temporalmente."
+            404 -> "No se encuentra la publicación oficial."
+            else -> "GitHub no ha respondido correctamente (HTTP $status)."
+        })
         return try {
-        val connection = URL(RELEASES_URL).openConnection() as HttpURLConnection
-        connection.connectTimeout = TIMEOUT_MS
-        connection.readTimeout = TIMEOUT_MS
-        connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.setRequestProperty("User-Agent", "BibliotecaIA-Android-UpdateChecker")
-        try {
-            if (connection.responseCode !in 200..299) return null
-            val body = connection.inputStream.use { stream ->
-                val output = ByteArrayOutputStream()
-                val chunk = ByteArray(8192)
-                while (output.size() <= MAX_RELEASE_BYTES) {
-                    val read = stream.read(chunk)
-                    if (read == -1) break
-                    output.write(chunk, 0, read)
-                }
-                if (output.size() > MAX_RELEASE_BYTES) return null
-                output.toString("UTF-8")
-            }
-            parseLatest(body, currentVersion)
-        } finally {
-            connection.disconnect()
+            // Validate the actual official publication even when no upgrade is needed.
+            val latest = parseLatest(body, "0.0.0")
+                ?: return CheckResult.Unavailable("La publicación oficial no contiene una APK y suma válidas.")
+            if (isNewer(currentVersion, latest.versionName)) CheckResult.Available(latest)
+            else CheckResult.Current
+        } catch (_: Exception) {
+            CheckResult.Unavailable("No se pudo interpretar la información de la publicación.")
         }
-    } catch (_: Exception) {
-        null
     }
+
+    fun check(currentVersion: String): CheckResult {
+        return try {
+            val connection = URL(RELEASES_URL).openConnection() as HttpURLConnection
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = TIMEOUT_MS
+            connection.useCaches = false
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+            connection.setRequestProperty("User-Agent", "BibliotecaIA-Android-UpdateChecker")
+            try {
+                val status = connection.responseCode
+                if (status !in 200..299) return classifyResponse(status, "", currentVersion)
+                val body = connection.inputStream.use { stream ->
+                    val output = ByteArrayOutputStream()
+                    val chunk = ByteArray(8192)
+                    while (output.size() <= MAX_RELEASE_BYTES) {
+                        val read = stream.read(chunk)
+                        if (read == -1) break
+                        output.write(chunk, 0, read)
+                    }
+                    if (output.size() > MAX_RELEASE_BYTES)
+                        return CheckResult.Unavailable("La información de la publicación supera el tamaño permitido.")
+                    output.toString("UTF-8")
+                }
+                classifyResponse(status, body, currentVersion)
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            CheckResult.Unavailable("No se pudo conectar con GitHub. Comprueba la conexión y vuelve a intentarlo.")
+        }
     }
+
+    fun latestRelease(currentVersion: String): ReleaseInfo? =
+        (check(currentVersion) as? CheckResult.Available)?.release
 }

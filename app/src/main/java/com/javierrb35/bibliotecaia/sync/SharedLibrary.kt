@@ -63,6 +63,8 @@ object SharedLibrary {
             status.contains("La identidad del archivo no coincide"))
     }
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
+    fun healthy(context: Context): Boolean = hasAccess(context) &&
+        prefs(context).getString("status", "").orEmpty().startsWith("Biblioteca comprobada:")
     fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
@@ -215,6 +217,53 @@ object SharedLibrary {
         sync(context, db)
     }
 
+    /**
+     * Authorize the selected folder, preserve the current catalogue's original
+     * files, then switch. Do NOT merge an old catalogue just to move its books.
+     * A new folder starts without stale historical snapshots.
+     */
+    suspend fun relocateFolder(context: Context, db: AppDatabase, tree: Uri): Result =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val previous = uri(context)
+                val owner = ReadingPositionSafSync.deviceId(context)
+                val result = folderStore(context, tree).use { target ->
+                    target.probe()
+                    val available = inventory(target).availableHashes()
+                    val missing = db.backupDao().booksAll().filter {
+                        !CentralCatalogue.local(it) && it.contentHash !in available
+                    }
+                    if (missing.isNotEmpty()) {
+                        require(previous != null && previous != tree) {
+                            "Hay libros sin original disponible. Recupera o elimina sus fichas antes de continuar: " +
+                                missing.take(5).joinToString { it.title }
+                        }
+                        store(context).use { source ->
+                            val sourceInventory = inventory(source)
+                            for (book in missing) {
+                                val temp = File.createTempFile("move-original-", ".bin", context.cacheDir)
+                                try {
+                                    verifiedCopy(source, sourceInventory, book, temp)
+                                    val linked = OriginalLinker(context.filesDir).link(temp, listOf(book))
+                                        ?: error("No se pudo conservar el original de " + book.title)
+                                    db.bookDao().update(linked)
+                                } finally { temp.delete() }
+                            }
+                        }
+                    }
+                    val moved = syncStore(target, db, owner, context.filesDir)
+                    require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
+                    require(db.backupDao().booksAll().all { it.contentHash in moved.hashes }) {
+                        "No se han podido comprobar todos los originales. Se conserva la conexión anterior."
+                    }
+                    activate(context, SavedConnection(tree, false, emptySet()))
+                    publishStatus(context, moved.hashes, moved.errors)
+                    moved
+                }
+                Result(result.hashes.size, result.errors)
+            }.also { schedule(context) }
+        }
+
     private fun readBounded(store: SharedStore, item: SharedDocumentStore.Item): ByteArray =
         store.open(item).use { input ->
             val out = java.io.ByteArrayOutputStream()
@@ -322,17 +371,18 @@ object SharedLibrary {
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context)) }
+            val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir) }
             if (result.errors.isEmpty()) prefs(context).edit()
                 .putLong("last_publication", System.currentTimeMillis()).apply()
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }
     }
-    internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String): StoreResult {
+    internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
+                                   filesDir: File? = null): StoreResult {
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+            val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
             for (json in inv.states) {
                 try { manager.restoreJson(json, synchronize = true) }
                 catch (e: CancellationException) { throw e }
@@ -352,7 +402,8 @@ object SharedLibrary {
             // A failed upload does not block the other books or reading state.
             publish(owner, store, db, known.values.flatten())
             store.commit()
-            return StoreResult(available, errors)
+            val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
+            return StoreResult(available.intersect(activeHashes), errors)
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -374,11 +425,12 @@ object SharedLibrary {
                         available.add(book.contentHash)
                     }
                 }
-                BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(content.json, synchronize = true)
+                BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir).restoreJson(content.json, synchronize = true)
                 publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
                 store.commit()
-                publishStatus(context, available, inv.errors)
-                Result(available.size, inv.errors)
+                val active = available.intersect(db.backupDao().booksAll().map { it.contentHash }.toSet())
+                publishStatus(context, active, inv.errors)
+                Result(active.size, inv.errors)
             } finally { stage.deleteRecursively() }
             }
         }
@@ -399,7 +451,7 @@ object SharedLibrary {
         mutex.withLock {
             store(context).use { store ->
             val inv = inventory(store)
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+            val manager = BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir)
             for (json in inv.states) {
                 try { manager.restoreJson(json, synchronize = true) }
                 catch (e: CancellationException) { throw e }
@@ -418,6 +470,17 @@ object SharedLibrary {
             }
         }
     }
+    suspend fun deleteEverywhere(context: Context, db: AppDatabase, id: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val removed = com.javierrb35.bibliotecaia.data.BookDeletion.remove(db, id) ?: return@withLock
+            // The logical deletion is committed before cleanup; stale remote copies cannot resurrect it.
+            if (CentralCatalogue.local(removed)) runCatching { LocalBookCopyRemover.delete(context.filesDir, removed) }
+            prefs(context).edit().putStringSet("hashes", hashes(context) - removed.contentHash).apply()
+            changes.value += 1
+        }
+        schedule(context, immediate = true)
+    }
+
     suspend fun evict(context: Context, db: AppDatabase, id: String) {
         val result = sync(context, db)
         require(result.errors.isEmpty()) { "Sincronización incompleta; no se retirará el original." }
@@ -464,20 +527,21 @@ object SharedLibrary {
                 }
             }
         }
-    internal suspend fun pullStore(store: SharedStore, db: AppDatabase): StoreResult {
+    internal suspend fun pullStore(store: SharedStore, db: AppDatabase, filesDir: File? = null): StoreResult {
         val inv = inventory(store)
         val errors = inv.errors.toMutableList()
-        val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
         for (json in inv.states) {
             try { manager.restoreJson(json, synchronize = true) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { errors.add(e.message ?: "Catálogo incompatible.") }
         }
-        return StoreResult(inv.availableHashes(), errors)
+        val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
+        return StoreResult(inv.availableHashes().intersect(activeHashes), errors)
     }
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val result = store(context).use { pullStore(it, db) }
+            val result = store(context).use { pullStore(it, db, context.filesDir) }
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }
