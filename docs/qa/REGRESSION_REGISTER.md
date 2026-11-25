@@ -10,6 +10,8 @@ No confundir una corrección escrita con una verificación realizada. Antes de f
 | Notas al tocar marcas | Rango exacto y modal guardado; no interferir con selección | SavedAnnotationModalDeviceTest, ScripturaMarkTapDeviceTest | Ver CI de cada cambio y Samsung físico |
 | [#94](https://github.com/JavierRB35/Android_EReader/pull/94) — selección multipantalla | Arrastre al borde, conserva selección y no cambia capítulo | SelectionEdgeScrollDeviceTest, SelectionEdgeSpeedTest (en PR #94, todavía no integradas) | CI pendiente; Readium y límites de bloque por verificar |
 
+| PR #100 / #99 — pérdida de foco en Ajustes | Cuatro fallos repetibles Espresso, ventana base sin foco; posible interferencia de consulta de releases real en debug. Aislar con variante QA existente y archivar diagnóstico si vuelve a fallar | Se mantienen SharedSettingsJourneyDeviceTest (3 casos) y SettingsBackupJourneyDeviceTest (1 caso), suite startup completa | [Evidencia de fallo](https://github.com/JavierRB35/Android_EReader/actions/runs/45614799099); hipótesis y corrección de aislamiento pendientes de CI |
+| Configuración IA ausente y claves mezcladas | Ajustes enlaza IA; campos/guardado/estado independientes, Groq predeterminado para nuevos ajustes, conserva opt-out y cifrado | AiSetupJourneyDeviceTest + AiFallbackRouterTest | Implementación en rama; CI y prueba real pendientes |
 ## Cierre de incidencias
 
 Registrar PR, SHA exacto, links de Actions, versión publicada y resultado de prueba física si aplica. Reabrir si el síntoma reaparece; reproducir primero y reforzar el test. No declarar verificado Drive real por un emulador con proveedor simulado.
