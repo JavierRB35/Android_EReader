@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
  * construct, name, edit or understand a JSON or ZIP. */
 internal class StorageSetupWizard(
     private val activity: AppCompatActivity, private val db: AppDatabase,
+    private val recoverBackup: () -> Unit,
     private val changed: () -> Unit
 ) {
     companion object {
@@ -49,6 +50,7 @@ internal class StorageSetupWizard(
     private var folder: Uri? = null
     private var prompt: AlertDialog? = null
     private var unified = false
+    private var currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
 
     private val pickFolder = activity.registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         waiting = false
@@ -67,6 +69,7 @@ internal class StorageSetupWizard(
         if (uri == null) { advance(); return@registerForActivityResult }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
             val result = SharedLibrary.connectFile(app, db, uri, newDocument = true)
             require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
         }
@@ -95,6 +98,7 @@ internal class StorageSetupWizard(
             val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             require((data.flags and mask) == mask) { "La ubicación no permite escribir." }
             activity.contentResolver.takePersistableUriPermission(uri, mask)
+            currentPhase = StorageSetupOutcome.Issue.BACKUP_WRITE
             BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, true, uri, replaceExisting = true)
         }
     }
@@ -109,6 +113,7 @@ internal class StorageSetupWizard(
         if (uri == null) { advance(); return@registerForActivityResult }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            currentPhase = StorageSetupOutcome.Issue.BACKUP_WRITE
             BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, true, uri, replaceExisting = false)
         }
     }
@@ -117,6 +122,7 @@ internal class StorageSetupWizard(
         if (uri == null) { advance(); return@registerForActivityResult }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            currentPhase = StorageSetupOutcome.Issue.PROGRESS_WRITE
             ReadingPositionSafSync.setOwn(app, db, uri)
             ReadingPositionSafSync.requestPublish(app)
         }
@@ -126,6 +132,7 @@ internal class StorageSetupWizard(
         if (uri == null) { advance(); return@registerForActivityResult }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
             val result = SharedLibrary.addFilePeer(app, db, uri)
             require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
         }
@@ -135,6 +142,7 @@ internal class StorageSetupWizard(
         if (uri == null) { advance(); return@registerForActivityResult }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            currentPhase = StorageSetupOutcome.Issue.PROGRESS_READ
             ReadingPositionSafSync.addPeer(app, uri)
             ReadingPositionSafSync.refreshForRead(app, db)
         }
@@ -192,14 +200,19 @@ internal class StorageSetupWizard(
 
     private suspend fun prepareAll(tree: Uri) {
         unified = true
+        currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
         val lib = SharedLibrary.relocateFolder(app, db, tree)
         require(lib.errors.isEmpty()) { lib.errors.joinToString(" · ") }
+        currentPhase = StorageSetupOutcome.Issue.PROGRESS_WRITE
         ReadingPositionSafSync.prepareFolder(app, db, tree, unified = true)
         require(ReadingPositionSafSync.inFolder(app, tree)) { "No se pudo preparar el guardado de avances." }
+        currentPhase = StorageSetupOutcome.Issue.PROGRESS_READ
         require(ReadingPositionSafSync.refresh(app, db) && ReadingPositionSafSync.publish(app, db)) {
             "No se pudieron comprobar los avances."
         }
+        currentPhase = StorageSetupOutcome.Issue.BACKUP_WRITE
         val result = BackupRoutine.prepareFolder(app, db, BuildConfig.VERSION_NAME, tree)
+        currentPhase = StorageSetupOutcome.Issue.BACKUP_MISSING
         require(result != BackupRoutine.Result.PARTIAL) { "Faltan originales en la copia." }
         prefs.edit().putBoolean("several", true).putString("unified_location", tree.toString()).apply()
     }
@@ -209,7 +222,7 @@ internal class StorageSetupWizard(
         show("Biblioteca preparada", "Biblioteca, copia de seguridad y guardado de avances comprobados." +
             if (peers > 0) "\n\nOtros dispositivos detectados: $peers. Ya puedes continuar leyendo."
             else "\n\nEn tu otro dispositivo, elige esta misma ubicación. Se reconocerá automáticamente, sin vincular archivos a mano.",
-            "Terminar" to { pause() })
+            "Terminar" to { pause() }, closeLabel = "Cerrar")
     }
 
     private fun chooseMode(value: Boolean) {
@@ -223,12 +236,12 @@ internal class StorageSetupWizard(
         changed()
     }
     private fun show(title: String, message: String, primary: Pair<String, () -> Unit>,
-                     secondary: Pair<String, () -> Unit>? = null) {
+                     secondary: Pair<String, () -> Unit>? = null, closeLabel: String = "Continuar más tarde") {
         if (!active || activity.isFinishing || activity.isDestroyed) return
         prompt?.dismiss()
         val builder = AlertDialog.Builder(activity).setTitle(title).setMessage(message)
             .setPositiveButton(primary.first) { _, _ -> primary.second() }
-            .setNegativeButton("Continuar más tarde") { _, _ -> pause() }
+            .setNegativeButton(closeLabel) { _, _ -> pause() }
             .setOnCancelListener { pause() }
         if (secondary != null) builder.setNeutralButton(secondary.first) { _, _ -> secondary.second() }
         prompt = builder.show()
@@ -259,8 +272,7 @@ internal class StorageSetupWizard(
                 busy = false
                 prompt?.dismiss()
                 changed()
-                show("No se pudo completar este paso", (e.message ?: "No se pudo acceder a la ubicación.") +
-                    "\n\nLos datos existentes se conservan.", "Reintentar" to { if (unified) showLocationChoice() else advance() })
+                showIssue(currentIssue(currentPhase), e.message.orEmpty())
             }
         }
     }
@@ -335,34 +347,144 @@ internal class StorageSetupWizard(
                     if (tree != null) "Seleccionar archivo" to { launchPicker { positionPeer.launch(arrayOf("*/*")) } }
                     else "Lo haré más tarde" to { pause() })
             }
-            StorageSetupPlan.Step.VERIFY -> {
-                busy = true
-                prompt = AlertDialog.Builder(activity).setTitle("Comprobación final").setMessage("Verificando la configuración…").setCancelable(false).show()
-                activity.lifecycleScope.launch {
-                    try {
-                        val libOk = if (SharedLibrary.configured(app)) SharedLibrary.sync(app, db).errors.isEmpty() else !several
-                        val positions = !several || (ReadingPositionSafSync.fastReady(app) &&
-                            ReadingPositionSafSync.refreshForRead(app, db) && ReadingPositionSafSync.publish(app, db))
-                        val copy = BackupRoutine.status(app)
-                        val complete = libOk && positions && copy.uri != null &&
-                            !copy.recoveryPending && copy.lastSuccess > 0 && copy.missingTitles.isEmpty()
-                        if (complete) prefs.edit().remove("target_peers").apply()
-                        prompt?.dismiss()
-                        busy = false
-                        show(if (complete) "Configuración completada" else "Configuración con tareas pendientes",
-                            "Biblioteca: " + (if (!several && !SharedLibrary.configured(app)) "solo en este dispositivo" else if (libOk) "comprobada" else "requiere revisión") +
-                            "\nCopia de seguridad: " + (if (copy.uri != null && copy.lastSuccess > 0 && !copy.recoveryPending && copy.missingTitles.isEmpty()) "guardada" else "pendiente o incompleta") +
-                            "\nAvances: " + (if (!several) "lectura local" else if (positions) "sincronización comprobada" else "pendiente") +
-                            if (several) "\n\nRepite el asistente en el otro dispositivo. No necesitas guardar la página manualmente." else "",
-                            "Terminar" to { pause() })
-                    } catch (e: CancellationException) { throw e }
-                    catch (e: Exception) {
-                        prompt?.dismiss()
-                        busy = false
-                        show("Comprobación pendiente", e.message ?: "Vuelve a intentarlo cuando haya conexión.", "Reintentar" to { advance() })
-                    } finally { changed() }
+            StorageSetupPlan.Step.VERIFY -> verifyExisting()
+        }
+    }
+
+    private fun currentIssue(fallback: StorageSetupOutcome.Issue): StorageSetupOutcome.Issue {
+        val copy = BackupRoutine.status(app)
+        return when {
+            !SharedLibrary.hasAccess(app) -> StorageSetupOutcome.Issue.LIBRARY_ACCESS
+            SharedLibrary.needsRepair(app) -> StorageSetupOutcome.Issue.LIBRARY_OWNER
+            fallback == StorageSetupOutcome.Issue.BACKUP_WRITE && copy.recoveryPending -> StorageSetupOutcome.Issue.BACKUP_RECOVERY
+            fallback == StorageSetupOutcome.Issue.BACKUP_WRITE && copy.uri == null && BackupRoutine.savedDestination(app) != null -> StorageSetupOutcome.Issue.BACKUP_ACCESS
+            fallback == StorageSetupOutcome.Issue.BACKUP_WRITE && copy.missingTitles.isNotEmpty() -> StorageSetupOutcome.Issue.BACKUP_MISSING
+            else -> fallback
+        }
+    }
+
+    private fun verifyExisting() {
+        if (busy || !active) return
+        busy = true
+        prompt?.dismiss()
+        prompt = AlertDialog.Builder(activity).setTitle("Comprobando tu biblioteca")
+            .setMessage("Estamos verificando el acceso y guardando tus datos.").setCancelable(false).show()
+        activity.lifecycleScope.launch {
+            try {
+                currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
+                val lib = SharedLibrary.sync(app, db)
+                if (lib.errors.isNotEmpty()) {
+                    busy = false
+                    showIssue(currentIssue(currentPhase), lib.errors.joinToString(" · "))
+                    return@launch
                 }
+                currentPhase = StorageSetupOutcome.Issue.BACKUP_WRITE
+                val copy = BackupRoutine.status(app)
+                if (copy.recoveryPending) {
+                    busy = false
+                    showIssue(StorageSetupOutcome.Issue.BACKUP_RECOVERY)
+                    return@launch
+                }
+                if (copy.uri == null) {
+                    busy = false
+                    showIssue(StorageSetupOutcome.Issue.BACKUP_ACCESS)
+                    return@launch
+                }
+                // Do not trust an old success flag; actually refresh and verify the copy.
+                val backed = BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, true)
+                if (backed == BackupRoutine.Result.PARTIAL) {
+                    busy = false
+                    showIssue(StorageSetupOutcome.Issue.BACKUP_MISSING)
+                    return@launch
+                }
+                currentPhase = StorageSetupOutcome.Issue.PROGRESS_WRITE
+                val written = ReadingPositionSafSync.publish(app, db)
+                currentPhase = StorageSetupOutcome.Issue.PROGRESS_READ
+                val read = ReadingPositionSafSync.refreshForRead(app, db)
+                val pos = ReadingPositionSafSync.status(app)
+                val issue = StorageSetupOutcome.first(StorageSetupOutcome.State(
+                    SharedLibrary.hasAccess(app), !SharedLibrary.needsRepair(app), true,
+                    false, true, false, true, written,
+                    pos.peerCount >= maxOf(1, SharedLibrary.peerCount(app)), read))
+                busy = false
+                if (issue == StorageSetupOutcome.Issue.NONE) {
+                    prefs.edit().remove("target_peers").apply()
+                    show("Todo preparado", "Tus libros están disponibles, la copia se ha guardado y se han comprobado los avances de lectura de los dispositivos vinculados.",
+                        "Terminar" to { pause() }, closeLabel = "Cerrar")
+                } else showIssue(issue, pos.lastError)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                busy = false
+                showIssue(currentIssue(currentPhase), e.message.orEmpty())
+            } finally {
+                changed()
             }
+        }
+    }
+
+    private fun retryCheck() {
+        if (unified) {
+            val tree = folder
+            if (tree != null) runStep { prepareAll(tree) } else showLocationChoice()
+        } else verifyExisting()
+    }
+
+    private fun showIssue(issue: StorageSetupOutcome.Issue, details: String = "") {
+        // Preserve the exact provider failure for support, but don't put it in the main explanation.
+        if (details.isNotBlank()) android.util.Log.w("BibliotecaSetup", issue.name + ": " + details.take(1500))
+        val copy = BackupRoutine.status(app)
+        when (issue) {
+            StorageSetupOutcome.Issue.LIBRARY_ACCESS, StorageSetupOutcome.Issue.LIBRARY_OWNER ->
+                show("Necesitamos volver a acceder a tu biblioteca",
+                    "No hemos podido abrir la biblioteca guardada. Tus libros del dispositivo siguen aquí. Autoriza otra vez la ubicación o selecciona una nueva.",
+                    "Elegir ubicación" to { showLocationChoice() },
+                    "Reintentar" to { retryCheck() })
+            StorageSetupOutcome.Issue.LIBRARY_SYNC ->
+                show("No hemos podido comprobar tu biblioteca",
+                    "No hemos podido leer o actualizar todos los libros guardados. Comprueba la conexión a internet y vuelve a intentarlo. Si persiste, elige otra ubicación; no borraremos la anterior.",
+                    "Reintentar" to { retryCheck() }, "Cambiar ubicación" to { showLocationChoice() })
+            StorageSetupOutcome.Issue.BACKUP_RECOVERY ->
+                show("Hay una copia anterior que recuperar",
+                    "La última copia no pudo completarse. Conservamos la copia anterior para proteger tus libros. Recupérala antes de volver a guardar.",
+                    "Recuperar copia anterior" to { pause(); recoverBackup() })
+            StorageSetupOutcome.Issue.BACKUP_ACCESS ->
+                show("Falta acceso a tu copia de seguridad",
+                    "La biblioteca puede seguir utilizándose, pero todavía no podemos guardar la copia. Vuelve a autorizar su ubicación.",
+                    "Autorizar copia" to {
+                        if (unified) showLocationChoice()
+                        else if (BackupRoutine.savedDestination(app) != null) launchPicker { repairBackup.launch(openWritable()) }
+                        else launchPicker { backupFile.launch("BibliotecaIA-copia-" + ReadingPositionSafSync.deviceId(app).take(8) + ".zip") }
+                    })
+            StorageSetupOutcome.Issue.BACKUP_MISSING ->
+                show("Faltan libros en la copia",
+                    "No hemos podido localizar el archivo original de " + copy.missingTitles.size + " libro(s). " +
+                        "Tus demás datos se conservan. Recupera los libros que quieras mantener o elimínalos definitivamente de la biblioteca y vuelve a comprobar." +
+                        copy.missingTitles.take(5).joinToString(separator = "\n", prefix = "\n\n"),
+                    "Ir a mi biblioteca" to { pause(); activity.finish() },
+                    "Reintentar" to { retryCheck() })
+            StorageSetupOutcome.Issue.BACKUP_WRITE ->
+                show("No hemos podido guardar la copia",
+                    "Tus libros siguen disponibles. Comprueba que la ubicación tenga espacio y permita guardar archivos. No consideraremos completa la copia hasta verificarla.",
+                    "Reintentar" to { retryCheck() }, "Cambiar ubicación" to { showLocationChoice() })
+            StorageSetupOutcome.Issue.PROGRESS_WRITE ->
+                show("No hemos podido compartir tu página",
+                    "Puedes seguir leyendo en este dispositivo. Para continuar desde otro, necesitamos guardar tu avance en la ubicación compartida.",
+                    "Reintentar" to { retryCheck() }, "Cambiar ubicación" to { showLocationChoice() })
+            StorageSetupOutcome.Issue.OTHER_DEVICE ->
+                show("Este dispositivo ya está preparado",
+                    "La biblioteca y la copia se han comprobado y tu página se guarda. Todavía no hemos encontrado el progreso del otro equipo. Abre BibliotecaAI allí y completa el mismo asistente.",
+                    "Buscar otro dispositivo" to {
+                        if (unified) retryCheck()
+                        else {
+                            targetPeers = maxOf(1, SharedLibrary.peerCount(app))
+                            advance()
+                        }
+                    }, closeLabel = "Cerrar")
+            StorageSetupOutcome.Issue.PROGRESS_READ ->
+                show("No podemos comprobar la página del otro equipo",
+                    "Tu avance local se conserva, pero no hemos podido leer todos los avances compartidos. Comprueba internet y vuelve a intentarlo.",
+                    "Reintentar" to { retryCheck() }, "Cambiar ubicación" to { showLocationChoice() })
+            StorageSetupOutcome.Issue.NONE -> showUnifiedResult()
         }
     }
 }

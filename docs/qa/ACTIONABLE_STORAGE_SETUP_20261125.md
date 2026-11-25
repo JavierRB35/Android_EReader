@@ -1,0 +1,2 @@
+# Asistente resolutivo
+Se elimina el final genérico de tres estados pendientes. Se verifica biblioteca, se actualiza realmente la copia y se comprueba escritura y lectura de avances. Se detiene en la primera incidencia con explicación de usuario y acción concreta. La ausencia de otro equipo no es un fallo de configuración local. Los detalles técnicos se conservan en log; no se afirma que se conozca la causa del fallo físico reportado. Prueba unitaria de prioridad y diferenciación de estados.

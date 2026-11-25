@@ -399,7 +399,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setupWizard = StorageSetupWizard(this, db) { refreshUnifiedStatus() }
+        setupWizard = StorageSetupWizard(this, db, recoverBackup = { recoverPreviousBackup() }) { refreshUnifiedStatus() }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(28))
@@ -474,13 +474,13 @@ class SettingsActivity : AppCompatActivity() {
         unifiedStatus.text = buildString {
             append(if (ready && peers > 0 && position.lastSuccess > 0) "Todo preparado"
                 else if (ready) "Preparado en este dispositivo"
-                else "Configuración pendiente de completar o comprobar")
+                else "Necesitamos comprobar tu biblioteca")
             append("\nBiblioteca: ").append(if (lib) "disponible" else "pendiente")
             append("\nCopia de seguridad: ").append(if (copy) "guardada" else "pendiente")
             append("\nAvances de lectura: ").append(if (progress) "guardados automáticamente" else "pendientes")
             append("\n").append(if (peers > 0) "Otros dispositivos detectados: $peers" else "Aún no se ha detectado otro dispositivo")
         }
-        unifiedAction.text = if (ready) "Comprobar configuración" else "Configurar biblioteca"
+        unifiedAction.text = if (ready) "Comprobar configuración" else if (SharedLibrary.configured(app)) "Resolver configuración" else "Configurar biblioteca"
     }
 
     private fun refreshPositionSyncStatus() {
