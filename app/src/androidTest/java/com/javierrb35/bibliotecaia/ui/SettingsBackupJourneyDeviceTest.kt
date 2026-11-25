@@ -25,8 +25,7 @@ class SettingsBackupJourneyDeviceTest {
             onView(withText("Configurar biblioteca")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
-            onView(withText("Guardar en Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
-            onView(withText("Otra carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
         } finally {
             scenario.close()
