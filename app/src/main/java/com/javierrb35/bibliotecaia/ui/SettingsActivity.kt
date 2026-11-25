@@ -32,6 +32,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
+import com.javierrb35.bibliotecaia.updates.UpdateNotes
 import kotlinx.coroutines.Dispatchers
 import java.text.DateFormat
 import java.util.Date
@@ -733,7 +734,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
-                .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
+                .setMessage(UpdateNotes.detail(release.notes))
                 .setPositiveButton("Instalar actualización") { _, _ ->
                     UpdateInstaller.start(this@SettingsActivity, release)
                 }

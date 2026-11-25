@@ -13,6 +13,10 @@ Referencia funcional: Scriptura para Android.
 4. `docs/product/requirements.md` — requisitos funcionales condensados.
 5. `docs/architecture/decisions.md` (ADRs) y `docs/architecture/overview.md`.
 
+## Notas de actualización (obligatorio)
+
+- Cada PR funcional incluye un fragmento nuevo en `docs/release-notes/<identificador>.md`, con viñetas breves en español sobre cambios que verá el usuario. No describir funciones pendientes como entregadas. El publicador obtiene las notas de los cambios integrados desde la última APK oficial. Los avisos deben mostrar qué incorpora la versión, no solo su número.
+
 ## No regresión (obligatorio)
 
 - Antes de cambiar una funcionalidad, consulta `docs/qa/REGRESSION_REGISTER.md` y las incidencias relacionadas. Toda corrección significativa debe enlazar una prueba permanente, o declarar de forma explícita por qué requiere validación física.
