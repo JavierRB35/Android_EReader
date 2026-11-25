@@ -225,3 +225,7 @@ El agente de diseño dejó pendiente la «revisión visual real… hasta dispone
 - Al tocar el estado se abre selector explícito de estado; favorito, IA, edición de metadatos, apertura de lector y revinculación de original por hash se conservan.
 - Evidencia: [Android UI instrumentado #44805098468](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098468) **SUCCESS, 2/2**, probado con viewport reducido a `900×1900 px` y sin desplazamiento vertical; [quality gate #44805098643](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098643) **SUCCESS**; [OCR/lector emulador #44805098464](https://github.com/JavierRB35/Android_EReader/actions/runs/44805098464) **SUCCESS**. Smoke de arranque separado en curso al documentar.
 - Limitación: no se ha verificado el diseño aún en el Samsung físico ni a escalas de fuente extremas. No distribuir APK ni afirmar aceptación de dispositivo hasta confirmar.
+
+
+## Cierre obligatorio de modificaciones — 25/11/2026
+- Directriz del propietario: validar → fusionar en main → publicar nueva APK oficial verificada → eliminar rama de trabajo fusionada, tras verificar HEAD y ausencia de dependencias o cambios pendientes. Registrada en AGENTS.md y protocolo. Se mantienen las puertas de calidad, la numeración creciente y la conservación de ramas activas/protegidas. Cambio documental; no se eliminan ramas existentes en esta actuación.

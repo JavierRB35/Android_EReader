@@ -402,6 +402,17 @@ Evita: abstracciones prematuras, interfaces innecesarias, clases sin responsabil
 
 ---
 
+## Cierre obligatorio de cada modificación — 25/11/2026
+
+Toda modificación autorizada, incluida una corrección pequeña o un cambio documental, debe llegar a `main`, quedar incluida en una publicación oficial verificada y cerrar su rama de trabajo. La directriz constituye autorización permanente para integrar, publicar y limpiar la rama propia de trabajos terminados y validados, sin pedir una nueva confirmación para cada paso.
+
+1. Trabajar en una rama identificable, registrar los cambios y abrir PR. Coordinar con otras ramas y resolver conflictos sin perder cambios ajenos.
+2. Validar todos los controles pertinentes sobre el HEAD exacto; no fusionar trabajos incompletos, WIP ni pruebas fallidas o pendientes.
+3. Fusionar en `main` por el procedimiento permitido del repositorio, verificando que se conserva todo el contenido previsto. No eludir protecciones.
+4. Verificar CI de `main` y publicación oficial con versión estrictamente superior, APK firmada, checksum, notas de cambios y commit integrado. Una publicación posterior puede incluir varias modificaciones ya fusionadas; no duplicar releases ni publicar una APK obsoleta.
+5. Solo después de verificar la publicación, eliminar la rama de trabajo remota ya fusionada, comprobando que su HEAD no ha avanzado, que no contiene cambios sin integrar y que ninguna PR abierta depende de ella. Conservar `main`, ramas protegidas, ramas activas o compartidas y etiquetas de release. No eliminar ramas mediante borrados masivos, ni si hay dudas sobre dependencias o integridad.
+6. Registrar PR, commit, resultado CI, versión, enlace directo de descarga y confirmación de limpieza. Si hay bloqueo o una dependencia pendiente, dejar constancia y conservar la rama; no declarar completada la entrega.
+
 ## 14. GESTIÓN DE GIT Y CAMBIOS
 
 Git constituye el mecanismo principal de trazabilidad y recuperación del código.
@@ -424,7 +435,7 @@ Antes de fusionar: 1. Comprueba que los criterios de aceptación están satisfec
 
 No hagas "push", merges, publicaciones o despliegues si el usuario no los ha autorizado explícitamente o no existe una autorización previa aplicable.
 
-Cuando el usuario indique expresamente que debe fusionarse con "main", prepara la integración y ejecútala conforme a los permisos y reglas del repositorio. No anules protecciones de ramas para acelerar una entrega.
+En BibliotecaAI, la directriz permanente de cierre autoriza y exige integrar en main los trabajos autorizados y validados, publicar y eliminar exclusivamente las ramas propias fusionadas y publicadas según sus condiciones. No anules protecciones de ramas para acelerar una entrega.
 
 ### 14.4. Acciones destructivas
 
