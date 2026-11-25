@@ -108,7 +108,15 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
-        findViewById<View>(R.id.btnDeleteEverywhere).setOnClickListener { confirmDeleteEverywhere() }
+        findViewById<View>(R.id.btnDeleteEverywhere).setOnClickListener { anchor ->
+            androidx.appcompat.widget.PopupMenu(this, anchor).apply {
+                menu.add("Eliminar de la biblioteca")
+                setOnMenuItemClickListener {
+                    confirmDeleteEverywhere()
+                    true
+                }
+            }.show()
+        }
         findViewById<View>(R.id.btnDownloadCentral).setOnClickListener { downloadCentral() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
