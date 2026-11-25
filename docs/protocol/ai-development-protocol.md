@@ -1,5 +1,14 @@
 # PROTOCOLO DE DESARROLLO ASISTIDO POR INTELIGENCIA ARTIFICIAL
 
+## Directriz obligatoria de versionado y publicación — 25/11/2026
+
+- Toda nueva APK oficial debe tener un `versionName` semánticamente **superior** y un `versionCode` numéricamente **superior** a los de la publicación oficial anterior y a los máximos oficiales publicados. Nunca reutilizar ni reemplazar un número de versión, aunque el cambio sea mínimo.
+- La etiqueta GitHub `vX.Y.Z`, el nombre del archivo APK y su `versionName` interno deben coincidir. Mantener el identificador de paquete y la firma original; verificar el SHA-256.
+- Es obligatorio bloquear automáticamente la publicación si cualquiera de los dos identificadores no aumenta, si el tag ya existe, o si no se puede verificar la correspondencia de versiones y firma. No omitir controles para forzar una release. En caso de reintento de un commit ya publicado, comprobar la release existente sin sobrescribirla.
+- Antes de declarar la publicación completada, comprobar los assets APK/checksum, el commit integrado, la release pública marcada como última y su detección desde una versión anterior. Diferenciar comprobación automatizada de prueba física pendiente. Informar de la versión y del enlace directo de descarga.
+- Ejemplo: si la última APK oficial es `v0.1.128`, la próxima debe ser `v0.1.129` o superior, con un `versionCode` superior. Volver a publicar como 128 impide que las instalaciones 128 detecten el cambio.
+
+
 > Versión: 1.0 · Ámbito: desarrollo, mantenimiento, evolución, refactorización, depuración y entrega de software.
 > Objetivo: maximizar la productividad real, la calidad y la continuidad del proyecto, minimizando el consumo innecesario de tiempo, tokens, operaciones, compilaciones y pruebas.
 > Documento facilitado por el propietario del proyecto. Transcripción fiel desde el PDF original. **Lectura completa obligatoria antes de modificar cualquier archivo.**

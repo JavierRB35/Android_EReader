@@ -6,6 +6,10 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## DIRECTRIZ DE VERSIONADO OBLIGATORIA — 25/11/2026
+- Por orden del propietario, `versionName` y `versionCode` aumentan estrictamente en cada nueva APK oficial. Prohibido reutilizar tags/versiones o sobrescribir una release. Obligatoria validación automática contra el máximo publicado, coincidencia tag/APK, firma y checksum, detección desde versión anterior.
+- Directriz registrada en AGENTS.md, protocolo y docs/automatic-updates.md. Este commit es documental: el refuerzo del control explícito de monotonía en el workflow deberá verificarse/implementarse en la siguiente modificación del publicador (coordinar PR #104). No atribuir al presente commit cambios ejecutables.
+ 
 ## DETECCIÓN FIABLE DE ACTUALIZACIONES — 25/11/2026
 - v0.1.128 publicada, repositorio público y ambos assets presentes. Detectados fallos de diseño: polling iniciado en Splash consumía intervalo aunque se cancelara; aviso transitorio consumía permanentemente el tag; errores de red indistinguibles de versión actual.
 - Corrección: omitir Splash, intervalo desde respuesta, caché en proceso, avisos diferenciados y diagnóstico/reintento desde Ajustes. Conserva validación firma/checksum y notificaciones Android. Pruebas JVM clasificación respuesta; CI y validación física pendientes. La causa exacta de cada dispositivo no se conoce sin su diagnóstico.
