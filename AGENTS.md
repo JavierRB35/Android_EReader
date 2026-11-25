@@ -13,6 +13,11 @@ Referencia funcional: Scriptura para Android.
 4. `docs/product/requirements.md` — requisitos funcionales condensados.
 5. `docs/architecture/decisions.md` (ADRs) y `docs/architecture/overview.md`.
 
+## No regresión (obligatorio)
+
+- Antes de cambiar una funcionalidad, consulta `docs/qa/REGRESSION_REGISTER.md` y las incidencias relacionadas. Toda corrección significativa debe enlazar una prueba permanente, o declarar de forma explícita por qué requiere validación física.
+- No fusionar/publicar con controles relevantes fallidos o pendientes. El gate de arranque y el gate JVM obligatorios para publicación deben conservar las regresiones críticas de almacenamiento. Actualiza el registro con commit, pruebas realmente ejecutadas y versión comprobada; emulador no equivale a Drive real.
+
 ## Entorno objetivo (no actualizar versiones por novedad)
 
 | Componente | Versión |
