@@ -16,11 +16,12 @@ internal object BatchImport {
     ): Result {
         val imported = mutableListOf<BookEntity>()
         val failures = mutableListOf<String>()
-        items.distinct().forEachIndexed { index, item ->
+        val unique = items.distinct()
+        unique.forEachIndexed { index, item ->
             try { imported.add(importOne(item)) }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { failures.add(e.message ?: "Archivo no válido o inaccesible") }
-            progress(index + 1, items.distinct().size)
+            progress(index + 1, unique.size)
         }
         var centralError: String? = null
         if (central && imported.isNotEmpty()) {
