@@ -14,6 +14,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.Espresso.pressBack
@@ -24,15 +25,16 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SharedSettingsJourneyDeviceTest {
-    @Test fun unconfiguredDeviceShowsSingleSetupAndCloudFirst() {
+    @Test fun unconfiguredDeviceShowsSingleFolderSetup() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext
         app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
         val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
-            onView(withText("Guardar en Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
-            onView(withText("Otra carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Guardar en Drive")).check(doesNotExist())
+            onView(withText("Otra carpeta")).check(doesNotExist())
             onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
             onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
         } finally {
@@ -40,11 +42,8 @@ class SharedSettingsJourneyDeviceTest {
             app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
         }
     }
-    @Test fun cloudFirstUsesCreateDocumentAndCancelReturnsToChoice() =
-        verifyPicker("Guardar en Drive", Intent.ACTION_CREATE_DOCUMENT, "application/zip")
-
-    @Test fun folderIsSeparateAndCancelReturnsToChoice() =
-        verifyPicker("Otra carpeta", Intent.ACTION_OPEN_DOCUMENT_TREE, null)
+    @Test fun folderOnlyAndCancelReturnsToChoice() =
+        verifyPicker("Seleccionar carpeta", Intent.ACTION_OPEN_DOCUMENT_TREE, null)
 
     @Test fun sharedFolderCheckOpensTreeWithoutChangingExistingConnection() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -106,10 +105,10 @@ class SharedSettingsJourneyDeviceTest {
             val intent = captured.get()
             assertNotNull("The wizard must launch the requested picker", intent)
             instrumentation.waitForIdleSync()
-            onView(withText("Guardar en Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
             assertEquals(expected, intent.action)
             assertEquals(mime, intent.type)
-            onView(withText("Otra carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Guardar en Drive")).check(doesNotExist())
             onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
         } finally {
             instrumentation.removeMonitor(monitor)
