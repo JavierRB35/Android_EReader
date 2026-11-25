@@ -65,6 +65,7 @@ object SharedLibrary {
             status.contains("La identidad del archivo no coincide"))
     }
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
+    fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
             it.uri == candidate || candidate.toString() in it.peers
@@ -108,7 +109,7 @@ object SharedLibrary {
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
             .remove("owner_mismatch")
-        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").putString("status", "Pendiente de sincronizar.")
+        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
     }
@@ -324,6 +325,8 @@ object SharedLibrary {
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context)) }
+            if (result.errors.isEmpty()) prefs(context).edit()
+                .putLong("last_publication", System.currentTimeMillis()).apply()
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }

@@ -270,11 +270,13 @@ class SettingsActivity : AppCompatActivity() {
         val app = applicationContext
         val selected = SharedLibrary.uri(app)
         val success = SharedLibrary.lastSuccess(app)
+        val published = SharedLibrary.lastPublication(app)
         sharedStatus.text = buildString {
             append(SharedLibrary.status(app))
             if (selected != null) append("\nID de este dispositivo: ").append(ReadingPositionSafSync.deviceId(app).take(8))
             if (selected != null && nameUri == selected && ownName.isNotBlank()) append("\nArchivo o carpeta: ").append(ownName)
             if (success > 0) append("\nÚltima comprobación: ").append(DateFormat.getDateTimeInstance().format(Date(success)))
+            if (published > 0) append("\nÚltimo envío comprobado: ").append(DateFormat.getDateTimeInstance().format(Date(published)))
         }
         if (selected == null) { nameUri = null; ownName = "" }
         if (selected != null && selected != nameUri) {

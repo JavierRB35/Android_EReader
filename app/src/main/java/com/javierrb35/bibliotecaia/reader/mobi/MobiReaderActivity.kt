@@ -97,7 +97,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
     @Volatile private var positionRevision = 0L
-    private var lastQueuedOffset: Int? = null
+    @Volatile private var lastQueuedOffset: Int? = null
     private var touchX = 0f
     private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
@@ -378,6 +378,7 @@ class MobiReaderActivity : AppCompatActivity() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                if (revision == positionRevision) lastQueuedOffset = null
                 android.util.Log.e("BibliotecaMobiPosition", "Unable to persist reading position", failure)
             }
         }

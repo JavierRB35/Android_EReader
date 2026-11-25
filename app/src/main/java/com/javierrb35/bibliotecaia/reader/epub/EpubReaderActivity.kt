@@ -132,7 +132,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeRestoring = false
     private var nativeMoved = false
     private var readiumMoved = false
-    private var lastQueuedLocator: String? = null
+    @Volatile private var lastQueuedLocator: String? = null
+    @Volatile private var positionWriteRevision = 0L
     private var lastNativeReadiumKey: String? = null
     private var nativeReadiumRefresh: Job? = null
     private var themeIndex = 0
@@ -704,13 +705,17 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         val id = bookId
         val changed = lastQueuedLocator != locator
         if (changed) lastQueuedLocator = locator
+        val revision = if (changed) ++positionWriteRevision else positionWriteRevision
         saves.launch {
             try {
-                saveMutex.withLock { if (changed) repository.savePosition(id, locator, progress) }
+                saveMutex.withLock {
+                    if (changed && revision == positionWriteRevision) repository.savePosition(id, locator, progress)
+                }
                 if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
             }
             catch (_: Exception) {
                 withContext(Dispatchers.Main) {
+                    if (revision == positionWriteRevision) lastQueuedLocator = null
                     toast("No se pudo guardar la posición.")
                 }
             }
@@ -1329,12 +1334,16 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             val app = applicationContext
             val changed = lastQueuedLocator != json
             if (changed) lastQueuedLocator = json
+            val revision = if (changed) ++positionWriteRevision else positionWriteRevision
             saves.launch {
                 try {
-                    saveMutex.withLock { if (changed) repo.savePosition(id, json, progression) }
+                    saveMutex.withLock {
+                        if (changed && revision == positionWriteRevision) repo.savePosition(id, json, progression)
+                    }
                     com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(app)
                 }
                 catch (_: Exception) { withContext(Dispatchers.Main) {
+                    if (revision == positionWriteRevision) lastQueuedLocator = null
                     Toast.makeText(app, "No se pudo guardar la posición de lectura.", Toast.LENGTH_LONG).show()
                 } }
             }
@@ -1348,10 +1357,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private suspend fun persist(locator: Locator) {
         val json = locator.toJSON().toString()
         if (lastQueuedLocator == json) return
+        val revision = ++positionWriteRevision
         saveMutex.withLock {
-            repository.savePosition(bookId, json, (locator.locations.totalProgression ?: 0.0).toFloat())
+            if (revision == positionWriteRevision) {
+                repository.savePosition(bookId, json, (locator.locations.totalProgression ?: 0.0).toFloat())
+                if (revision == positionWriteRevision) lastQueuedLocator = json
+            }
         }
-        lastQueuedLocator = json
     }
     override fun onDestroy() {
         speech.shutdown()

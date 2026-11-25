@@ -60,7 +60,7 @@ class PdfReaderActivity : AppCompatActivity() {
     private val positionWrites = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private val positionMutex = kotlinx.coroutines.sync.Mutex()
     @Volatile private var positionRevision = 0L
-    private var lastQueuedPage: Int? = null
+    @Volatile private var lastQueuedPage: Int? = null
     private var bookTitle = "PDF"
     private var contentHash = ""
     private var marks: List<AnnotationEntity> = emptyList()
@@ -313,6 +313,7 @@ class PdfReaderActivity : AppCompatActivity() {
                     ReadingRepository(app).savePosition(id, location, progress)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
+                if (revision == positionRevision) lastQueuedPage = null
                 android.util.Log.e("BibliotecaPdfPosition", "Unable to persist reading position", e)
             } finally { positionMutex.unlock() }
             if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(app)
