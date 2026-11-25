@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
+import com.javierrb35.bibliotecaia.backup.CentralCatalogue
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.sync.SharedLibrary
@@ -52,11 +53,12 @@ internal class StorageSetupWizard(
     private var unified = false
     private var currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
     private var seekingPeer = false
+    private var choosingLocation = false
 
     private val pickFolder = activity.registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         waiting = false
         if (uri == null) {
-            if (unified) showLocationChoice() else advance()
+            if (choosingLocation || unified) showLocationChoice() else advance()
             return@registerForActivityResult
         }
         runStep {
@@ -64,16 +66,21 @@ internal class StorageSetupWizard(
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             folder = uri
             prepareAll(uri)
+            choosingLocation = false
         }
     }
     private val libraryFile = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         waiting = false
-        if (uri == null) { advance(); return@registerForActivityResult }
+        if (uri == null) {
+            if (choosingLocation) showLocationChoice() else advance()
+            return@registerForActivityResult
+        }
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
             val result = SharedLibrary.connectFile(app, db, uri, newDocument = true)
             require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+            choosingLocation = false
         }
     }
     private val repairLibrary = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -150,6 +157,7 @@ internal class StorageSetupWizard(
         }
     }
     fun restore(state: Bundle?) {
+        choosingLocation = state?.getBoolean("wizard_choosing_location") == true
         active = state?.getBoolean("wizard_active") == true
         unified = state?.getBoolean("wizard_unified") == true
         waiting = state?.getBoolean("wizard_waiting") == true
@@ -158,9 +166,12 @@ internal class StorageSetupWizard(
         seekingPeer = state?.getBoolean("wizard_seeking_peer") == true
         targetPeers = state?.getInt("wizard_target_peers", 1) ?: 1
         folder = state?.getString("wizard_folder")?.let(Uri::parse) ?: ReadingPositionSafSync.folder(app)
-        if (active && !waiting) activity.window.decorView.post { advance() }
+        if (active && !waiting) activity.window.decorView.post {
+            if (choosingLocation) showLocationChoice() else advance()
+        }
     }
     fun save(state: Bundle) {
+        state.putBoolean("wizard_choosing_location", choosingLocation)
         state.putBoolean("wizard_active", active)
         state.putBoolean("wizard_unified", unified)
         state.putBoolean("wizard_waiting", waiting)
@@ -178,6 +189,7 @@ internal class StorageSetupWizard(
         several = true
         skipBackup = false
         seekingPeer = false
+        choosingLocation = false
         prefs.edit().putBoolean("dismissed", false).apply()
         val current = SharedLibrary.uri(app)?.takeIf {
             !SharedLibrary.fileMode(app) && StorageGrants.allows(app, it, true)
@@ -199,16 +211,56 @@ internal class StorageSetupWizard(
     }
 
     private fun showLocationChoice() {
-        show("Configura tu biblioteca", "Elige una carpeta común a tus dispositivos. La aplicación preparará la biblioteca, la copia y el progreso a la vez. Para empezar de cero, elige una carpeta nueva y usa esa misma carpeta en el otro equipo. No se borrará la anterior.",
-            "Elegir ubicación" to { launchPicker { pickFolder.launch(null) } },
-            "No encuentro mi carpeta" to {
+        choosingLocation = true
+        // A file provider (Drive) need not advertise any document-tree roots.
+        // Never force users through ACTION_OPEN_DOCUMENT_TREE to find Drive.
+        show("Configura tu biblioteca",
+            "Para Google Drive u otra nube, elige Guardar en Drive y confirma la carpeta dentro del selector de archivos. " +
+                "Para almacenamiento que admite permisos de carpeta, elige Otra carpeta. " +
+                "Cambiar la ubicación conserva tus libros y notas; no equivale a empezar desde cero. " +
+                "No borraremos la ubicación anterior.",
+            "Guardar en Drive" to { chooseCloudLocation() },
+            "Otra carpeta" to {
+                unified = true
+                folder = null
+                launchPicker { pickFolder.launch(null) }
+            })
+    }
+
+    private fun chooseCloudLocation() {
+        if (busy) return
+        busy = true
+        activity.lifecycleScope.launch {
+            try {
+                // An explicit location change must not skip the library just
+                // because the previous connection is marked ready. Nor may it
+                // abandon originals which exist only in that connection.
+                val missing = withContext(Dispatchers.IO) {
+                    db.backupDao().booksAll().filterNot(CentralCatalogue::local)
+                }
+                if (SharedLibrary.configured(app) && !SharedLibrary.needsRepair(app) && missing.isNotEmpty()) {
+                    busy = false
+                    show("Conserva tus originales",
+                        "Antes de cambiar a otro archivo de biblioteca, descarga los libros que solo están en la ubicación anterior. " +
+                            "No se perderá ni se eliminará ninguno.",
+                        "Volver" to { showLocationChoice() })
+                    return@launch
+                }
                 unified = false
                 several = true
                 folder = null
-                targetPeers = maxOf(1, SharedLibrary.peerCount(app))
-                // Same assistant, only the system-required individual permissions.
-                advance()
-            })
+                targetPeers = 1
+                busy = false
+                val newFile = "BibliotecaIA-" + ReadingPositionSafSync.deviceId(app).take(8) + "-" +
+                    java.util.UUID.randomUUID().toString().take(8) + ".zip"
+                launchPicker { libraryFile.launch(newFile) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                busy = false
+                show("No se pudo preparar la ubicación", "No hemos cambiado tu biblioteca. Vuelve a intentarlo.",
+                    "Volver" to { showLocationChoice() })
+            }
+        }
     }
 
     private suspend fun prepareAll(tree: Uri) {
@@ -245,6 +297,7 @@ internal class StorageSetupWizard(
         advance()
     }
     private fun pause() {
+        choosingLocation = false
         active = false
         prefs.edit().putBoolean("dismissed", true).apply()
         changed()
@@ -265,7 +318,7 @@ internal class StorageSetupWizard(
         try { action() } catch (e: Exception) {
             waiting = false
             show("No se pudo abrir la ubicación", e.message ?: "Prueba otra ubicación.",
-                "Volver al asistente" to { advance() })
+                "Volver al asistente" to { if (choosingLocation) showLocationChoice() else advance() })
         }
     }
     private fun runStep(block: suspend () -> Unit) {
