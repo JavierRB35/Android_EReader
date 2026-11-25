@@ -73,7 +73,7 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
         val actual = resolver.openInputStream(uri)?.use { digest(it, size) }
             ?: throw IOException("No se puede verificar el documento nuevo.")
         require(actual == (hash to size)) { "El proveedor no devolvió los bytes guardados." }
-        val item = list().firstOrNull { it.uri == uri || it.name == name }
+        val item = list().singleOrNull { it.uri == uri && it.name == name }
             ?: throw IOException("El documento escrito no aparece todavía en la carpeta.")
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
@@ -100,12 +100,29 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
         require(count == size && hex(md.digest()) == hash) { "Original central incompleto o dañado." }
     }
     fun probe() {
-        val bytes = UUID.randomUUID().toString().toByteArray()
+        val bytes = UUID.randomUUID().toString().toByteArray(Charsets.UTF_8)
         val name = "bia-probe-" + UUID.randomUUID() + ".txt"
-        val item = create(name, "text/plain", bytes.inputStream(), hash(bytes), bytes.size.toLong())
-        require(verify(item, hash(bytes), bytes.size.toLong()))
-        // Only delete our own temporary probe, never a published object.
-        runCatching { DocumentsContract.deleteDocument(resolver, item.uri) }
+        val before = list()
+        require(before.none { it.name == name }) { "El archivo de prueba ya existe; vuelve a intentarlo." }
+        val created = DocumentsContract.createDocument(resolver, root, "text/plain", name)
+            ?: throw IOException("El proveedor no permite crear archivos en esta carpeta.")
+        // A provider must not return an existing document. Never write to or
+        // delete a known pre-existing URI, even if the requested name is new.
+        require(before.none { it.uri == created }) { "El proveedor devolvió un archivo existente. No se ha modificado." }
+        var verified = false
+        try {
+            resolver.openOutputStream(created, "wt")?.use { it.write(bytes) }
+                ?: throw IOException("No se puede escribir en esta carpeta.")
+            val item = list().singleOrNull { it.uri == created && it.name == name }
+                ?: throw IOException("El archivo de prueba no aparece con su identidad y nombre originales.")
+            require(verify(item, hash(bytes), bytes.size.toLong())) { "No coinciden los bytes leídos y escritos." }
+            verified = true
+        } finally {
+            // Cleanup is limited to the URI created by this very probe, including
+            // incomplete writes. Do not search by name or delete other files.
+            val removed = runCatching { DocumentsContract.deleteDocument(resolver, created) }.getOrDefault(false)
+            if (verified && !removed) throw IOException("Lectura y escritura correctas, pero no se pudo retirar el archivo temporal de prueba.")
+        }
     }
     companion object {
         fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }

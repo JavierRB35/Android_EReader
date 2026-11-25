@@ -64,6 +64,42 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var sharedGuide: TextView
     private var ownName: String = ""
     private var nameUri: Uri? = null
+    // Diagnostic only: tests the actual provider without changing the selected
+    // library, uploading books or provisioning per-device containers.
+    private val sharedFolderProbe = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree != null) lifecycleScope.launch {
+            val message = try {
+                withContext(Dispatchers.IO) {
+                    val resolver = contentResolver
+                    val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    val prior = resolver.persistedUriPermissions.firstOrNull { it.uri == tree }
+                    val oldFlags = (if (prior?.isReadPermission == true) read else 0) or
+                        (if (prior?.isWritePermission == true) write else 0)
+                    val newFlags = (read or write) and oldFlags.inv()
+                    try {
+                        resolver.takePersistableUriPermission(tree, read or write)
+                        require(resolver.persistedUriPermissions.any {
+                            it.uri == tree && it.isReadPermission && it.isWritePermission
+                        }) { "No se han podido conservar ambos permisos de la carpeta." }
+                        com.javierrb35.bibliotecaia.sync.SharedDocumentStore(applicationContext, tree).use { it.probe() }
+                    } finally {
+                        if (newFlags != 0) runCatching { resolver.releasePersistableUriPermission(tree, newFlags) }
+                    }
+                }
+                "Lectura, escritura y permiso persistente comprobados en este dispositivo. No se ha cambiado tu biblioteca. Falta comprobar que el otro dispositivo puede acceder a la misma carpeta."
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                "No se ha podido comprobar el acceso completo a la carpeta: " +
+                    (e.message ?: "permiso o proveedor no disponible") +
+                    ". Tu biblioteca actual no se ha cambiado."
+            }
+            androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                .setTitle("Comprobación de carpeta compartida")
+                .setMessage(message)
+                .setPositiveButton("Entendido", null).show()
+        }
+    }
     private val sharedFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) sharedAction {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -423,6 +459,13 @@ class SettingsActivity : AppCompatActivity() {
         val setupCard = card(layout)
         unifiedStatus = hint(setupCard, "")
         unifiedAction = action(setupCard, "Configurar biblioteca", primary = true) { setupWizard.start() }
+        action(setupCard, "Comprobar acceso a carpeta compartida") {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Comprobar acceso sin cambiar tu biblioteca")
+                .setMessage("Selecciona la carpeta de Google Drive que compartirás entre dispositivos. Solo se escribirá y retirará un archivo temporal. Si Drive no aparece, ese proveedor no ofrece selección de carpeta en este dispositivo.")
+                .setPositiveButton("Seleccionar carpeta") { _, _ -> sharedFolderProbe.launch(null) }
+                .setNegativeButton(android.R.string.cancel, null).show()
+        }
         // Restoration is not another configuration process.
         action(setupCard, "Recuperar una copia") {
             if (BackupRoutine.status(this).recoveryPending) recoverPreviousBackup()
