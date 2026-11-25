@@ -227,7 +227,7 @@ class PdfOcrStudy(
         )
 
         // The OCR transcript follows the same gesture contract: only
-        // holding a painted note opens its modal; short taps never do.
+        // a tap on a painted note opens its modal; holding also works.
         scroll.attach(selection, marksAt = { at ->
             visibleRanges.filter { (_, range) -> at in range }.map { it.first }
         }, onMarks = { selected ->

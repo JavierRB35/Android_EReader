@@ -1,7 +1,6 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
 import android.content.Context
-import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.os.SystemClock
@@ -74,10 +73,14 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         // Convert through ALL nested descendants, not just a direct child.
         // PDF OCR uses ScrollView > padded LinearLayout > TextView; subtracting
         // only text.left/top used to hit a different word after scrolling.
-        val bounds = Rect(0, 0, text.width, text.height)
-        offsetDescendantRectToMyCoords(text, bounds)
-        val localX = x - bounds.left
-        val localY = y - bounds.top
+        // Screen coordinates include the parent's current scroll and every
+        // intermediate translation. Content coordinates alone do not.
+        val parentPosition = IntArray(2)
+        val textPosition = IntArray(2)
+        getLocationOnScreen(parentPosition)
+        text.getLocationOnScreen(textPosition)
+        val localX = x + parentPosition[0] - textPosition[0]
+        val localY = y + parentPosition[1] - textPosition[1]
         if (localX < 0f || localY < 0f || localX >= text.width || localY >= text.height)
             return emptyList()
         // getOffsetForPosition() clamps taps in blank margins to a character.
@@ -213,8 +216,7 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
             }
         }
 
-        val handled = super.dispatchTouchEvent(event)
-        if (event.actionMasked != MotionEvent.ACTION_UP) return handled
+        if (event.actionMasked != MotionEvent.ACTION_UP) return super.dispatchTouchEvent(event)
 
         val eligible = possibleTap && event.pointerCount == 1 &&
             event.eventTime - event.downTime < shortTapMs &&
@@ -224,25 +226,27 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         possibleTap = false
         if (!eligible) {
             downMarks = emptyList()
-            return handled
+            return super.dispatchTouchEvent(event)
         }
-        if (onMarkedLongPress != null) {
-            // New contract: ALL short taps toggle focus (including marks);
-            // only a long press on an annotation opens the modal.
-            downMarks = emptyList()
-            onUnmarkedTap?.invoke()
-            return handled || onUnmarkedTap != null
-        }
-        if (downMarks.isEmpty()) {
-            onUnmarkedTap?.invoke()
-            return handled || onUnmarkedTap != null
-        }
-        val upIds = at(event.x, event.y).map { it.id }.toSet()
-        val matched = if (upIds.isEmpty()) downMarks
+        val upMarks = at(event.x, event.y)
+        val upIds = upMarks.map { it.id }.toSet()
+        // A stationary finger may cross a glyph boundary. Prefer the exact
+        // verified initial mark if the release falls just outside it.
+        val matched = if (downMarks.isEmpty()) upMarks
+            else if (upIds.isEmpty()) downMarks
             else downMarks.filter { it.id in upIds }
         downMarks = emptyList()
-        if (matched.isEmpty()) return handled
-        onMarkTap?.invoke(matched)
-        return true
+        if (matched.isNotEmpty() && onMarkTap != null) {
+            // Cancel the child's gesture before opening the dialog: do not let
+            // TextView's click/selection or concentration consume this tap.
+            val cancel = MotionEvent.obtain(event)
+            cancel.action = MotionEvent.ACTION_CANCEL
+            try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+            onMarkTap?.invoke(matched)
+            return true
+        }
+        val handled = super.dispatchTouchEvent(event)
+        if (matched.isEmpty()) onUnmarkedTap?.invoke()
+        return handled || onUnmarkedTap != null
     }
 }

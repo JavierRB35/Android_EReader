@@ -187,9 +187,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             val mark = annotations.firstOrNull {
                                 it.id == event.decoration.id
                             } ?: return false
-                            // The annotation remains a hit target, but a short
-                            // tap toggles concentration. Notes open on HOLD.
-                            toggleReadingControls()
+                            if (mark.deletedAt != null || mark.kind !in setOf("NOTE", "HIGHLIGHT")) return false
+                            readiumHitRequest++
+                            showSavedTextMark(mark)
                             return true
                         }
                     })
@@ -208,7 +208,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 // owns axis-locked chapter swipes in vertical scroll mode.
                 fragment.addInputListener(object : InputListener {
                     override fun onTap(event: TapEvent): Boolean {
-                        if (!nativeMode) toggleReadingControls()
+                        if (nativeMode) return false
+                        // Readium consumes direct decoration activations first.
+                        // For a generic tap, try geometry/native bridge before
+                        // toggling concentration. event.point is relative to
+                        // the publication view in physical pixels.
+                        showReadiumMarkedAt(event.point.x, event.point.y, toggleIfMiss = true)
                         return true
                     }
                 })
@@ -834,6 +839,21 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         fragment.publicationView.getLocationOnScreen(target)
         val hitX = x + origin[0] - target[0]
         val hitY = y + origin[1] - target[1]
+        showReadiumMarkedAt(hitX, hitY, toggleIfMiss = false)
+    }
+
+    private var readiumHitRequest = 0L
+    private fun showReadiumMarkedAt(hitX: Float, hitY: Float, toggleIfMiss: Boolean) {
+        val fragment = navigator ?: return
+        val marked = annotations.filter {
+            it.deletedAt == null && it.kind in setOf("NOTE", "HIGHLIGHT")
+        }
+        if (marked.isEmpty()) {
+            if (toggleIfMiss && !nativeMode && !readiumSelectionActive) toggleReadingControls()
+            return
+        }
+        val request = ++readiumHitRequest
+        val href = latest?.href?.toString()
         lifecycleScope.launch {
             val candidates = marked.map { it.id }.toSet()
             val actualId = runCatching {
@@ -852,8 +872,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         nativeNotes.map { it.id }.toSet()
                     )
                 }.getOrNull() else null
-            val matched = marked.firstOrNull { it.id == (actualId ?: nativeId) }
-            if (matched != null && !nativeMode && !isFinishing) showSavedTextMark(matched)
+            if (request != readiumHitRequest || nativeMode || isFinishing ||
+                latest?.href?.toString() != href) return@launch
+            val matched = annotations.firstOrNull { it.id == (actualId ?: nativeId) && it.deletedAt == null }
+            if (matched != null) showSavedTextMark(matched)
+            else if (toggleIfMiss && !readiumSelectionActive) toggleReadingControls()
         }
     }
 

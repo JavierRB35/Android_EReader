@@ -103,14 +103,20 @@ class ScripturaMarkTapDeviceTest {
                     PdfPaintedMark("note", rect, "NOTE"),
                     PdfPaintedMark("underline", rect, "HIGHLIGHT")
                 ))
-                page.onMarkedLongPress { ids -> hits.add(ids) }
+                page.onMarkedTap { ids -> hits.add(ids) }
                 page.draw(Canvas(output)) // populates the same zoom/pan hit matrix
                 assertEquals(listOf("underline", "note"), page.markedIdsAt(65f, 65f))
-                assertTrue("Short taps must never open saved PDF notes", hits.isEmpty())
+                touch(page, 65f, 65f)
+            // GestureDetector confirms a single tap asynchronously. Verify below
+            // after its double-tap timeout, outside the main-thread callback.
+                assertTrue(hits.size <= 1)
             } finally {
                 output.recycle()
-                bitmap.recycle()
+                // The page still owns bitmap until the pending single-tap event.
             }
         }
+        SystemClock.sleep(android.view.ViewConfiguration.getDoubleTapTimeout().toLong() + 200)
+        instrumentation.waitForIdleSync()
+        assertEquals(listOf("underline", "note"), hits.single())
     }
 }

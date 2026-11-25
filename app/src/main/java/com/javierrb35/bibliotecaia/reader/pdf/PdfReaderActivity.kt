@@ -92,6 +92,10 @@ class PdfReaderActivity : AppCompatActivity() {
         }
         root.addView(status)
         image = PdfPageView(this)
+        image.onMarkedTap { ids ->
+            val selected = ids.mapNotNull { id -> marks.firstOrNull { it.id == id } }
+            if (selected.isNotEmpty()) SavedAnnotationSheet.show(this, repository, selected)
+        }
         image.onMarkedLongPress { ids ->
             val selected = ids.mapNotNull { id -> marks.firstOrNull { it.id == id } }
             if (selected.isNotEmpty()) SavedAnnotationSheet.show(this, repository, selected)
