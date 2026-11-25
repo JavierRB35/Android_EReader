@@ -533,7 +533,15 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
         if (!SharedLibrary.configured(applicationContext)) return Result.success()
         return try {
             val revision = SharedLibrary.revision(applicationContext)
-            val result = SharedLibrary.sync(applicationContext, AppDatabase.get(applicationContext))
+            val db = AppDatabase.get(applicationContext)
+            // A granted folder can expose a newly added file-mode device.
+            // The existing mutex/ownership validation governs every new link.
+            if (SharedLibrary.fileMode(applicationContext)) {
+                CloudSetupFolder.tree(applicationContext)?.let { tree ->
+                    CloudSetupFolder.prepareLibrary(applicationContext, db, tree)
+                }
+            }
+            val result = SharedLibrary.sync(applicationContext, db)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 Result.success()

@@ -130,6 +130,11 @@ object ReadingPositionSafSync {
                     check(prefs(app).edit().putString(OWN, uri.toString()).remove(BOOTSTRAP).commit())
                     publishLocked(app, database)
                     published(app)
+                } else if (prefs(app).getLong(LAST_PUBLISHED, 0L) == 0L) {
+                    val uri = requireNotNull(own(app))
+                    recoverPending(app, uri)
+                    publishLocked(app, database)
+                    published(app)
                 }
                 // Discover only validated BibliotecaAI files in the explicitly
                 // chosen folder. Manual links win over a duplicate tree alias.

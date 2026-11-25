@@ -28,8 +28,8 @@ internal object CloudSetupFolder {
 
     fun tree(context: Context): Uri? {
         val chosen = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("tree", null)?.let(Uri::parse)
-        return (chosen ?: SharedLibrary.uri(context)?.takeIf { !SharedLibrary.fileMode(context) })
-            ?.takeIf { DocumentsContract.isTreeUri(it) && permitted(context, it, true) }
+        return listOfNotNull(chosen, SharedLibrary.uri(context)?.takeIf { !SharedLibrary.fileMode(context) })
+            .firstOrNull { DocumentsContract.isTreeUri(it) && permitted(context, it, true) }
     }
 
     fun remember(context: Context, tree: Uri) {

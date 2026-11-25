@@ -222,6 +222,11 @@ class SettingsActivity : AppCompatActivity() {
                     wizardPick("position", "application/json", ReadingPositionSafSync.suggestedName(app))
                 }
             }
+            ReadingPositionSafSync.status(app).lastPublished == 0L -> {
+                wizardRun { require(ReadingPositionSafSync.publish(app, db)) {
+                    "No se ha podido comprobar el archivo de lectura. Revisa sus permisos."
+                } }
+            }
             backup.recoveryPending -> {
                 wizardActive = false
                 wizardStep("Recuperar copia anterior", "Hay una copia pendiente de recuperar. Se conservará antes de crear otra.",
@@ -276,7 +281,7 @@ class SettingsActivity : AppCompatActivity() {
             if (backup.uri != null && !backup.recoveryPending)
                 "Copia de seguridad: " + if (backup.missingTitles.isEmpty()) "preparada" else "faltan algunos originales"
                 else "Copia de seguridad: pendiente",
-            if (positions.ownConfigured) "Lectura: " + if (ReadingPositionSafSync.fastReady(app))
+            if (positions.ownConfigured && positions.lastPublished > 0L) "Lectura: " + if (ReadingPositionSafSync.fastReady(app))
                 "dispositivos vinculados" else "preparada en este dispositivo"
                 else "Lectura: pendiente"
         ).joinToString("\n")
