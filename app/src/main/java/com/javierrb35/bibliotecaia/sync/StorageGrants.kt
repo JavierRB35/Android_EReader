@@ -17,6 +17,10 @@ internal object StorageGrants {
         }
     }
 
+    fun belongs(uri: Uri?, tree: Uri): Boolean = uri != null &&
+        uri.authority == tree.authority &&
+        runCatching { DocumentsContract.getTreeDocumentId(uri) == DocumentsContract.getTreeDocumentId(tree) }.getOrDefault(false)
+
     fun create(context: Context, tree: Uri, mime: String, name: String): Uri {
         require(allows(context, tree, true)) { "Falta acceso a la carpeta elegida." }
         val root = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))

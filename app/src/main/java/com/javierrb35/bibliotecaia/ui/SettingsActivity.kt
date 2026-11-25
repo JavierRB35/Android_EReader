@@ -46,6 +46,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private val db by lazy { AppDatabase.get(this) }
     private lateinit var setupWizard: StorageSetupWizard
+    private lateinit var unifiedStatus: TextView
+    private lateinit var unifiedAction: MaterialButton
     private var backupBusy = false
     private var sharedBusy = false
     private lateinit var sharedStatus: TextView
@@ -397,11 +399,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setupWizard = StorageSetupWizard(this, db) {
-            refreshSharedPanel()
-            if (::backupStatus.isInitialized) refreshBackupStatus()
-            refreshPositionSyncStatus()
-        }
+        setupWizard = StorageSetupWizard(this, db) { refreshUnifiedStatus() }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(28))
@@ -415,126 +413,21 @@ class SettingsActivity : AppCompatActivity() {
 
         header(layout, getString(R.string.settings_title))
         hint(layout, getString(R.string.settings_subtitle))
-        section(layout, "Configuración guiada")
+        section(layout, "Biblioteca y sincronización")
         val setupCard = card(layout)
-        hint(setupCard, "Configura la biblioteca, la copia de seguridad y la lectura en varios dispositivos en un único asistente. Conservamos lo que ya funciona.")
-        action(setupCard, "Iniciar asistente", primary = true) { setupWizard.start() }
-        section(layout, "Biblioteca compartida")
-        val sharedCard = card(layout)
-        sharedStatus = hint(sharedCard, "")
-        sharedGuide = hint(sharedCard, "")
-        sharedPrimary = action(sharedCard, "Configurar biblioteca", primary = true) {
-            when {
-                SharedLibrary.needsRepair(applicationContext) -> repairOwnLibrary()
-                !SharedLibrary.configured(applicationContext) || !SharedLibrary.hasAccess(applicationContext) -> setupWizard.start()
-                SharedLibrary.fileMode(applicationContext) && SharedLibrary.peerCount(applicationContext) == 0 -> setupWizard.start()
-                else -> sharedAction { SharedLibrary.sync(applicationContext, db) }
-            }
+        unifiedStatus = hint(setupCard, "")
+        unifiedAction = action(setupCard, "Configurar biblioteca", primary = true) { setupWizard.start() }
+        // Restoration is not another configuration process.
+        action(setupCard, "Recuperar una copia") {
+            if (BackupRoutine.status(this).recoveryPending) recoverPreviousBackup()
+            else importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
         }
-        sharedLink = action(sharedCard, "Añadir otro dispositivo") { setupWizard.start(addDevice = true) }
-        sharedSync = action(sharedCard, "Sincronizar ahora") {
-            sharedAction { SharedLibrary.sync(applicationContext, db) }
-        }
-        sharedOptions = action(sharedCard, "Opciones de biblioteca") { showSharedOptions() }
-        refreshSharedPanel()
+        refreshUnifiedStatus()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                SharedLibrary.changes.collect { refreshSharedPanel() }
+                launch { SharedLibrary.changes.collect { refreshUnifiedStatus() } }
+                launch { ReadingPositionSafSync.changes.collect { refreshUnifiedStatus() } }
             }
-        }
-
-        section(layout, "Sincronización rápida de posiciones")
-        val positionCard = card(layout)
-        hint(positionCard, "Tu última página se guarda automáticamente. Usa el asistente para conectar otro equipo.")
-        positionSyncStatus = hint(positionCard, "")
-        action(positionCard, "Configurar lectura en otros dispositivos") { setupWizard.start() }
-        action(positionCard, "Añadir otro equipo") { setupWizard.start(addDevice = true) }
-        val advancedPositions = action(positionCard, "Opciones avanzadas de sincronización") {}
-        val syncCard = card(positionCard)
-        syncCard.visibility = View.GONE
-        advancedPositions.setOnClickListener {
-            syncCard.visibility = if (syncCard.visibility == View.GONE) View.VISIBLE else View.GONE
-        }
-        action(syncCard, "Crear JSON de este dispositivo") {
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/json"
-                putExtra(Intent.EXTRA_TITLE,
-                    ReadingPositionSafSync.suggestedName(this@SettingsActivity))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            }
-            createPositionSyncFile.launch(intent)
-        }
-        action(syncCard, "Vincular JSON de otro dispositivo") {
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            }
-            addPositionSyncPeer.launch(intent)
-        }
-        action(syncCard, "Sincronizar posiciones ahora") {
-            lifecycleScope.launch {
-                val success = ReadingPositionSafSync.refreshForRead(applicationContext, db)
-                ReadingPositionSafSync.requestPublish(applicationContext)
-                refreshPositionSyncStatus()
-                Toast.makeText(this@SettingsActivity,
-                    if (success) "Posiciones sincronizadas."
-                    else "No se pudo sincronizar. Consulta el estado.",
-                    Toast.LENGTH_LONG).show()
-            }
-        }
-        action(syncCard, "Desvincular archivos de otros dispositivos") {
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setMessage("Se olvidarán los archivos de los otros dispositivos. " +
-                    "No se borrará ningún archivo de Drive ni ningún dato local.")
-                .setPositiveButton(R.string.dialog_ok) { _, _ ->
-                    ReadingPositionSafSync.unlinkPeers(this)
-                    refreshPositionSyncStatus()
-                }
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .show()
-        }
-        refreshPositionSyncStatus()
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                ReadingPositionSafSync.changes.collect { refreshPositionSyncStatus() }
-            }
-        }
-
-        section(layout, getString(R.string.settings_backup))
-
-        val backupCard = card(layout)
-        hint(backupCard, getString(R.string.settings_backup_intro))
-        hint(backupCard, "La copia de seguridad permite recuperar tus datos. No es necesaria para conectar otro dispositivo. Crea un archivo distinto del de la biblioteca compartida.")
-        backupStatus = hint(backupCard, "")
-        backupError = hint(backupCard, "")
-
-        backupPrimary = action(backupCard, getString(R.string.settings_backup_create_now), primary = true) {
-            if (backupBusy) return@action
-            val destination = BackupRoutine.status(this).uri
-            if (destination == null) chooseBackupDestination()
-            else exportTo(destination, replaceExisting = true)
-        }
-        action(backupCard, getString(R.string.settings_backup_pick_destination)) {
-            if (!backupBusy) chooseBackupDestination()
-        }
-        action(backupCard, getString(R.string.settings_backup_restore_action)) {
-            if (!backupBusy) {
-                importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
-            }
-        }
-
-        backupRecovery = action(backupCard, getString(R.string.settings_backup_recover_previous)) {
-            if (!backupBusy) recoverPreviousBackup()
-        }
-        hint(backupCard, getString(R.string.settings_backup_privacy_note))
-
-        action(layout, getString(R.string.settings_backup_legacy_short)) {
-            if (!backupBusy) importLegacyJson.launch(arrayOf("application/json"))
         }
 
         section(layout, getString(R.string.settings_updates))
@@ -550,7 +443,7 @@ class SettingsActivity : AppCompatActivity() {
         setupWizard.restore(savedInstanceState)
         if (savedInstanceState == null && intent.getBooleanExtra(StorageSetupWizard.EXTRA_OPEN, false))
             window.decorView.post { setupWizard.start() }
-        refreshBackupStatus()
+        refreshUnifiedStatus()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -563,6 +456,31 @@ class SettingsActivity : AppCompatActivity() {
         if (::sharedStatus.isInitialized) refreshSharedPanel()
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
+        refreshUnifiedStatus()
+    }
+
+    private fun refreshUnifiedStatus() {
+        if (!::unifiedStatus.isInitialized) return
+        val app = applicationContext
+        val lib = SharedLibrary.configured(app) && SharedLibrary.healthy(app) &&
+            !SharedLibrary.needsRepair(app) && SharedLibrary.lastSuccess(app) > 0
+        val backup = BackupRoutine.status(app)
+        val copy = backup.uri != null && backup.lastSuccess > 0 && backup.lastError.isBlank() &&
+            !backup.recoveryPending && backup.missingTitles.isEmpty()
+        val position = ReadingPositionSafSync.status(app)
+        val progress = position.ownConfigured && position.lastPublished > 0 && position.lastError.isBlank()
+        val peers = position.peerCount
+        val ready = lib && copy && progress && (!SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) <= peers)
+        unifiedStatus.text = buildString {
+            append(if (ready && peers > 0 && position.lastSuccess > 0) "Todo preparado"
+                else if (ready) "Preparado en este dispositivo"
+                else "Configuración pendiente de completar o comprobar")
+            append("\nBiblioteca: ").append(if (lib) "disponible" else "pendiente")
+            append("\nCopia de seguridad: ").append(if (copy) "guardada" else "pendiente")
+            append("\nAvances de lectura: ").append(if (progress) "guardados automáticamente" else "pendientes")
+            append("\n").append(if (peers > 0) "Otros dispositivos detectados: $peers" else "Aún no se ha detectado otro dispositivo")
+        }
+        unifiedAction.text = if (ready) "Comprobar configuración" else "Configurar biblioteca"
     }
 
     private fun refreshPositionSyncStatus() {
@@ -603,6 +521,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshBackupStatus() {
+        refreshUnifiedStatus()
+        if (!::backupStatus.isInitialized) return
         val state = BackupRoutine.status(this)
         backupStatus.text = when {
             state.recoveryPending -> getString(R.string.settings_backup_recovery_required)

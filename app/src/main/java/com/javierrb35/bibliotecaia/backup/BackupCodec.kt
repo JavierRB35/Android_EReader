@@ -5,6 +5,7 @@ import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
 import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.DeletedBookEntity
 import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.data.BookTagCrossRef
 import com.javierrb35.bibliotecaia.data.CategoryEntity
@@ -29,6 +30,7 @@ data class LibrarySnapshot(
     val versions: List<AnnotationVersionEntity>,
     val positions: List<ReadingPositionEntity>,
     val synopses: List<BookSynopsisEntity> = emptyList(),
+    val deletedBooks: List<DeletedBookEntity> = emptyList(),
 )
 
 object BackupCodec {
@@ -63,6 +65,11 @@ object BackupCodec {
         root.put("annotationVersions", JSONArray().apply { snapshot.versions.forEach { put(versionJson(it)) } })
         root.put("readingPositions", JSONArray().apply { snapshot.positions.forEach { put(positionJson(it)) } })
         root.put("bookSynopses", JSONArray().apply { snapshot.synopses.forEach { put(synopsisJson(it)) } })
+        root.put("deletedBooks", JSONArray().apply {
+            snapshot.deletedBooks.sortedBy { it.contentHash }.forEach {
+                put(JSONObject().put("hash", it.contentHash).put("deletedAt", it.deletedAt))
+            }
+        })
         return root.toString(2)
     }
 
@@ -169,6 +176,12 @@ object BackupCodec {
             versions = root.optJSONArray("annotationVersions").mapList { versionFrom(it) },
             positions = root.optJSONArray("readingPositions").mapList { positionFrom(it) },
             synopses = root.optJSONArray("bookSynopses").mapList { synopsisFrom(it) },
+            deletedBooks = root.optJSONArray("deletedBooks").mapList {
+                val hash = it.getString("hash")
+                val time = it.getLong("deletedAt")
+                require(Regex("[a-f0-9]{64}").matches(hash) && time > 0L) { "Baja de libro no válida." }
+                DeletedBookEntity(hash, time)
+            },
         )
     }
 

@@ -26,8 +26,9 @@ import java.util.UUID
         AnnotationVersionEntity::class,
         BookSynopsisEntity::class,
         SyncQueueEntry::class,
+        DeletedBookEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +56,12 @@ abstract class AppDatabase : RoomDatabase() {
             "Economía", "Finanzas", "Empresa", "Psicología", "Biografías",
             "Formación", "Referencia", "Otros"
         )
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS deleted_books (contentHash TEXT NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)")
+            }
+        }
 
         /** v4→v5: saved synopsis, preserving every prior annotation and book. */
         private val MIGRATION_4_5 = object : Migration(4, 5) {
@@ -108,7 +115,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
