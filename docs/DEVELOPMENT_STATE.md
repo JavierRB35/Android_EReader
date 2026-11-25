@@ -1,12 +1,20 @@
 # DEVELOPMENT_STATE — Estado vivo del desarrollo
 
-> **Mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. Verificar main, PR y releases. OAuth/Gmail no se admiten; la infraestructura histórica Supabase no se reactiva. El coordinador privado nuevo y limitado de #99/#103 es un desarrollo diferente, no desplegado en Android.
+> **Mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. La cabecera #103 y AGENTS.md prevalecen. Supabase/gateway y OAuth propio quedan suspendidos, sin borrar servicios ni datos.
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-23 (corrección de eliminación de nota y subrayado asociado; ver PR de la rama de corrección)
+**Última actualización:** 2026-11-25 — protocolo unificado y redirección a biblioteca única simple.
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## PRIORIDAD ACTUAL — P0 #103, biblioteca única Drive sin OAuth propio
+
+- Estado: #106/#108/#110/#111/#109/#114 fusionadas históricamente; #115/#116 suspendidas y conservadas. No activar gateway ni usar contenedores por dispositivo. No confundir código disponible con función terminada.
+- Primera evidencia de riesgo: #95 registra Drive ausente del selector de árbol en tablet; seleccionar documento no prueba acceso a carpeta. Confirmar primero el soporte de selección de carpeta, permisos persistentes y lectura/escritura entre dos dispositivos reales. Si falla, documentar la limitación y evaluar una alternativa sin OAuth propio, sin simular éxito.
+- Implementación: inspección focalizada de SharedLibrary/SharedDocumentStore y flujos de Ajustes; reutilizar SAF y hash; nombres/extensiones originales, metadatos en subcarpeta técnica, no duplicar ni sobrescribir originales. Proteger legado y mantener backup/restauración. Incrementos verticales probados, publicados y notificados; prioridad posiciones, luego resto de datos de usuario.
+- Protocolo general ya presente en docs/protocol/ai-development-protocol.md; aplicado mediante AGENTS.md. No releer todo ni repetir controles sin cambios relevantes. Agente 1 único. Automatización P0 actualizada con nueva directriz; cada ejecución consulta #103.
+- Criterio de cierre: prueba real A/B, offline y reconciliación, apertura desde otro lector, integridad y publicación oficial verificada. No se ha realizado esa prueba todavía.
 
 ## DIRECTRIZ DE VERSIONADO OBLIGATORIA — 25/11/2026
 - Por orden del propietario, `versionName` y `versionCode` aumentan estrictamente en cada nueva APK oficial. Prohibido reutilizar tags/versiones o sobrescribir una release. Obligatoria validación automática contra el máximo publicado, coincidencia tag/APK, firma y checksum, detección desde versión anterior.
