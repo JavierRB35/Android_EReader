@@ -43,6 +43,7 @@ internal class StorageSetupWizard(
     private var several = true
     private var busy = false
     private var skipBackup = false
+    private var targetPeers = 1
     private var folder: Uri? = null
     private var prompt: AlertDialog? = null
 
@@ -141,6 +142,7 @@ internal class StorageSetupWizard(
         waiting = state?.getBoolean("wizard_waiting") == true
         several = state?.getBoolean("wizard_several", true) ?: true
         skipBackup = state?.getBoolean("wizard_skip_backup") == true
+        targetPeers = state?.getInt("wizard_target_peers", 1) ?: 1
         folder = state?.getString("wizard_folder")?.let(Uri::parse) ?: ReadingPositionSafSync.folder(app)
         if (active && !waiting) activity.window.decorView.post { advance() }
     }
@@ -149,18 +151,22 @@ internal class StorageSetupWizard(
         state.putBoolean("wizard_waiting", waiting)
         state.putBoolean("wizard_several", several)
         state.putBoolean("wizard_skip_backup", skipBackup)
+        state.putInt("wizard_target_peers", targetPeers)
         state.putString("wizard_folder", folder?.toString())
     }
 
-    fun start() {
+    fun start(addDevice: Boolean = false) {
         if (busy || waiting || prompt?.isShowing == true) return
         folder = ReadingPositionSafSync.folder(app) ?: SharedLibrary.uri(app)
             ?.takeIf { !SharedLibrary.fileMode(app) && StorageGrants.allows(app, it, true) }
         active = true
         skipBackup = false
         prefs.edit().putBoolean("dismissed", false).apply()
-        val existingPeers = SharedLibrary.peerCount(app) > 0 || ReadingPositionSafSync.status(app).peerCount > 0
-        if (existingPeers) {
+        val currentPeers = maxOf(SharedLibrary.peerCount(app), ReadingPositionSafSync.status(app).peerCount)
+        val existingPeers = currentPeers > 0
+        targetPeers = maxOf(1, prefs.getInt("target_peers", 1), if (addDevice) currentPeers + 1 else currentPeers).coerceAtMost(10)
+        if (addDevice) prefs.edit().putInt("target_peers", targetPeers).apply()
+        if (existingPeers || addDevice) {
             several = true
             advance()
         } else {
@@ -229,8 +235,8 @@ internal class StorageSetupWizard(
         val step = StorageSetupPlan.next(StorageSetupPlan.State(
             libraryReady, skipBackup || (backup.uri != null && !backup.recoveryPending),
             position.ownConfigured, several,
-            !SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) > 0,
-            ReadingPositionSafSync.fastReady(app)))
+            !SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) >= targetPeers,
+            ReadingPositionSafSync.fastReady(app) && position.peerCount >= targetPeers))
         when (step) {
             StorageSetupPlan.Step.LIBRARY -> {
                 val newFile = "BibliotecaIA-" + ReadingPositionSafSync.deviceId(app).take(8) + "-" +
@@ -297,6 +303,7 @@ internal class StorageSetupWizard(
                         val copy = BackupRoutine.status(app)
                         val complete = libOk && positions && copy.uri != null &&
                             !copy.recoveryPending && copy.lastSuccess > 0 && copy.missingTitles.isEmpty()
+                        if (complete) prefs.edit().remove("target_peers").apply()
                         prompt?.dismiss()
                         busy = false
                         show(if (complete) "Configuración completada" else "Configuración con tareas pendientes",

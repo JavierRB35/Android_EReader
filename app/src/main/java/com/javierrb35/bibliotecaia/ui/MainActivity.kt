@@ -222,6 +222,7 @@ class MainActivity : AppCompatActivity() {
             val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
             val remoteChecked = if (shared) {
                 try {
+                    ReadingPositionSafSync.ensureAutomaticFolder(applicationContext, db)
                     ReadingPositionSafSync.refreshForRead(applicationContext, db)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {

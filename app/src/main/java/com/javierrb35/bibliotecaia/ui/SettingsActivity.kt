@@ -431,7 +431,7 @@ class SettingsActivity : AppCompatActivity() {
                 else -> sharedAction { SharedLibrary.sync(applicationContext, db) }
             }
         }
-        sharedLink = action(sharedCard, "Añadir otro dispositivo") { linkDevice() }
+        sharedLink = action(sharedCard, "Añadir otro dispositivo") { setupWizard.start(addDevice = true) }
         sharedSync = action(sharedCard, "Sincronizar ahora") {
             sharedAction { SharedLibrary.sync(applicationContext, db) }
         }
@@ -448,6 +448,7 @@ class SettingsActivity : AppCompatActivity() {
         hint(positionCard, "Tu última página se guarda automáticamente. Usa el asistente para conectar otro equipo.")
         positionSyncStatus = hint(positionCard, "")
         action(positionCard, "Configurar lectura en otros dispositivos") { setupWizard.start() }
+        action(positionCard, "Añadir otro equipo") { setupWizard.start(addDevice = true) }
         val advancedPositions = action(positionCard, "Opciones avanzadas de sincronización") {}
         val syncCard = card(positionCard)
         syncCard.visibility = View.GONE

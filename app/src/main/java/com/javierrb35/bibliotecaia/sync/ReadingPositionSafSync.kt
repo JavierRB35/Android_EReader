@@ -117,9 +117,23 @@ object ReadingPositionSafSync {
                 publishLocked(app, database)
                 published(app)
             }
-            check(prefs(app).edit().putString(FOLDER, tree.toString()).remove(BOOTSTRAP).commit())
+            val edit = prefs(app).edit().putString(FOLDER, tree.toString())
+            if (folder(app) != tree) edit.remove(AUTO_PEERS).remove(BOOTSTRAP)
+            check(edit.commit())
         }
         refreshForRead(app, database)
+    }
+
+    /** No dialog or picker is necessary when a shared folder is already granted. */
+    suspend fun ensureAutomaticFolder(context: Context, database: AppDatabase) {
+        val app = context.applicationContext
+        if (!SharedLibrary.configured(app) || SharedLibrary.fileMode(app) ||
+            !SharedLibrary.hasAccess(app)) return
+        val tree = SharedLibrary.uri(app) ?: return
+        if (hasOwn(app) && folder(app) != null) return
+        try { prepareFolder(app, database, tree) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error(app, e) }
     }
 
     private fun folderCandidates(context: Context): List<Uri> {
