@@ -31,38 +31,44 @@ internal object SharedNamedOriginals {
      * Fail closed when a potential match is inaccessible. Names duplicated by
      * the provider cannot safely become name-based receipts.
      */
-    fun find(store: SharedStore, book: BookEntity): SharedDocumentStore.Item? {
-        val files = store.list().filter {
+    fun find(store: SharedStore, book: BookEntity): SharedDocumentStore.Item? = find(store, book, store.list())
+
+    private fun find(store: SharedStore, book: BookEntity, listing: List<SharedDocumentStore.Item>): SharedDocumentStore.Item? {
+        val files = listing.filter {
             validName(it.name) && extension(it.name) == book.format.name.lowercase(Locale.ROOT) &&
                 (it.size == -1L || it.size == book.sizeBytes)
         }
         val match = files.sortedBy { it.name }.firstOrNull {
-            store.verify(it, book.contentHash, book.sizeBytes)
+            try { store.verify(it, book.contentHash, book.sizeBytes) }
+            catch (_: DocumentTooLargeException) { false }
         } ?: return null
-        require(store.list().count { it.name == match.name } == 1) {
+        require(listing.count { it.name == match.name } == 1) {
             "Hay varios archivos con el mismo nombre; no se puede identificar el original con seguridad."
         }
         return match
     }
 
     fun ensure(store: SharedStore, book: BookEntity, source: File): SharedDocumentStore.Item {
-        require(validName(book.fileName) &&
-            extension(book.fileName) == book.format.name.lowercase(Locale.ROOT)) {
-            "El nombre original no es compatible con una carpeta compartida."
+        val ext = book.format.name.lowercase(Locale.ROOT)
+        val original = if (validName(book.fileName) && extension(book.fileName) == ext) book.fileName else {
+            val stem = book.fileName.substringBeforeLast('.', book.fileName)
+                .map { if (it == '/' || it == '\\' || it.isISOControl()) '_' else it }.joinToString("")
+                .trim().trimStart('.').take(220).ifBlank { "Libro" }
+            "$stem.$ext"
         }
         require(source.isFile && source.length() == book.sizeBytes &&
             source.inputStream().use { SharedDocumentStore.digest(it, book.sizeBytes) } ==
                 (book.contentHash to book.sizeBytes)) { "Original local no íntegro." }
-        find(store, book)?.let { return it }
+        val listing = store.list()
+        find(store, book, listing)?.let { return it }
 
         // Preserve original name exactly except where an existing distinct
         // book already occupies it. Never overwrite that file.
-        val used = store.list().map { it.name.lowercase(Locale.ROOT) }.toHashSet()
-        val original = book.fileName
+        val used = listing.map { it.name.lowercase(Locale.ROOT) }.toHashSet()
         var name = original
         var index = 2
         while (name.lowercase(Locale.ROOT) in used) {
-            name = original.substringBeforeLast('.') + " (" + index++ + ")." + original.substringAfterLast('.')
+            name = original.substringBeforeLast('.').take(220) + " (" + index++ + ")." + original.substringAfterLast('.')
             if (index > 10_000 || !validName(name)) throw IOException("No se puede conservar un nombre de archivo único.")
         }
         return source.inputStream().use {
