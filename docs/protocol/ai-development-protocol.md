@@ -1,5 +1,9 @@
 # PROTOCOLO DE DESARROLLO ASISTIDO POR INTELIGENCIA ARTIFICIAL
 
+## Aplicación vinculante a BibliotecaAI — 25/11/2026
+
+El PDF del propietario constituye el protocolo metodológico general. La cabecera vigente de #103 y AGENTS.md fijan la misión específica: carpeta única Drive con nombres y formatos originales, permisos del sistema sin OAuth propio ni Supabase/gateway obligatorio, coordinación de datos de usuario offline y publicación de cada incremento funcional validado. La directriz funcional posterior prevalece sobre documentación histórica incompatible. No construir infraestructura especulativa; reutilizar la solución existente y demostrar primero el acceso SAF real. El desarrollo se realiza exclusivamente en GitHub; consultar estado, guardar WIP y continuar autónomamente. Las comprobaciones proporcionales al riesgo nunca sustituyen controles obligatorios. Los cambios solo documentales se agrupan con la siguiente publicación funcional si no necesitan build propio. No repetir controles acreditados sin cambios relevantes.
+
 ## Directriz obligatoria de versionado y publicación — 25/11/2026
 
 - Toda nueva APK oficial debe tener un `versionName` semánticamente **superior** y un `versionCode` numéricamente **superior** a los de la publicación oficial anterior y a los máximos oficiales publicados. Nunca reutilizar ni reemplazar un número de versión, aunque el cambio sea mínimo.
@@ -11,7 +15,7 @@
 
 > Versión: 1.0 · Ámbito: desarrollo, mantenimiento, evolución, refactorización, depuración y entrega de software.
 > Objetivo: maximizar la productividad real, la calidad y la continuidad del proyecto, minimizando el consumo innecesario de tiempo, tokens, operaciones, compilaciones y pruebas.
-> Documento facilitado por el propietario del proyecto. Transcripción fiel desde el PDF original. **Lectura completa obligatoria antes de modificar cualquier archivo.**
+> Documento facilitado por el propietario del proyecto. Transcripción fiel desde el PDF original. Consultar el núcleo de AGENTS.md y las secciones pertinentes; leer íntegramente al implantar o revisar el protocolo, no repetir sin cambios relevantes.
 
 ---
 
