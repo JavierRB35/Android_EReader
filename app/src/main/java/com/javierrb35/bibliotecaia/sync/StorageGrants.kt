@@ -21,6 +21,27 @@ internal object StorageGrants {
         uri.authority == tree.authority &&
         runCatching { DocumentsContract.getTreeDocumentId(uri) == DocumentsContract.getTreeDocumentId(tree) }.getOrDefault(false)
 
+    /** The child list is authoritative only after a successful complete query.
+     * Compare document IDs, not display names or the old persisted grant. */
+    fun listed(uri: Uri?, tree: Uri, items: List<SharedDocumentStore.Item>): SharedDocumentStore.Item? {
+        if (uri == null || uri.authority != tree.authority) return null
+        val id = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+        return items.singleOrNull {
+            runCatching { DocumentsContract.getDocumentId(it.uri) == id }.getOrDefault(false)
+        }
+    }
+
+    /** Archive a rollback locally instead of discarding it when its remote
+     * destination is confirmed absent. Do not touch any remote file. */
+    fun archiveRollback(file: java.io.File) {
+        if (!file.exists()) return
+        val dir = java.io.File(file.parentFile, "storage-recovery-history")
+        check(dir.isDirectory || dir.mkdirs()) { "No se pudo conservar la copia anterior." }
+        check(file.renameTo(java.io.File(dir, java.util.UUID.randomUUID().toString() + "-" + file.name))) {
+            "No se pudo conservar la copia anterior."
+        }
+    }
+
     fun create(context: Context, tree: Uri, mime: String, name: String): Uri {
         require(allows(context, tree, true)) { "Falta acceso a la carpeta elegida." }
         val root = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))

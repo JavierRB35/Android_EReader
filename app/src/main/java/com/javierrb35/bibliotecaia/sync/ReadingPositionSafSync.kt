@@ -97,11 +97,31 @@ object ReadingPositionSafSync {
         require(StorageGrants.allows(app, tree, true)) { "No hay permiso para esta carpeta." }
         mutex.withLock {
             val id = deviceId(app)
-            if (!hasOwn(app) || (unified && !StorageGrants.belongs(own(app), tree))) {
-                val candidates = SharedDocumentStore(app, tree).use { it.list() }
+            val items = SharedDocumentStore(app, tree).use { it.list() }
+            val saved = own(app)
+            val listed = StorageGrants.listed(saved, tree, items)
+            val missingInFolder = saved != null && StorageGrants.belongs(saved, tree) && listed == null
+            // Folder grants survive deletion of descendants. Rebuild an absent
+            // file, not an inaccessible file that still appears in the listing.
+            if (!hasOwn(app) || missingInFolder || (unified && listed == null)) {
+                if (missingInFolder && saved != null) {
+                    StorageGrants.archiveRollback(emergency(app, saved))
+                    StorageGrants.archiveRollback(File(app.filesDir, "reading-position-sync-rollback.json"))
+                    check(prefs(app).edit().remove(OWN).remove(BOOTSTRAP).remove(LAST_SYNC)
+                        .remove(LAST_PUBLISHED).remove(LAST_ERROR).remove(PEERS).remove(AUTO_PEERS).commit())
+                }
+                val candidates = items
                     .filter { it.name.startsWith("BibliotecaIA-lectura-") && it.name.endsWith(".json", true) }
+                // Own canonical name may be an empty file from an interrupted
+                // first setup. Reuse it rather than creating duplicate names.
                 val valid = candidates.filter { item ->
-                    runCatching { read(app, item.uri, false)?.deviceId == id }.getOrDefault(false)
+                    if (item.name == suggestedName(app)) {
+                        val data = read(app, item.uri, true)
+                        require(data == null || data.deviceId == id) { "El archivo de avances pertenece a otro dispositivo." }
+                        true
+                    } else {
+                        read(app, item.uri, false)?.deviceId == id
+                    }
                 }
                 require(valid.size <= 1) { "Hay más de un archivo de lectura propio. Selecciona el correcto desde el asistente." }
                 val target = valid.singleOrNull()?.uri ?: StorageGrants.create(app, tree, "application/json", suggestedName(app))
@@ -113,6 +133,7 @@ object ReadingPositionSafSync {
                 val data = read(app, target, allowEmpty = true)
                 require(data == null || data.deviceId == id) { "No se modificará un archivo de otro dispositivo." }
                 val edit = prefs(app).edit().putString(OWN, target.toString()).remove(BOOTSTRAP)
+                    .remove(LAST_SYNC).remove(LAST_PUBLISHED).remove(LAST_ERROR)
                 if (unified) edit.remove(PEERS).remove(AUTO_PEERS)
                 check(edit.commit())
                 recoverPending(app, target)
@@ -123,6 +144,13 @@ object ReadingPositionSafSync {
             if (folder(app) != tree) edit.remove(AUTO_PEERS).remove(BOOTSTRAP)
             if (unified) edit.remove(PEERS)
             check(edit.commit())
+            // If a provider returned a new URI for the same document, adopt
+            // the folder-scoped URI only after verifying its actual owner.
+            if (listed != null && own(app) == saved && listed.uri != saved &&
+                !missingInFolder && unified) {
+                require(read(app, listed.uri, false)?.deviceId == id)
+                check(prefs(app).edit().putString(OWN, listed.uri.toString()).commit())
+            }
         }
         refreshForRead(app, database)
     }

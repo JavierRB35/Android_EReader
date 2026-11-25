@@ -49,6 +49,11 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
             DocumentsContract.getTreeDocumentId(tree))
         val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE)
         return resolver.query(children, columns, null, null, null)?.use { c ->
+            // A cloud provider may return an empty placeholder while loading.
+            // Never treat this as proof that a previously saved file was deleted.
+            if (c.extras.getBoolean(DocumentsContract.EXTRA_LOADING, false) ||
+                !c.extras.getString(DocumentsContract.EXTRA_ERROR).isNullOrBlank())
+                throw IOException("La carpeta aún no está disponible. Comprueba la conexión y vuelve a intentarlo.")
             buildList {
                 while (c.moveToNext()) add(Item(c.getString(1),
                     DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)),
