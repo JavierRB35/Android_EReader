@@ -64,9 +64,17 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
     override fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
         ?: throw IOException("No se puede leer " + item.name)
     override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
+        val before = list()
+        require(before.none { it.name.equals(name, ignoreCase = true) }) {
+            "Ya existe un documento con ese nombre; no se sobrescribirá."
+        }
         val uri = DocumentsContract.createDocument(resolver, root, mime, name)
             ?: throw IOException("El proveedor no permite crear documentos.")
-        // Never truncate any existing document. This URI is newly created.
+        // Check the returned identity BEFORE opening a writable stream.
+        require(before.none { it.uri == uri }) {
+            "El proveedor devolvió un documento existente; no se sobrescribirá."
+        }
+        // Do not assume provider create/list is an atomic distributed reservation.
         resolver.openOutputStream(uri, "wt")?.use { out ->
             source.use { it.copyTo(out, 64 * 1024) }
         } ?: throw IOException("No se puede escribir el documento nuevo.")
