@@ -46,6 +46,37 @@ class SharedSettingsJourneyDeviceTest {
     @Test fun folderIsSeparateAndCancelReturnsToChoice() =
         verifyPicker("Otra carpeta", Intent.ACTION_OPEN_DOCUMENT_TREE, null)
 
+    @Test fun sharedFolderCheckOpensTreeWithoutChangingExistingConnection() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val captured = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_OPEN_DOCUMENT_TREE &&
+                    intent.action != Intent.ACTION_CREATE_DOCUMENT) return null
+                captured.set(Intent(intent))
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Comprobar acceso a carpeta compartida")).perform(scrollTo(), click())
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50L)
+            assertNotNull("Debe abrir el selector de carpetas", captured.get())
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, captured.get().action)
+            instrumentation.waitForIdleSync()
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Comprobar acceso a carpeta compartida")).perform(scrollTo()).check(matches(isDisplayed()))
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+        }
+    }
+
     private fun verifyPicker(button: String, expected: String, mime: String?) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext
