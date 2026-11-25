@@ -532,6 +532,13 @@ class SettingsActivity : AppCompatActivity() {
         val app = applicationContext
         val lib = SharedLibrary.configured(app) && SharedLibrary.healthy(app) &&
             !SharedLibrary.needsRepair(app) && SharedLibrary.lastSuccess(app) > 0
+        if (SharedLibrary.namedFolderMode(app)) {
+            unifiedStatus.text = if (lib)
+                "Biblioteca única conectada. Originales y datos de lectura comprobados en este dispositivo.\nSelecciona la misma carpeta en los demás dispositivos."
+            else "La biblioteca única necesita comprobar su acceso o sincronización. Tus libros locales se conservan."
+            unifiedAction.text = if (lib) "Comprobar configuración" else "Resolver configuración"
+            return
+        }
         val backup = BackupRoutine.status(app)
         val copy = backup.uri != null && backup.lastSuccess > 0 && backup.lastError.isBlank() &&
             !backup.recoveryPending && backup.missingTitles.isEmpty()
@@ -540,6 +547,7 @@ class SettingsActivity : AppCompatActivity() {
         val peers = position.peerCount
         val ready = lib && copy && progress && (!SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) <= peers)
         unifiedStatus.text = buildString {
+            if (SharedLibrary.configured(app)) append("Conexión anterior conservada. Puedes migrar a una carpeta única.\n")
             append(if (ready && peers > 0 && position.lastSuccess > 0) "Todo preparado"
                 else if (ready) "Preparado en este dispositivo"
                 else "Tu configuración necesita una comprobación")
