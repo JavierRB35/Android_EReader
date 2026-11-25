@@ -12,8 +12,7 @@ class StorageSetupPlanTest {
     }
     @Test fun singleDeviceDoesNotRequirePeerFiles() {
         val s = StorageSetupPlan.State(false, false, false, false, false, false)
-        assertEquals(StorageSetupPlan.Step.LIBRARY, StorageSetupPlan.next(s))
-        assertEquals(StorageSetupPlan.Step.BACKUP, StorageSetupPlan.next(s.copy(library = true)))
-        assertEquals(StorageSetupPlan.Step.VERIFY, StorageSetupPlan.next(s.copy(library = true, backup = true)))
+        assertEquals(StorageSetupPlan.Step.BACKUP, StorageSetupPlan.next(s))
+        assertEquals(StorageSetupPlan.Step.VERIFY, StorageSetupPlan.next(s.copy(backup = true)))
     }
 }

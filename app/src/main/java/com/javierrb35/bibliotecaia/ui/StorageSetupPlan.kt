@@ -6,7 +6,7 @@ internal object StorageSetupPlan {
     data class State(val library: Boolean, val backup: Boolean, val position: Boolean,
         val severalDevices: Boolean, val libraryPeer: Boolean, val positionPeer: Boolean)
     fun next(s: State): Step = when {
-        !s.library -> Step.LIBRARY
+        s.severalDevices && !s.library -> Step.LIBRARY
         !s.backup -> Step.BACKUP
         !s.severalDevices -> Step.VERIFY
         !s.position -> Step.POSITION

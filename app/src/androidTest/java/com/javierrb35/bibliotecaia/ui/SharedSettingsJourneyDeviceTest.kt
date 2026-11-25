@@ -19,6 +19,7 @@ class SharedSettingsJourneyDeviceTest {
     @Test fun unconfiguredDeviceShowsSingleSetupAndCloudFirst() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
         val activity = instrumentation.startActivitySync(Intent(app, SettingsActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         try {
@@ -28,6 +29,9 @@ class SharedSettingsJourneyDeviceTest {
             onView(withText("Guardar en Drive")).check(matches(isDisplayed()))
             onView(withText("Continuar más tarde")).perform(click())
             onView(withText("Opciones avanzadas de sincronización")).perform(scrollTo()).check(matches(isDisplayed()))
-        } finally { instrumentation.runOnMainSync { activity.finish() } }
+        } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
     }
 }

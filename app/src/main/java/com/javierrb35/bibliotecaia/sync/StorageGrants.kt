@@ -12,6 +12,7 @@ internal object StorageGrants {
         return context.contentResolver.persistedUriPermissions.any { permission ->
             permission.isReadPermission && (!write || permission.isWritePermission) &&
                 (permission.uri == uri || (tree != null && permission.uri.authority == uri.authority &&
+                    permission.uri.pathSegments.size == 2 && permission.uri.pathSegments.firstOrNull() == "tree" &&
                     runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull() == tree))
         }
     }

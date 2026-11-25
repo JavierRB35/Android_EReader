@@ -106,7 +106,8 @@ object ReadingPositionSafSync {
                 require(valid.size <= 1) { "Hay más de un archivo de lectura propio. Selecciona el correcto desde el asistente." }
                 val target = valid.singleOrNull()?.uri ?: StorageGrants.create(app, tree, "application/json", suggestedName(app))
                 val old = own(app)
-                require(old == null || old == target || !emergency(app, old).exists()) {
+                require(old == null || old == target || (!emergency(app, old).exists() &&
+                    !File(app.filesDir, "reading-position-sync-rollback.json").exists())) {
                     "Hay una recuperación pendiente del archivo anterior. No se sustituirá."
                 }
                 val data = read(app, target, allowEmpty = true)

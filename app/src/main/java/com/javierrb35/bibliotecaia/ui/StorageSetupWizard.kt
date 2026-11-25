@@ -32,8 +32,8 @@ internal class StorageSetupWizard(
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val shared = SharedLibrary.configured(context)
             val several = prefs.getBoolean("several", shared && (SharedLibrary.peerCount(context) > 0 || !SharedLibrary.fileMode(context)))
-            return !prefs.getBoolean("dismissed", false) && (!shared || !SharedLibrary.hasAccess(context) ||
-                BackupRoutine.status(context).uri == null || (several && !ReadingPositionSafSync.fastReady(context)))
+            return !prefs.getBoolean("dismissed", false) && (BackupRoutine.status(context).uri == null ||
+                (several && (!shared || !SharedLibrary.hasAccess(context) || !ReadingPositionSafSync.fastReady(context))))
         }
     }
     private val app get() = activity.applicationContext
@@ -52,7 +52,7 @@ internal class StorageSetupWizard(
         runStep {
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             folder = uri
-            if (!SharedLibrary.configured(app)) {
+            if (!SharedLibrary.configured(app) || !SharedLibrary.hasAccess(app) || SharedLibrary.needsRepair(app)) {
                 val result = SharedLibrary.connect(app, db, uri)
                 require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
             }
@@ -67,6 +67,39 @@ internal class StorageSetupWizard(
             val result = SharedLibrary.connectFile(app, db, uri, newDocument = true)
             require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
         }
+    }
+    private val repairLibrary = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        waiting = false
+        val data = result.data
+        val uri = data?.data
+        if (result.resultCode != android.app.Activity.RESULT_OK || uri == null) { advance(); return@registerForActivityResult }
+        runStep {
+            require(uri == SharedLibrary.uri(app)) { "Selecciona el archivo de biblioteca que ya tenías configurado." }
+            val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            require((data.flags and mask) == mask) { "La ubicación no permite escribir." }
+            activity.contentResolver.takePersistableUriPermission(uri, mask)
+            val result = SharedLibrary.connectFile(app, db, uri)
+            require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+        }
+    }
+    private val repairBackup = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        waiting = false
+        val data = result.data
+        val uri = data?.data
+        if (result.resultCode != android.app.Activity.RESULT_OK || uri == null) { advance(); return@registerForActivityResult }
+        runStep {
+            require(uri == BackupRoutine.savedDestination(app)) { "Selecciona la misma copia que ya tenías configurada." }
+            val mask = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            require((data.flags and mask) == mask) { "La ubicación no permite escribir." }
+            activity.contentResolver.takePersistableUriPermission(uri, mask)
+            BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, true, uri, replaceExisting = true)
+        }
+    }
+    private fun openWritable() = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "application/zip"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     }
     private val backupFile = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         waiting = false
@@ -127,8 +160,8 @@ internal class StorageSetupWizard(
         skipBackup = false
         prefs.edit().putBoolean("dismissed", false).apply()
         val existingPeers = SharedLibrary.peerCount(app) > 0 || ReadingPositionSafSync.status(app).peerCount > 0
-        if (existingPeers || prefs.contains("several")) {
-            several = existingPeers || prefs.getBoolean("several", true)
+        if (existingPeers) {
+            several = true
             advance()
         } else {
             show("Configura tu biblioteca", "¿Dónde vas a leer? La aplicación preparará los archivos y guardará tus avances automáticamente.",
@@ -147,7 +180,7 @@ internal class StorageSetupWizard(
         changed()
     }
     private fun show(title: String, message: String, primary: Pair<String, () -> Unit>,
-                     secondary: Pair<String, () -> Unit>? = null, extra: Pair<String, () -> Unit>? = null) {
+                     secondary: Pair<String, () -> Unit>? = null) {
         if (!active || activity.isFinishing || activity.isDestroyed) return
         prompt?.dismiss()
         val builder = AlertDialog.Builder(activity).setTitle(title).setMessage(message)
@@ -155,7 +188,6 @@ internal class StorageSetupWizard(
             .setNegativeButton("Continuar más tarde") { _, _ -> pause() }
             .setOnCancelListener { pause() }
         if (secondary != null) builder.setNeutralButton(secondary.first) { _, _ -> secondary.second() }
-        // A fourth action is never necessary; recovery remains in the Settings panel.
         prompt = builder.show()
     }
     private fun launchPicker(action: () -> Unit) {
@@ -200,14 +232,26 @@ internal class StorageSetupWizard(
             !SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) > 0,
             ReadingPositionSafSync.fastReady(app)))
         when (step) {
-            StorageSetupPlan.Step.LIBRARY -> show("Paso 1 · Ubicación de tu biblioteca",
-                "Elige una ubicación común a tus dispositivos. Si Drive no permite elegir una carpeta, usa la opción Guardar en Drive. La aplicación prepara el archivo con su nombre.",
-                "Elegir carpeta" to { launchPicker { pickFolder.launch(null) } },
-                "Guardar en Drive" to { launchPicker { libraryFile.launch("BibliotecaIA-" + ReadingPositionSafSync.deviceId(app).take(8) + ".zip") } })
+            StorageSetupPlan.Step.LIBRARY -> {
+                val newFile = "BibliotecaIA-" + ReadingPositionSafSync.deviceId(app).take(8) + "-" +
+                    java.util.UUID.randomUUID().toString().take(8) + ".zip"
+                if (SharedLibrary.fileMode(app)) show("Paso 1 · Recuperar acceso",
+                    "Ya existe una biblioteca. Selecciona de nuevo tu archivo para autorizar el acceso, o crea uno nuevo si necesitas reparar la conexión. El anterior no se borrará.",
+                    "Volver a seleccionar" to { launchPicker { repairLibrary.launch(openWritable()) } },
+                    "Crear archivo nuevo" to { launchPicker { libraryFile.launch(newFile) } })
+                else show("Paso 1 · Ubicación de tu biblioteca",
+                    "Elige una ubicación común a tus dispositivos. Si Drive no permite elegir una carpeta, usa la opción Guardar en Drive. La aplicación prepara el archivo con su nombre.",
+                    "Elegir carpeta" to { launchPicker { pickFolder.launch(null) } },
+                    "Guardar en Drive" to { launchPicker { libraryFile.launch(newFile) } })
+            }
             StorageSetupPlan.Step.BACKUP -> {
-                if (backup.recoveryPending || BackupRoutine.savedDestination(app) != null) {
-                    show("Paso 2 · Copia de seguridad", "Ya existe una ubicación de copia o una recuperación pendiente. No la sustituiremos. Puedes repararla en Ajustes sin perder datos.",
+                if (backup.recoveryPending) {
+                    show("Paso 2 · Copia de seguridad", "Hay una recuperación pendiente. No sustituiremos la copia. Utiliza Recuperar copia anterior en Ajustes.",
                         "Continuar sin cambiarla" to { skipBackup = true; advance() })
+                } else if (BackupRoutine.savedDestination(app) != null) {
+                    show("Paso 2 · Recuperar acceso a la copia", "Ya existe una copia. Vuelve a autorizar el mismo archivo para conservar la configuración.",
+                        "Autorizar copia existente" to { launchPicker { repairBackup.launch(openWritable()) } },
+                        "Ahora no" to { skipBackup = true; advance() })
                 } else {
                     val tree = folder?.takeIf { StorageGrants.allows(app, it, true) }
                     show("Paso 2 · Protege tus libros", "Guardaremos una copia completa que podrás abrir también con otros lectores.",
@@ -247,16 +291,16 @@ internal class StorageSetupWizard(
                 prompt = AlertDialog.Builder(activity).setTitle("Comprobación final").setMessage("Verificando la configuración…").setCancelable(false).show()
                 activity.lifecycleScope.launch {
                     try {
-                        val lib = SharedLibrary.sync(app, db)
+                        val libOk = if (SharedLibrary.configured(app)) SharedLibrary.sync(app, db).errors.isEmpty() else !several
                         val positions = !several || (ReadingPositionSafSync.fastReady(app) &&
                             ReadingPositionSafSync.refreshForRead(app, db) && ReadingPositionSafSync.publish(app, db))
                         val copy = BackupRoutine.status(app)
-                        val complete = lib.errors.isEmpty() && positions && copy.uri != null &&
+                        val complete = libOk && positions && copy.uri != null &&
                             !copy.recoveryPending && copy.lastSuccess > 0 && copy.missingTitles.isEmpty()
                         prompt?.dismiss()
                         busy = false
                         show(if (complete) "Configuración completada" else "Configuración con tareas pendientes",
-                            "Biblioteca: " + (if (lib.errors.isEmpty()) "comprobada" else "requiere revisión") +
+                            "Biblioteca: " + (if (!several && !SharedLibrary.configured(app)) "solo en este dispositivo" else if (libOk) "comprobada" else "requiere revisión") +
                             "\nCopia de seguridad: " + (if (copy.uri != null && copy.lastSuccess > 0 && !copy.recoveryPending && copy.missingTitles.isEmpty()) "guardada" else "pendiente o incompleta") +
                             "\nAvances: " + (if (!several) "lectura local" else if (positions) "sincronización comprobada" else "pendiente") +
                             if (several) "\n\nRepite el asistente en el otro dispositivo. No necesitas guardar la página manualmente." else "",
