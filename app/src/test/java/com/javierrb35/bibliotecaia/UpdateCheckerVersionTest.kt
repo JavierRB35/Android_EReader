@@ -129,4 +129,18 @@ class UpdateCheckerVersionTest {
         assertTrue(text.length <= 4000)
         org.junit.Assert.assertEquals("Drive", UpdateNotes.preview(text))
     }
+    @Test fun `distingue version actual de fallo de consulta`() {
+        assertTrue(UpdateChecker.classifyResponse(200, officialRelease(), "0.1.22")
+            is UpdateChecker.CheckResult.Current)
+        assertTrue(UpdateChecker.classifyResponse(200, officialRelease(), "0.1.21")
+            is UpdateChecker.CheckResult.Available)
+        for (status in listOf(403, 404, 429, 503)) {
+            assertTrue(UpdateChecker.classifyResponse(status, "", "0.1.21")
+                is UpdateChecker.CheckResult.Unavailable)
+        }
+        assertTrue(UpdateChecker.classifyResponse(200, "invalid", "0.1.21")
+            is UpdateChecker.CheckResult.Unavailable)
+        assertTrue(UpdateChecker.classifyResponse(200, officialRelease(withChecksum = false), "0.1.21")
+            is UpdateChecker.CheckResult.Unavailable)
+    }
 }

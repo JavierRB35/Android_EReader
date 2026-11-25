@@ -1,5 +1,7 @@
 # Coordinación activa — Biblioteca IA
 
+> **Mantenimiento 25/11/2026:** las reservas y ramas de noviembre 20–21 registradas abajo son históricas y no deben interpretarse como reservas activas. Verificar PR abiertas y anuncios recientes antes de editar. Ramas sin commits por delante de `main` detectadas en esta auditoría: `feature/design-system`, `feature/library`, `feature/reader-integration`, `feature/reader-pdf-mobi`, `integration/epub-adopted`, `integration/settings-backup-updates`. No reutilizarlas como base; crear ramas desde `main` actualizado. PR #20, #4, #62, #64 y #71 cerradas y sustituidas o canceladas; no reabrir ni fusionar.
+
 Fecha: 2026-11-20. Coordinador: chat Codex «Desarrollar Biblioteca IA para Android».
 Integración: `feature/reader-integration`. Remoto canónico: `JavierRB35/Android_EReader`.
 
