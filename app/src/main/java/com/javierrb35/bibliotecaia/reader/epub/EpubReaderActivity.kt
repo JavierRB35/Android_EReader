@@ -129,6 +129,11 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeTouchX = 0f
     private var nativeTouchY = 0f
     private var nativeGeneration = 0
+    private var nativeRestoring = false
+    private var nativeMoved = false
+    private var readiumMoved = false
+    @Volatile private var lastQueuedLocator: String? = null
+    @Volatile private var positionWriteRevision = 0L
     private var lastNativeReadiumKey: String? = null
     private var nativeReadiumRefresh: Job? = null
     private var themeIndex = 0
@@ -159,6 +164,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     ?: error("El libro ya no está en la biblioteca.")
                 readerBookTitle.text = book.title
                 val savedLocator = restored ?: repository.position(bookId)?.locator
+                lastQueuedLocator = savedLocator
                 val initial = parseLocator(savedLocator)
                 val opened = EpubOpener.open(applicationContext, File(book.localPath))
                 publication = opened
@@ -198,8 +204,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     val initialIndex = opened.readingOrder.indexOfFirst {
                         initial?.href?.toString() == it.url().toString()
                     }.coerceAtLeast(0)
-                    val initialOffset = NativeEpubAnchors.point(savedLocator)?.offset ?: 0
-                    showNativeChapter(initialIndex, initialOffset)
+                    val initialOffset = NativeEpubAnchors.point(savedLocator)?.offset
+                    showNativeChapter(initialIndex, initialOffset ?: 0,
+                        restoreFraction = if (initialOffset == null) initial?.locations?.progression else null,
+                        recordPosition = savedLocator == null)
                 } else {
                     showReadingSurface()
                 }
@@ -224,10 +232,15 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         // immediate Maquetación toggle on the SAME chapter
                         // has no href for the saved-note bridge until the user
                         // manually navigates to another chapter.
+                        val previous = latest
                         latest = locator
                         if (!nativeMode) {
                             refreshNativeReadiumMarks(fragment)
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
+                            // Do not manufacture a newer position merely by opening
+                            // a book on another screen. Save subsequent navigation.
+                            if (previous != null && previous != locator || savedLocator == null) readiumMoved = true
+                            if (!readiumMoved) return@collect
                             pendingSave?.cancel()
                             pendingSave = lifecycleScope.launch {
                                 delay(900)
@@ -467,7 +480,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             if (nativeMode && nativeChapter != null) showNativeChapter(nativeIndex + direction)
         }, maySwipe = { !nativeSelectionActive })
         nativeScroll.setOnScrollChangeListener { _, _, _, _, _ ->
-            if (nativeMode && nativeChapter != null) {
+            if (nativeMode && nativeChapter != null && !nativeRestoring) {
+                nativeMoved = true
                 updateNativeProgress()
                 scheduleNativeSave()
             }
@@ -578,12 +592,14 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeToggle.text = if (nativeMode) "Maquetación" else "Selección precisa"
     }
 
-    private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null) {
+    private fun showNativeChapter(index: Int, requestedOffset: Int = 0, findQuote: String? = null,
+                                  restoreFraction: Double? = null, recordPosition: Boolean = true) {
         val pub = publication ?: return
         val link = pub.readingOrder.getOrNull(index) ?: return
         if (speech.active() && !advanceSpeech) speech.stop()
         nativeLoading?.cancel()
         val generation = ++nativeGeneration
+        nativeRestoring = true
         nativeLoading = lifecycleScope.launch {
             loading.visibility = View.VISIBLE
             loading.text = "Preparando capítulo para selección precisa…"
@@ -596,15 +612,22 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 val searchOffset = findQuote?.let {
                     chapter.text.indexOf(it, ignoreCase = true)
                 }?.takeIf { it >= 0 }
-                val offset = (searchOffset ?: requestedOffset).coerceIn(0, chapter.text.length)
+                val fractionalOffset = restoreFraction?.takeIf { it.isFinite() }?.let {
+                    (it.coerceIn(0.0, 1.0) * chapter.text.length).toInt()
+                }
+                val offset = (searchOffset ?: fractionalOffset ?: requestedOffset).coerceIn(0, chapter.text.length)
                 nativeScroll.post {
+                    if (generation != nativeGeneration || !nativeMode) return@post
                     val layout = nativeText.layout
                     if (layout != null) {
                         nativeScroll.scrollTo(0,
-                            (layout.getLineTop(layout.getLineForOffset(offset)) -
-                                nativeText.paddingTop).coerceAtLeast(0))
+                            (layout.getLineTop(layout.getLineForOffset(offset)) +
+                                nativeText.totalPaddingTop).coerceAtLeast(0))
                     }
+                    nativeRestoring = false
+                    nativeMoved = recordPosition
                     updateNativeProgress()
+                    if (recordPosition) scheduleNativeSave()
                 }
                 showReadingSurface()
                 loading.visibility = View.GONE
@@ -619,6 +642,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 throw cancelled
             } catch (_: Exception) {
                 if (generation != nativeGeneration) return@launch
+                nativeRestoring = false
                 advanceSpeech = false
                 pendingSpeechStart = false
                 speech.stop()
@@ -656,7 +680,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         val chapter = nativeChapter ?: return 0
         val layout = nativeText.layout ?: return 0
         val line = layout.getLineForVertical(
-            (nativeScroll.scrollY - nativeText.paddingTop).coerceAtLeast(0))
+            (nativeScroll.scrollY - nativeText.totalPaddingTop).coerceAtLeast(0))
         return layout.getLineStart(line).coerceIn(0, chapter.text.length)
     }
 
@@ -675,14 +699,23 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
 
-    private fun saveNativePosition(offset: Int) {
+    private fun saveNativePosition(offset: Int, publishExit: Boolean = false) {
         val locator = nativeLocator(offset, "") ?: return
         val progress = nativeProgress(offset).toFloat()
         val id = bookId
+        val changed = lastQueuedLocator != locator
+        if (changed) lastQueuedLocator = locator
+        val revision = if (changed) ++positionWriteRevision else positionWriteRevision
         saves.launch {
-            try { saveMutex.withLock { repository.savePosition(id, locator, progress) } }
+            try {
+                saveMutex.withLock {
+                    if (changed && revision == positionWriteRevision) repository.savePosition(id, locator, progress)
+                }
+                if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
+            }
             catch (_: Exception) {
                 withContext(Dispatchers.Main) {
+                    if (revision == positionWriteRevision) lastQueuedLocator = null
                     toast("No se pudo guardar la posición.")
                 }
             }
@@ -1285,27 +1318,51 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         pendingSave?.cancel()
         nativeSave?.cancel()
         if (nativeMode) {
-            saveNativePosition(visibleNativeOffset())
+            if (!nativeRestoring && nativeMoved) saveNativePosition(visibleNativeOffset(), publishExit = true)
+            else saves.launch {
+                saveMutex.withLock { }
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
+            }
+            nativeMoved = false
             super.onStop()
             return
         }
         val locator = latest
-        if (locator != null) {
+        if (locator != null && readiumMoved) {
             val repo = repository; val id = bookId; val json = locator.toJSON().toString()
             val progression = (locator.locations.totalProgression ?: 0.0).toFloat()
             val app = applicationContext
+            val changed = lastQueuedLocator != json
+            if (changed) lastQueuedLocator = json
+            val revision = if (changed) ++positionWriteRevision else positionWriteRevision
             saves.launch {
-                try { saveMutex.withLock { repo.savePosition(id, json, progression) } }
+                try {
+                    saveMutex.withLock {
+                        if (changed && revision == positionWriteRevision) repo.savePosition(id, json, progression)
+                    }
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(app)
+                }
                 catch (_: Exception) { withContext(Dispatchers.Main) {
+                    if (revision == positionWriteRevision) lastQueuedLocator = null
                     Toast.makeText(app, "No se pudo guardar la posición de lectura.", Toast.LENGTH_LONG).show()
                 } }
             }
+        } else saves.launch {
+            saveMutex.withLock { }
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
         }
+        readiumMoved = false
         super.onStop()
     }
     private suspend fun persist(locator: Locator) {
+        val json = locator.toJSON().toString()
+        if (lastQueuedLocator == json) return
+        val revision = ++positionWriteRevision
         saveMutex.withLock {
-            repository.savePosition(bookId, locator.toJSON().toString(), (locator.locations.totalProgression ?: 0.0).toFloat())
+            if (revision == positionWriteRevision) {
+                repository.savePosition(bookId, json, (locator.locations.totalProgression ?: 0.0).toFloat())
+                if (revision == positionWriteRevision) lastQueuedLocator = json
+            }
         }
     }
     override fun onDestroy() {

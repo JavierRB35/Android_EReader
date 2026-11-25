@@ -104,8 +104,19 @@ class SharedFileStoreJourneyTest {
             // The next open uses the local rollback, not another device's file.
             openA().use { assertArrayEquals(beforeA, File(uriA.path!!).readBytes()) }
             openA().use { assertTrue(SharedLibrary.syncStore(it, a, ownerA).errors.isEmpty()) }
-            openB().use { assertTrue(SharedLibrary.syncStore(it, b, ownerB).errors.isEmpty()) }
+            // Opening the reader must only pull, never require B to publish first.
+            val beforePull = File(uriB.path!!).readBytes()
+            openB().use { assertTrue(SharedLibrary.pullStore(it, b).errors.isEmpty()) }
             assertEquals(.3f, b.readingDao().position(peer.id)!!.progress, 0f)
+            assertEquals("page:3", b.readingDao().position(peer.id)!!.locator)
+            assertArrayEquals(beforePull, File(uriB.path!!).readBytes())
+            // A deliberate backward movement is the latest chronological position.
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:1", .1f, 20L))
+            openA().use { assertTrue(SharedLibrary.syncStore(it, a, ownerA).errors.isEmpty()) }
+            openB().use { assertTrue(SharedLibrary.pullStore(it, b).errors.isEmpty()) }
+            assertEquals("page:1", b.readingDao().position(peer.id)!!.locator)
+            assertTrue(b.bookDao().findByHash(book.contentHash)!!.localPath.isBlank())
+            assertArrayEquals(beforePull, File(uriB.path!!).readBytes())
             try {
                 SharedFileStore(cache, filesB, access, uriA, emptyList(), ownerB).use { it.commit() }
                 fail("Must refuse another device's archive as own")

@@ -97,6 +97,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
     @Volatile private var positionRevision = 0L
+    @Volatile private var lastQueuedOffset: Int? = null
     private var touchX = 0f
     private var touchY = 0f
     private val repository by lazy { ReadingRepository(this) }
@@ -236,6 +237,8 @@ class MobiReaderActivity : AppCompatActivity() {
                 if (text.isBlank()) error("No se encontró texto legible en este MOBI.")
                 title = book.title
                 loaded = true
+                lastQueuedOffset = saved.takeIf { repository.position(bookId) != null &&
+                    intent.getStringExtra("locator") == null }
                 showChunk(saved.coerceIn(0, text.lastIndex))
                 launch {
                     repository.observeAnnotations(bookId).collect { notes ->
@@ -345,12 +348,20 @@ class MobiReaderActivity : AppCompatActivity() {
         val obj = JSONObject(json ?: "{}")
         if (obj.optString("format") == "MOBI") obj.optInt("offset", 0) else 0
     }.getOrDefault(0)
-    private fun savePosition(at: Int) {
+    private fun savePosition(at: Int, publishExit: Boolean = false) {
         if (!loaded || text.isEmpty()) return
         val id = bookId
         val bounded = at.coerceIn(0, text.length)
         val location = locator(bounded)
         val progress = bounded.toFloat() / text.length
+        if (lastQueuedOffset == bounded) {
+            if (publishExit) positionWrites.launch {
+                positionMutex.withLock { }
+                com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
+            }
+            return
+        }
+        lastQueuedOffset = bounded
         val revision = ++positionRevision
         val repo = ReadingRepository(applicationContext)
         // UNDISPATCHED schedules this write before the Activity can finish;
@@ -363,9 +374,11 @@ class MobiReaderActivity : AppCompatActivity() {
                         repo.savePosition(id, location, progress)
                     }
                 }
+                if (publishExit) com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                if (revision == positionRevision) lastQueuedOffset = null
                 android.util.Log.e("BibliotecaMobiPosition", "Unable to persist reading position", failure)
             }
         }
@@ -373,7 +386,7 @@ class MobiReaderActivity : AppCompatActivity() {
     override fun onPause() {
         speech.stop()
         pendingPosition?.cancel()
-        if (loaded) savePosition(visibleOffset())
+        if (loaded) savePosition(visibleOffset(), publishExit = true)
         super.onPause()
     }
     override fun onDestroy() {

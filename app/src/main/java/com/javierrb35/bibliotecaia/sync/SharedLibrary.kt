@@ -10,6 +10,10 @@ import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -61,6 +65,7 @@ object SharedLibrary {
             status.contains("La identidad del archivo no coincide"))
     }
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
+    fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
             it.uri == candidate || candidate.toString() in it.peers
@@ -104,7 +109,7 @@ object SharedLibrary {
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
             .remove("owner_mismatch")
-        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").putString("status", "Pendiente de sincronizar.")
+        if (old?.uri != connection.uri) edit.remove("hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
     }
@@ -320,6 +325,8 @@ object SharedLibrary {
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context)) }
+            if (result.errors.isEmpty()) prefs(context).edit()
+                .putLong("last_publication", System.currentTimeMillis()).apply()
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }
@@ -459,18 +466,46 @@ object SharedLibrary {
                 }
             }
         }
-    suspend fun pull(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val inv = store(context).use { inventory(it) }
-            val errors = inv.errors.toMutableList()
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME)
-            for (json in inv.states) {
-                try { manager.restoreJson(json, synchronize = true) }
-                catch (e: CancellationException) { throw e }
-                catch (e: Exception) { errors.add(e.message ?: "Catálogo incompatible.") }
-            }
-            publishStatus(context, inv.availableHashes(), errors)
+    internal suspend fun pullStore(store: SharedStore, db: AppDatabase): StoreResult {
+        val inv = inventory(store)
+        val errors = inv.errors.toMutableList()
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+        for (json in inv.states) {
+            try { manager.restoreJson(json, synchronize = true) }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { errors.add(e.message ?: "Catálogo incompatible.") }
         }
+        return StoreResult(inv.availableHashes(), errors)
+    }
+    suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val result = store(context).use { pullStore(it, db) }
+            publishStatus(context, result.hashes, result.errors)
+            Result(result.hashes.size, result.errors)
+        }
+    }
+
+    // On leaving a reader, publish the already committed Room position now,
+    // not just at the next periodic worker. One conflated queue prevents
+    // simultaneous ZIP writers and redundant exit requests. The durable
+    // WorkManager request remains the fallback for process death/offline.
+    private val exitRequests = Channel<Context>(Channel.CONFLATED)
+    private val exitPublisher = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    init {
+        exitPublisher.launch {
+            for (app in exitRequests) {
+                if (!configured(app)) continue
+                try { sync(app, AppDatabase.get(app)) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { recordFailure(app, e) }
+            }
+        }
+    }
+    fun publishReadingExit(context: Context) {
+        val app = context.applicationContext
+        if (!configured(app)) return
+        schedule(app, immediate = true)
+        exitRequests.trySend(app)
     }
     fun recordFailure(context: Context, error: Exception) {
         val edit = prefs(context).edit().putString("status", "Pendiente de sincronizar: " + (error.message ?: "error"))
@@ -480,7 +515,7 @@ object SharedLibrary {
     }
     private val requestLock = Any()
     internal fun revision(context: Context): Long = prefs(context).getLong("requested_revision", 0L)
-    fun schedule(context: Context) {
+    fun schedule(context: Context, immediate: Boolean = false) {
         if (!configured(context)) return
         synchronized(requestLock) {
             val next = revision(context) + 1L
@@ -488,7 +523,7 @@ object SharedLibrary {
         }
         val work = WorkManager.getInstance(context.applicationContext)
         work.enqueueUniqueWork("shared-library-now", ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(3, TimeUnit.SECONDS).build())
+            OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(if (immediate) 0L else 3L, TimeUnit.SECONDS).build())
         work.enqueueUniquePeriodicWork("shared-library-periodic", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<SharedLibraryWorker>(15, TimeUnit.MINUTES).build())
     }
