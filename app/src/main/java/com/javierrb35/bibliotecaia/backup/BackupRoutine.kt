@@ -67,23 +67,34 @@ object BackupRoutine {
      * installation owns its own backup; never race another writer. */
     suspend fun prepareFolder(context: Context, database: AppDatabase, version: String, tree: Uri): Result {
         val app = context.applicationContext
-        val current = status(app)
-        require(!current.recoveryPending) { "Hay una copia anterior pendiente de recuperar." }
-        val currentUri = current.uri
-        if (currentUri != null && com.javierrb35.bibliotecaia.sync.StorageGrants.belongs(currentUri, tree)) {
-            val result = save(app, database, version, true)
-            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(SHARED_AUTO_URI, currentUri.toString()).apply()
-            return result
-        }
-        val name = "BibliotecaIA-copia-" +
-            com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(app).take(8) + ".zip"
+        val grants = com.javierrb35.bibliotecaia.sync.StorageGrants
         val target = withContext(Dispatchers.IO) {
-            val existing = com.javierrb35.bibliotecaia.sync.SharedDocumentStore(app, tree).use { store ->
-                store.list().filter { it.name == name }
+            lock.withLock {
+                val items = com.javierrb35.bibliotecaia.sync.SharedDocumentStore(app, tree).use { it.list() }
+                val old = savedDestination(app)
+                val existingOwn = grants.listed(old, tree, items)
+                val recoveryPrefs = app.getSharedPreferences("biblioteca_backup_recovery", Context.MODE_PRIVATE)
+                val recoveryUri = recoveryPrefs.getString("uri", null)?.let(Uri::parse)
+                if (recoveryUri != null && grants.listed(recoveryUri, tree, items) == null &&
+                    (grants.belongs(recoveryUri, tree) || items.none { it.name.startsWith("BibliotecaIA-copia-") })) {
+                    grants.archiveRollback(File(app.filesDir, "previous-complete-backup.zip"))
+                    check(recoveryPrefs.edit().remove("uri").commit())
+                }
+                require(!status(app).recoveryPending) { "Hay una copia anterior pendiente de recuperar." }
+                if (old != null && existingOwn == null) {
+                    // Forget only references/status; the local library is intact.
+                    check(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                        .remove(TARGET_URI).remove(FINGERPRINT).remove(LAST_SUCCESS).remove(LAST_ERROR)
+                        .remove(SHARED_AUTO_URI).remove(DELETION_FINGERPRINT)
+                        .remove("missing_original_titles").remove("central_index_uri")
+                        .remove("central_index_hashes").commit())
+                }
+                val name = "BibliotecaIA-copia-" +
+                    com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(app).take(8) + ".zip"
+                val existing = items.filter { it.name == name }
+                require(existing.size <= 1) { "Hay varias copias con el mismo nombre en la ubicación." }
+                existingOwn?.uri ?: existing.singleOrNull()?.uri ?: grants.create(app, tree, "application/zip", name)
             }
-            require(existing.size <= 1) { "Hay varias copias con el mismo nombre en la ubicación." }
-            existing.singleOrNull()?.uri ?: com.javierrb35.bibliotecaia.sync.StorageGrants.create(app, tree, "application/zip", name)
         }
         // A previously created nonempty archive is verified by the existing
         // replacement routine. Empty documents are new and safe to initialize.

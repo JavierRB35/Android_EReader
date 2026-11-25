@@ -31,6 +31,32 @@ class SharedLibraryJourneyTest {
             return item
         }
     }
+    @Test fun emptiedFolderRebuildsFromLocalBooksWithoutResettingDatabase() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "rebuild-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(folder)
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val original = File(root, "original.epub").apply { writeText("book bytes") }
+        val book = BookEntity("book", "Libro", null, BookFormat.EPUB, original.name, original.absolutePath,
+            SharedDocumentStore.hash(original.readBytes()), original.length(), 1L)
+        try {
+            a.bookDao().insert(book)
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:3", .3f, 100L))
+            assertTrue(SharedLibrary.syncStore(store, a, "a".repeat(32)).errors.isEmpty())
+            folder.listFiles()!!.forEach { assertTrue(it.delete()) }
+            assertTrue(store.list().isEmpty())
+            assertEquals(setOf(book.contentHash), SharedLibrary.syncStore(store, a, "a".repeat(32)).hashes)
+            assertEquals(setOf(book.contentHash), SharedLibrary.syncStore(store, b, "b".repeat(32)).hashes)
+            assertEquals("page:3", b.readingDao().position(book.id)!!.locator)
+            val downloaded = File(root, "downloaded.epub")
+            SharedLibrary.stageFromStore(store, book, downloaded)
+            assertArrayEquals(original.readBytes(), downloaded.readBytes())
+            assertEquals(1, folder.listFiles()!!.count { it.name.startsWith("bia-book-") })
+        } finally { a.close(); b.close(); root.deleteRecursively() }
+    }
+
     @Test fun independentDevicesKeepBooksAndReconcilePositionsAndNotes() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "shared-journey-" + UUID.randomUUID()).apply { mkdirs() }

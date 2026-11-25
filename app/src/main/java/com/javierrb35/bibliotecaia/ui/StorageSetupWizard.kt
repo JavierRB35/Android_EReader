@@ -192,7 +192,7 @@ internal class StorageSetupWizard(
                     advance()
                 }, "Cambiar ubicación" to { showLocationChoice() })
         } else if (current != null) {
-            show("Tu biblioteca", "La copia y la lectura se configuran juntas en esta ubicación. Puedes comprobarla o elegir otra.",
+            show("Tu biblioteca", "La copia y la lectura se configuran juntas en esta ubicación. Si has vaciado la carpeta, volveremos a preparar todo con tus libros locales.",
                 "Comprobar" to { runStep { prepareAll(current) } },
                 "Cambiar ubicación" to { showLocationChoice() })
         } else showLocationChoice()
@@ -232,7 +232,8 @@ internal class StorageSetupWizard(
 
     private fun showUnifiedResult() {
         val peers = ReadingPositionSafSync.status(app).peerCount
-        show("Biblioteca preparada", "Biblioteca, copia de seguridad y guardado de avances comprobados." +
+        show(if (peers > 0) "Todo preparado" else "Todo preparado en este dispositivo",
+            "Biblioteca, copia de seguridad y guardado de avances comprobados." +
             if (peers > 0) "\n\nOtros dispositivos detectados: $peers. Ya puedes continuar leyendo."
             else "\n\nEn tu otro dispositivo, elige esta misma ubicación. Se reconocerá automáticamente, sin vincular archivos a mano.",
             "Terminar" to { pause() }, closeLabel = null)
