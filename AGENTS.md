@@ -1,14 +1,22 @@
 # AGENTS.md — Orientación central para agentes
 
-Proyecto: **Biblioteca IA** — aplicación Android para leer (EPUB/PDF/MOBI), anotar y consultar con IA (Gemini principal / Groq respaldo), con biblioteca local sin cuentas ni OAuth, copia íntegra ZIP en destino SAF seleccionado y modo OLED negro puro.
+Proyecto: **Biblioteca IA** — aplicación Android para leer (EPUB/PDF/MOBI), anotar y consultar con IA (Gemini principal / Groq respaldo), con biblioteca única compartida en Drive mediante permisos SAF existentes, sin cuentas ni OAuth propios, caché local offline y backup separado opcional y modo OLED negro puro.
 Referencia funcional: Scriptura para Android.
 
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git` (renombrado desde `Androdi_EReader`; la URL antigua redirige, pero usar siempre la canónica).
 
+## Directriz funcional vigente — P0 biblioteca única
+
+- La cabecera de [#103](https://github.com/JavierRB35/Android_EReader/issues/103) es la decisión funcional vinculante más reciente; prevalece sobre especificaciones anteriores incompatibles. Consultarla antes de cada ejecución.
+- Una carpeta Drive compartida; originales normales con nombres y extensiones originales, importables por otros lectores. SHA-256 solo interno para deduplicar; conservar colisiones de nombre sin sobrescribir.
+- Acceso por permisos existentes del sistema (SAF), sin OAuth propio, cuentas, gateway, Supabase obligatorio, códigos de vinculación ni contenedores por dispositivo. Verificar primero capacidad real del proveedor; no asumir que selección de árbol está soportada.
+- Una sola biblioteca lógica: sincronizar posiciones, notas, marcas, categorías, etiquetas y colecciones, offline y reconciliación sin pérdidas. Separar datos técnicos de originales; no imponer ZIP para vincular. Mantener recuperación no destructiva y funcionalidad de lectura/IA.
+- Agente 1 único: suspender #115/#116 y arquitectura incompatible, preservar sus ramas y datos. Reutilizar SharedLibrary, permisos, hash, integridad y mecanismos existentes; priorizar un incremento vertical observable sobre infraestructura hipotética.
+
 ## Documentos autoritativos (leer en este orden)
 
-1. `docs/protocol/ai-development-protocol.md` — **PROTOCOLO DE DESARROLLO obligatorio** (niveles de verificación, Git, seguridad, criterios de finalización). Tiene prioridad sobre lo demás salvo instrucciones superiores del entorno.
-2. `docs/product/master-prompt.md` — Prompt Maestro multiagente: alcance funcional completo, modelo de datos, incrementos 0–10, escenarios de aceptación A–L.
+1. `docs/protocol/ai-development-protocol.md` — **PROTOCOLO DE DESARROLLO obligatorio** (niveles de verificación, Git, seguridad, criterios de finalización). Rige el método de desarrollo; la cabecera vigente de #103 rige requisitos funcionales y prevalece sobre decisiones históricas incompatibles.
+2. `docs/product/master-prompt.md` — Prompt Maestro histórico: alcance funcional compatible, modelo de datos, incrementos 0–10, escenarios de aceptación A–L.
 3. `docs/DEVELOPMENT_STATE.md` — **estado vivo del proyecto: leer al iniciar; actualizar y publicar al terminar** cada sesión o unidad funcional.
 4. `docs/product/requirements.md` — requisitos funcionales condensados.
 5. `docs/architecture/decisions.md` (ADRs) y `docs/architecture/overview.md`.
@@ -48,10 +56,10 @@ Referencia funcional: Scriptura para Android.
 
 ## Cierre obligatorio de cada modificación — 25/11/2026
 
-Toda modificación autorizada, incluida una corrección pequeña o un cambio documental, debe llegar a `main`, quedar incluida en una publicación oficial verificada y cerrar su rama de trabajo. La directriz constituye autorización permanente para integrar, publicar y limpiar la rama propia de trabajos terminados y validados, sin pedir una nueva confirmación para cada paso.
+Toda modificación autorizada debe llegar a `main` tras los controles aplicables. Cada incremento funcional validado debe publicarse como APK oficial y notificarse en la aplicación. Un cambio exclusivamente documental no exige una compilación adicional: agruparlo con la siguiente APK funcional, respetando CI obligatorio. La directriz constituye autorización permanente para integrar, publicar y limpiar la rama propia de trabajos terminados y validados, sin pedir una nueva confirmación para cada paso.
 
 1. Trabajar en una rama identificable, registrar los cambios y abrir PR. Coordinar con otras ramas y resolver conflictos sin perder cambios ajenos.
-2. Validar todos los controles pertinentes sobre el HEAD exacto; no fusionar trabajos incompletos, WIP ni pruebas fallidas o pendientes.
+2. Validar controles obligatorios y pertinentes sobre el HEAD exacto; reutilizar resultados solo si no cambian dependencias relevantes. no fusionar trabajos incompletos, WIP ni pruebas fallidas o pendientes.
 3. Fusionar en `main` por el procedimiento permitido del repositorio, verificando que se conserva todo el contenido previsto. No eludir protecciones.
 4. Verificar CI de `main` y publicación oficial con versión estrictamente superior, APK firmada, checksum, notas de cambios y commit integrado. Una publicación posterior puede incluir varias modificaciones ya fusionadas; no duplicar releases ni publicar una APK obsoleta.
 5. Solo después de verificar la publicación, eliminar la rama de trabajo remota ya fusionada, comprobando que su HEAD no ha avanzado, que no contiene cambios sin integrar y que ninguna PR abierta depende de ella. Conservar `main`, ramas protegidas, ramas activas o compartidas y etiquetas de release. No eliminar ramas mediante borrados masivos, ni si hay dudas sobre dependencias o integridad.
@@ -61,14 +69,14 @@ Toda modificación autorizada, incluida una corrección pequeña o un cambio doc
 
 - `main` = estable. Trabajo funcional en ramas identificables (`feature/<área>`), con commits y push frecuentes, especialmente al cerrar cada unidad funcional verificable.
 - Trabajos incompletos → rama de desarrollo etiquetada claramente como WIP; no comprometen `main`.
-- Antes de finalizar una sesión: verificar con `git ls-remote` que todo commit relevante está en el remoto y actualizar `docs/DEVELOPMENT_STATE.md`. Ningún sucesor debe depender de conversaciones previas.
+- Antes de finalizar una sesión: verificar HEAD remoto mediante Git o API GitHub según el entorno y actualizar `docs/DEVELOPMENT_STATE.md`. Ningún sucesor debe depender de conversaciones previas.
 - Prohibido publicar secretos: claves API (Gemini/Groq), tokens, keystores, contraseñas, libros privados o datos personales. Las credenciales de IA las aporta el usuario en la app, nunca en el repo.
 - Push a `main`, merges y releases con autorización aplicable (incluida la directriz permanente de cierre anterior); no anular protecciones de ramas.
 
 ## Convenciones
 
 - Kotlin + XML Views (no Compose; ver ADR-002). Package/applicationId: `com.javierrb35.bibliotecaia` (estable; no cambiar: afecta a firmas y actualizaciones).
-- Offline-first; Room/SQLite y originales locales; no activar registro, OAuth ni sincronización remota; backup íntegro mediante SAF en destino elegido.
+- Offline-first; Room/SQLite y caché local; sincronización de biblioteca única mediante acceso SAF compartido. No activar registro, OAuth ni gateway obligatorio. Backup íntegro separado del mecanismo de sincronización.
 - Etiquetado honesto obligatorio del estado: **Implementado / Verificado localmente / Verificado en dispositivo / Verificado con servicio / Pendiente**. No afirmar compilación AndroidIDE si solo se compiló en otro entorno; no prometer porcentajes de ahorro energético sin mediciones.
 - Pruebas: seleccionar por riesgo según protocolo §7–8 (Niveles 0–4); no ejecutar toda la suite tras cada cambio menor; no inventar resultados.
 - Dependencias: justificar cada una; compatibilidad AndroidIDE primero; investigar motores existentes (Readium Kotlin Toolkit para EPUB, ML Kit para OCR) antes de implementar uno propio.
@@ -76,12 +84,12 @@ Toda modificación autorizada, incluida una corrección pequeña o un cambio doc
 
 ## Fuera de alcance (no implementar)
 
-Pagos, suscripciones, tienda de libros, redes sociales, recomendaciones comerciales, funciones de colaboración.
+Pagos, suscripciones, tienda de libros, redes sociales, recomendaciones comerciales, colaboración social (la sincronización entre dispositivos propios/autorizados sí está en alcance).
 
 
 ## DIRECTRIZ OBLIGATORIA POSTERIOR — 20/11/2026
 
-No incorporar cuentas, registro Gmail, OAuth Google ni API Drive a Biblioteca IA. La PR #20
+No incorporar cuentas, registro Gmail, OAuth Google ni API Drive propia a Biblioteca IA. La decisión vigente de #103 sustituye cualquier restricción antigua que impida sincronizar mediante SAF. La PR #20
 se cerró sin fusionar. Cada copia exportada con SAF debe incluir **todos los originales
 EPUB/PDF/MOBI y el catálogo completo con notas, marcas, versiones, relaciones y posiciones**.
 Se descarta toda copia aparentemente exitosa que omita un original, preserve un hash
