@@ -354,7 +354,8 @@ object SharedLibrary {
             // A failed upload does not block the other books or reading state.
             publish(owner, store, db, known.values.flatten())
             store.commit()
-            return StoreResult(available, errors)
+            val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
+            return StoreResult(available.intersect(activeHashes), errors)
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -379,8 +380,9 @@ object SharedLibrary {
                 BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(content.json, synchronize = true)
                 publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
                 store.commit()
-                publishStatus(context, available, inv.errors)
-                Result(available.size, inv.errors)
+                val active = available.intersect(db.backupDao().booksAll().map { it.contentHash }.toSet())
+                publishStatus(context, active, inv.errors)
+                Result(active.size, inv.errors)
             } finally { stage.deleteRecursively() }
             }
         }
@@ -420,6 +422,17 @@ object SharedLibrary {
             }
         }
     }
+    suspend fun deleteEverywhere(context: Context, db: AppDatabase, id: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val removed = com.javierrb35.bibliotecaia.data.BookDeletion.remove(db, id) ?: return@withLock
+            // The logical deletion is committed before cleanup; stale remote copies cannot resurrect it.
+            if (CentralCatalogue.local(removed)) runCatching { LocalBookCopyRemover.delete(context.filesDir, removed) }
+            prefs(context).edit().putStringSet("hashes", hashes(context) - removed.contentHash).apply()
+            changes.value += 1
+        }
+        schedule(context, immediate = true)
+    }
+
     suspend fun evict(context: Context, db: AppDatabase, id: String) {
         val result = sync(context, db)
         require(result.errors.isEmpty()) { "Sincronización incompleta; no se retirará el original." }
@@ -475,7 +488,8 @@ object SharedLibrary {
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { errors.add(e.message ?: "Catálogo incompatible.") }
         }
-        return StoreResult(inv.availableHashes(), errors)
+        val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
+        return StoreResult(inv.availableHashes().intersect(activeHashes), errors)
     }
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {

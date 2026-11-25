@@ -108,6 +108,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
+        findViewById<View>(R.id.btnDeleteEverywhere).setOnClickListener { confirmDeleteEverywhere() }
         findViewById<View>(R.id.btnDownloadCentral).setOnClickListener { downloadCentral() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
@@ -404,6 +405,27 @@ class BookDetailActivity : AppCompatActivity() {
                 }
             }
             .show()
+    }
+
+    private fun confirmDeleteEverywhere() {
+        val current = book ?: return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Eliminar de la biblioteca")
+            .setMessage("¿Eliminar definitivamente «" + current.title + "» de la biblioteca y de los dispositivos vinculados? Se eliminarán también sus notas y posiciones. Las copias históricas externas no se modificarán.")
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton("Eliminar definitivamente") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        com.javierrb35.bibliotecaia.sync.SharedLibrary.deleteEverywhere(applicationContext, db, current.id)
+                        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+                        setResult(RESULT_LOCAL_REMOVED)
+                        finish()
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) {
+                        Toast.makeText(this@BookDetailActivity, e.message ?: "No se pudo eliminar.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.show()
     }
 
     private fun downloadCentral() {

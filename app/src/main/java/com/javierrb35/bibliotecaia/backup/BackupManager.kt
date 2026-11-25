@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia.backup
 import androidx.room.withTransaction
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.BookDeletion
 import java.io.File
 
 /**
@@ -32,6 +33,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 versions = dao.versionsAll(),
                 positions = dao.positionsAll(),
                 synopses = db.synopsisDao().all(),
+                deletedBooks = dao.deletedBooksAll(),
             )
         }
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
@@ -40,9 +42,12 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
     suspend fun restoreJson(json: String, availableOriginals: Map<String, String> = emptyMap(),
                             synchronize: Boolean = false): RestoreReport {
         // Validación ANTES de tocar la base (Issue #10.4): estructura, versión y entradas.
-        val snapshot = BackupCodec.fromJson(json)
+        val incomingSnapshot = BackupCodec.fromJson(json)
         return db.withTransaction {
             val dao = db.backupDao()
+            incomingSnapshot.deletedBooks.forEach { BookDeletion.apply(db, it) }
+            val deletions = dao.deletedBooksAll().associate { it.contentHash to it.deletedAt }
+            val snapshot = withoutDeletedBooks(incomingSnapshot, deletions)
             fun countInserted(ids: List<Long>) = ids.count { it != -1L }
 
             val identity = RestoreIdentityPlanner.plan(
@@ -185,6 +190,23 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 positionsSkipped = snapshot.positions.size - positionsUpdated,
             )
         }
+    }
+
+    /** Remove stale book-specific data before validation and identity mapping. */
+    private fun withoutDeletedBooks(snapshot: LibrarySnapshot, deletions: Map<String, Long>): LibrarySnapshot {
+        val excluded = snapshot.books.filter { it.addedAt <= (deletions[it.contentHash] ?: Long.MIN_VALUE) }
+            .map { it.id }.toSet()
+        if (excluded.isEmpty()) return snapshot
+        val notes = snapshot.annotations.filter { it.bookId in excluded }.map { it.id }.toSet()
+        return snapshot.copy(
+            books = snapshot.books.filterNot { it.id in excluded },
+            bookCategories = snapshot.bookCategories.filterNot { it.bookId in excluded },
+            bookTags = snapshot.bookTags.filterNot { it.bookId in excluded },
+            collectionBooks = snapshot.collectionBooks.filterNot { it.bookId in excluded },
+            annotations = snapshot.annotations.filterNot { it.id in notes },
+            versions = snapshot.versions.filterNot { it.annotationId in notes },
+            positions = snapshot.positions.filterNot { it.bookId in excluded },
+            synopses = snapshot.synopses.filterNot { it.bookId in excluded })
     }
 
     /**

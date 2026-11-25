@@ -260,7 +260,10 @@ class CompleteBackupManager(
                 CompleteBackupArchive.read(input, stage, wantedHashes)
             } ?: throw IllegalArgumentException("No se puede leer el archivo de copia.")
             coroutineContext.ensureActive()
-            val fromArchive = BackupCodec.fromJson(content.json).books
+            val snapshot = BackupCodec.fromJson(content.json)
+            val deletions = (database.backupDao().deletedBooksAll() + snapshot.deletedBooks)
+                .groupBy { it.contentHash }.mapValues { (_, values) -> values.maxOf { it.deletedAt } }
+            val fromArchive = snapshot.books.filter { it.addedAt > (deletions[it.contentHash] ?: Long.MIN_VALUE) }
             val included = fromArchive.filter { it.contentHash !in content.missingHashes }
             require(wantedHashes == null || included.map { it.contentHash }.containsAll(wantedHashes)) {
                 "El libro no está en esta biblioteca central."
