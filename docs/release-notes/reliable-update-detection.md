@@ -1,0 +1,3 @@
+- Mejora de la detección de actualizaciones al abrir BibliotecaAI y al cambiar de pantalla.
+- Ajustes distingue un fallo de conexión de una versión ya actualizada y permite reintentar.
+- Una actualización pendiente vuelve a ofrecerse al iniciar la aplicación.

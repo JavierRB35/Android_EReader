@@ -1903,7 +1903,6 @@ docs/
 │   └── decisions.md
 ├── setup/
 │   ├── androidide.md
-│   ├── google-cloud.md
 │   ├── google-drive.md
 │   ├── supabase.md
 │   ├── gemini.md
