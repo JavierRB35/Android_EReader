@@ -94,6 +94,8 @@ jobs:
           code="$((100000 + GITHUB_RUN_NUMBER))"
           (( code > 1 && code <= 2100000000 )) || exit 1
           tag="v$version"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/official-releases.json"
+          python3 scripts/release_guard.py semantic --releases "$RUNNER_TEMP/official-releases.json" --tag "$tag" --code "$code"
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
             echo "::error::The candidate tag $tag already exists; refusing to replace it" >&2
             exit 1
@@ -130,6 +132,23 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - name: Restore audited historical version metadata
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/release-audit/ledger.json
+          key: bia-release-audit-v1-${{ github.run_id }}
+          restore-keys: bia-release-audit-v1-
+      - name: Verify both version identifiers against actual historical APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_CODE: ${{ needs.preflight.outputs.version_code }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/official-releases.json"
+          python3 scripts/release_guard.py audit --releases "$RUNNER_TEMP/official-releases.json" --tag "$RELEASE_TAG" --code "$RELEASE_CODE" --ledger "$RUNNER_TEMP/release-audit/ledger.json" --repo "$GITHUB_REPOSITORY" --tools "$ANDROID_HOME/build-tools/34.0.0" --certificate "$ANDROID_RELEASE_CERT_SHA256"
       - name: Cache Gradle dependencies
         uses: gradle/actions/setup-gradle@v4
 
@@ -193,6 +212,7 @@ jobs:
           [[ "$metadata" == *"versionCode='$RELEASE_CODE'"* ]] || exit 1
           [[ "$metadata" == *"versionName='$RELEASE_VERSION'"* ]] || exit 1
           (cd dist && sha256sum "BibliotecaIA-$RELEASE_TAG.apk" > "BibliotecaIA-$RELEASE_TAG.apk.sha256")
+          cp "$RUNNER_TEMP/release-audit/ledger.json" dist/verified-prior-versions.json
           echo "Signed and verified $RELEASE_TAG / $RELEASE_CODE / owner certificate $actual"
 
       - name: Upload only verified files (private job artifact)
@@ -202,6 +222,7 @@ jobs:
           path: |
             dist/*.apk
             dist/*.apk.sha256
+            dist/verified-prior-versions.json
           if-no-files-found: error
           retention-days: 7
 
@@ -226,14 +247,17 @@ jobs:
           name: verified-auto-release
           path: dist
       - name: Publish exactly once without replacing older releases
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ needs.preflight.outputs.sha }}
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          RELEASE_CODE: ${{ needs.preflight.outputs.version_code }}
         shell: bash
         run: |
           set -euo pipefail
+          echo "published=false" >> "$GITHUB_OUTPUT"
           apk="dist/BibliotecaIA-$RELEASE_TAG.apk"
           test -s "$apk"
           test -s "$apk.sha256"
@@ -253,6 +277,8 @@ jobs:
             echo "::error::Refusing to overwrite $RELEASE_TAG" >&2
             exit 1
           fi
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/official-releases.json"
+          python3 scripts/release_guard.py check --releases "$RUNNER_TEMP/official-releases.json" --tag "$RELEASE_TAG" --code "$RELEASE_CODE" --ledger dist/verified-prior-versions.json
           # Use the most recent published official APK, not an arbitrary tag.
           previous="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq '.[] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v[0-9]+[.][0-9]+[.][0-9]+$")) | . as $r | select(any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk")) and any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk.sha256"))) | .tag_name' | sed -n '1p')"
@@ -261,6 +287,7 @@ jobs:
             base_sha="$(git rev-parse "refs/tags/$previous^{commit}")"
           fi
           python3 scripts/generate_release_notes.py --base "$base_sha" --head "$RELEASE_SHA" --output "$RUNNER_TEMP/release-notes.md"
+          printf '\nAndroid versionCode: %s\n' "$RELEASE_CODE" >> "$RUNNER_TEMP/release-notes.md"
           gh release create "$RELEASE_TAG" \
             "$apk" "$apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
@@ -268,4 +295,19 @@ jobs:
             --title "Biblioteca IA $RELEASE_VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --latest
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")"
+          printf '%s' "$latest" | jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" --arg apk "BibliotecaIA-$RELEASE_TAG.apk" '
+            .tag_name == $tag and .target_commitish == $sha and .draft == false and .prerelease == false
+            and any(.assets[]; .name == $apk and .state == "uploaded" and .size > 0)
+            and any(.assets[]; .name == ($apk + ".sha256") and .state == "uploaded" and .size > 0)' >/dev/null
+          echo "previous=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "published=true" >> "$GITHUB_OUTPUT"
           echo "Official update published: $RELEASE_TAG"
+      - name: Clean only merged branches included in verified release
+        if: steps.release.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.sha }}
+          PREVIOUS_SHA: ${{ steps.release.outputs.previous }}
+        run: python3 scripts/cleanup_published_branches.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --previous "$PREVIOUS_SHA"

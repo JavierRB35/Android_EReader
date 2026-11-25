@@ -1,0 +1,1 @@
+- Refuerzo automático del versionado de APK y cierre seguro de ramas ya fusionadas y publicadas.
