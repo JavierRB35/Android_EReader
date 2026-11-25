@@ -16,7 +16,8 @@ import java.io.File
  * exportJson/restoreJson support legacy metadata-only backups. A complete portable
  * backup including every imported original is handled by CompleteBackupManager.
  */
-class BackupManager(private val db: AppDatabase, private val appVersion: String) {
+class BackupManager(private val db: AppDatabase, private val appVersion: String,
+                    private val filesDir: File? = null) {
 
     suspend fun exportJson(exportedAt: Long = System.currentTimeMillis()): String {
         val dao = db.backupDao()
@@ -43,9 +44,10 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                             synchronize: Boolean = false): RestoreReport {
         // Validación ANTES de tocar la base (Issue #10.4): estructura, versión y entradas.
         val incomingSnapshot = BackupCodec.fromJson(json)
-        return db.withTransaction {
+        val removed = mutableListOf<BookEntity>()
+        val report = db.withTransaction {
             val dao = db.backupDao()
-            incomingSnapshot.deletedBooks.forEach { BookDeletion.apply(db, it) }
+            incomingSnapshot.deletedBooks.forEach { BookDeletion.apply(db, it)?.let(removed::add) }
             val deletions = dao.deletedBooksAll().associate { it.contentHash to it.deletedAt }
             val snapshot = withoutDeletedBooks(incomingSnapshot, deletions)
             fun countInserted(ids: List<Long>) = ids.count { it != -1L }
@@ -190,6 +192,16 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String)
                 positionsSkipped = snapshot.positions.size - positionsUpdated,
             )
         }
+        // Only after successful commit, and only our own verified private path.
+        filesDir?.let { directory ->
+            for (book in removed) {
+                if (book.localPath.isNotBlank() && File(book.localPath).isFile &&
+                    db.bookDao().findById(book.id) == null) {
+                    runCatching { com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover.delete(directory, book) }
+                }
+            }
+        }
+        return report
     }
 
     /** Remove stale book-specific data before validation and identity mapping. */

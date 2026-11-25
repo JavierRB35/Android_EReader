@@ -65,6 +65,8 @@ object SharedLibrary {
             status.contains("La identidad del archivo no coincide"))
     }
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
+    fun healthy(context: Context): Boolean = hasAccess(context) &&
+        prefs(context).getString("status", "").orEmpty().startsWith("Biblioteca comprobada:")
     fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
@@ -251,7 +253,7 @@ object SharedLibrary {
                             }
                         }
                     }
-                    val moved = syncStore(target, db, owner)
+                    val moved = syncStore(target, db, owner, context.filesDir)
                     require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
                     require(db.backupDao().booksAll().all { it.contentHash in moved.hashes }) {
                         "No se han podido comprobar todos los originales. Se conserva la conexión anterior."
@@ -371,17 +373,18 @@ object SharedLibrary {
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context)) }
+            val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir) }
             if (result.errors.isEmpty()) prefs(context).edit()
                 .putLong("last_publication", System.currentTimeMillis()).apply()
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }
     }
-    internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String): StoreResult {
+    internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
+                                   filesDir: File? = null): StoreResult {
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+            val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
             for (json in inv.states) {
                 try { manager.restoreJson(json, synchronize = true) }
                 catch (e: CancellationException) { throw e }
@@ -424,7 +427,7 @@ object SharedLibrary {
                         available.add(book.contentHash)
                     }
                 }
-                BackupManager(db, BuildConfig.VERSION_NAME).restoreJson(content.json, synchronize = true)
+                BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir).restoreJson(content.json, synchronize = true)
                 publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
                 store.commit()
                 val active = available.intersect(db.backupDao().booksAll().map { it.contentHash }.toSet())
@@ -450,7 +453,7 @@ object SharedLibrary {
         mutex.withLock {
             store(context).use { store ->
             val inv = inventory(store)
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+            val manager = BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir)
             for (json in inv.states) {
                 try { manager.restoreJson(json, synchronize = true) }
                 catch (e: CancellationException) { throw e }
@@ -526,10 +529,10 @@ object SharedLibrary {
                 }
             }
         }
-    internal suspend fun pullStore(store: SharedStore, db: AppDatabase): StoreResult {
+    internal suspend fun pullStore(store: SharedStore, db: AppDatabase, filesDir: File? = null): StoreResult {
         val inv = inventory(store)
         val errors = inv.errors.toMutableList()
-        val manager = BackupManager(db, BuildConfig.VERSION_NAME)
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
         for (json in inv.states) {
             try { manager.restoreJson(json, synchronize = true) }
             catch (e: CancellationException) { throw e }
@@ -540,7 +543,7 @@ object SharedLibrary {
     }
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val result = store(context).use { pullStore(it, db) }
+            val result = store(context).use { pullStore(it, db, context.filesDir) }
             publishStatus(context, result.hashes, result.errors)
             Result(result.hashes.size, result.errors)
         }

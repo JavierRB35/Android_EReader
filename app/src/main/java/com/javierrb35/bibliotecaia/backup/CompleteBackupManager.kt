@@ -333,7 +333,7 @@ class CompleteBackupManager(
             coroutineContext.ensureActive()
             // Room transaction restores metadata and file paths together.
             // Staged originals are verified/materialized before any DB mutation.
-            val report = BackupManager(database, appVersion)
+            val report = BackupManager(database, appVersion, context.filesDir)
                 .restoreJson(content.json, finalPaths)
             committed = true
             ImportResult(report, finalPaths.size, content.bytes, included.map { it.contentHash }.toSet(),

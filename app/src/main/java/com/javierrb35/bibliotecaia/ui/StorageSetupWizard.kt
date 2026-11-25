@@ -23,7 +23,6 @@ import kotlinx.coroutines.withContext
  * construct, name, edit or understand a JSON or ZIP. */
 internal class StorageSetupWizard(
     private val activity: AppCompatActivity, private val db: AppDatabase,
-    private val recover: () -> Unit,
     private val changed: () -> Unit
 ) {
     companion object {
@@ -181,7 +180,7 @@ internal class StorageSetupWizard(
     private fun showLocationChoice() {
         show("Configura tu biblioteca", "Elige una carpeta común a tus dispositivos. La aplicación preparará la biblioteca, la copia y el progreso a la vez. Para empezar de cero, elige una carpeta nueva y usa esa misma carpeta en el otro equipo. No se borrará la anterior.",
             "Elegir ubicación" to { launchPicker { pickFolder.launch(null) } },
-            "Drive sin acceso a carpetas" to {
+            "No encuentro mi carpeta" to {
                 unified = false
                 several = true
                 folder = null

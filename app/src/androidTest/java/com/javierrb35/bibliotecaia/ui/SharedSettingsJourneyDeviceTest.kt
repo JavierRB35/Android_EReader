@@ -25,7 +25,7 @@ class SharedSettingsJourneyDeviceTest {
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
             onView(withText("Elegir ubicación")).check(matches(isDisplayed()))
-            onView(withText("Drive sin acceso a carpetas")).check(matches(isDisplayed()))
+            onView(withText("No encuentro mi carpeta")).check(matches(isDisplayed()))
             onView(withText("Continuar más tarde")).perform(click())
             onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
         } finally {

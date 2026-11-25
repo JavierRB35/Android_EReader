@@ -399,10 +399,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setupWizard = StorageSetupWizard(this, db, recover = {
-            if (BackupRoutine.status(this).recoveryPending) recoverPreviousBackup()
-            else importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
-        }) { refreshUnifiedStatus() }
+        setupWizard = StorageSetupWizard(this, db) { refreshUnifiedStatus() }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(28))
@@ -465,7 +462,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshUnifiedStatus() {
         if (!::unifiedStatus.isInitialized) return
         val app = applicationContext
-        val lib = SharedLibrary.configured(app) && SharedLibrary.hasAccess(app) &&
+        val lib = SharedLibrary.configured(app) && SharedLibrary.healthy(app) &&
             !SharedLibrary.needsRepair(app) && SharedLibrary.lastSuccess(app) > 0
         val backup = BackupRoutine.status(app)
         val copy = backup.uri != null && backup.lastSuccess > 0 && backup.lastError.isBlank() &&
@@ -475,7 +472,9 @@ class SettingsActivity : AppCompatActivity() {
         val peers = position.peerCount
         val ready = lib && copy && progress && (!SharedLibrary.fileMode(app) || SharedLibrary.peerCount(app) <= peers)
         unifiedStatus.text = buildString {
-            append(if (ready) "Todo preparado" else "Configuración pendiente de completar o comprobar")
+            append(if (ready && peers > 0 && position.lastSuccess > 0) "Todo preparado"
+                else if (ready) "Preparado en este dispositivo"
+                else "Configuración pendiente de completar o comprobar")
             append("\nBiblioteca: ").append(if (lib) "disponible" else "pendiente")
             append("\nCopia de seguridad: ").append(if (copy) "guardada" else "pendiente")
             append("\nAvances de lectura: ").append(if (progress) "guardados automáticamente" else "pendientes")
