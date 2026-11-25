@@ -62,6 +62,33 @@ object BackupRoutine {
     fun savedDestination(context: Context): Uri? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TARGET_URI, null)?.let(Uri::parse)
 
+    /** Create or refresh one portable backup in the chosen location. Each
+     * installation owns its own backup; never race another writer. */
+    suspend fun prepareFolder(context: Context, database: AppDatabase, version: String, tree: Uri): Result {
+        val app = context.applicationContext
+        val current = status(app)
+        require(!current.recoveryPending) { "Hay una copia anterior pendiente de recuperar." }
+        val currentUri = current.uri
+        if (currentUri != null && com.javierrb35.bibliotecaia.sync.StorageGrants.belongs(currentUri, tree))
+            return save(app, database, version, true)
+        val name = "BibliotecaIA-copia-" +
+            com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync.deviceId(app).take(8) + ".zip"
+        val target = withContext(Dispatchers.IO) {
+            val existing = com.javierrb35.bibliotecaia.sync.SharedDocumentStore(app, tree).use { store ->
+                store.list().filter { it.name == name }
+            }
+            require(existing.size <= 1) { "Hay varias copias con el mismo nombre en la ubicación." }
+            existing.singleOrNull()?.uri ?: com.javierrb35.bibliotecaia.sync.StorageGrants.create(app, tree, "application/zip", name)
+        }
+        // A previously created nonempty archive is verified by the existing
+        // replacement routine. Empty documents are new and safe to initialize.
+        val populated = withContext(Dispatchers.IO) {
+            app.contentResolver.openInputStream(target)?.use { it.read() != -1 }
+                ?: error("No se puede comprobar la copia.")
+        }
+        return save(app, database, version, true, target, replaceExisting = populated)
+    }
+
     /** A separately connected archive is read-only; the configured backup remains
      * the single writer. Never make a new device overwrite a shared ZIP. */
     fun centralUri(context: Context): Uri? {

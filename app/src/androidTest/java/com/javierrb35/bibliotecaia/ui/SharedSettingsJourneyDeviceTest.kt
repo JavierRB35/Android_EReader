@@ -23,12 +23,11 @@ class SharedSettingsJourneyDeviceTest {
         val activity = instrumentation.startActivitySync(Intent(app, SettingsActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         try {
-            onView(withText("Iniciar asistente")).perform(scrollTo(), click())
-            onView(withText("En varios dispositivos")).check(matches(isDisplayed())).perform(click())
-            onView(withText("Elegir carpeta")).check(matches(isDisplayed()))
-            onView(withText("Guardar en Drive")).check(matches(isDisplayed()))
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Elegir ubicación")).check(matches(isDisplayed()))
+            onView(withText("Drive sin acceso a carpetas")).check(matches(isDisplayed()))
             onView(withText("Continuar más tarde")).perform(click())
-            onView(withText("Opciones avanzadas de sincronización")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()

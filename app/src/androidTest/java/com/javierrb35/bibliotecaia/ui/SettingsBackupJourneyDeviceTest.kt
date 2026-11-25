@@ -23,12 +23,11 @@ class SettingsBackupJourneyDeviceTest {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         ) as SettingsActivity
         try {
-            onView(withText("Crear copia ahora")).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText("Elegir ubicación del archivo")).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText("Restaurar desde un archivo")).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText("Elegir ubicación del archivo")).perform(scrollTo(), click())
-            onView(withText("Crear archivo en una ubicación")).check(matches(isDisplayed()))
-            onView(withText("Elegir un archivo ya existente")).check(matches(isDisplayed()))
+            onView(withText("Configurar biblioteca")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Elegir ubicación")).check(matches(isDisplayed()))
+            onView(withText("Continuar más tarde")).perform(click())
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
         }

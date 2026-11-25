@@ -217,6 +217,53 @@ object SharedLibrary {
         sync(context, db)
     }
 
+    /**
+     * Authorize the selected folder, preserve the current catalogue's original
+     * files, then switch. Do NOT merge an old catalogue just to move its books.
+     * A new folder starts without stale historical snapshots.
+     */
+    suspend fun relocateFolder(context: Context, db: AppDatabase, tree: Uri): Result =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val previous = uri(context)
+                val owner = ReadingPositionSafSync.deviceId(context)
+                val result = folderStore(context, tree).use { target ->
+                    target.probe()
+                    val available = inventory(target).availableHashes()
+                    val missing = db.backupDao().booksAll().filter {
+                        !CentralCatalogue.local(it) && it.contentHash !in available
+                    }
+                    if (missing.isNotEmpty()) {
+                        require(previous != null && previous != tree) {
+                            "Hay libros sin original disponible. Recupera o elimina sus fichas antes de continuar: " +
+                                missing.take(5).joinToString { it.title }
+                        }
+                        store(context).use { source ->
+                            val sourceInventory = inventory(source)
+                            for (book in missing) {
+                                val temp = File.createTempFile("move-original-", ".bin", context.cacheDir)
+                                try {
+                                    verifiedCopy(source, sourceInventory, book, temp)
+                                    val linked = OriginalLinker(context.filesDir).link(temp, listOf(book))
+                                        ?: error("No se pudo conservar el original de " + book.title)
+                                    db.bookDao().update(linked)
+                                } finally { temp.delete() }
+                            }
+                        }
+                    }
+                    val moved = syncStore(target, db, owner)
+                    require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
+                    require(db.backupDao().booksAll().all { it.contentHash in moved.hashes }) {
+                        "No se han podido comprobar todos los originales. Se conserva la conexión anterior."
+                    }
+                    activate(context, SavedConnection(tree, false, emptySet()))
+                    publishStatus(context, moved.hashes, moved.errors)
+                    moved
+                }
+                Result(result.hashes.size, result.errors)
+            }.also { schedule(context) }
+        }
+
     private fun readBounded(store: SharedStore, item: SharedDocumentStore.Item): ByteArray =
         store.open(item).use { input ->
             val out = java.io.ByteArrayOutputStream()

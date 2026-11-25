@@ -92,12 +92,12 @@ object ReadingPositionSafSync {
 
     /** A granted folder supports automatic creation and discovery. Existing own
      * files are never replaced or relocated merely by running setup. */
-    suspend fun prepareFolder(context: Context, database: AppDatabase, tree: Uri) = withContext(Dispatchers.IO) {
+    suspend fun prepareFolder(context: Context, database: AppDatabase, tree: Uri, unified: Boolean = false) = withContext(Dispatchers.IO) {
         val app = context.applicationContext
         require(StorageGrants.allows(app, tree, true)) { "No hay permiso para esta carpeta." }
         mutex.withLock {
             val id = deviceId(app)
-            if (!hasOwn(app)) {
+            if (!hasOwn(app) || (unified && !StorageGrants.belongs(own(app), tree))) {
                 val candidates = SharedDocumentStore(app, tree).use { it.list() }
                     .filter { it.name.startsWith("BibliotecaIA-lectura-") && it.name.endsWith(".json", true) }
                 val valid = candidates.filter { item ->
@@ -112,17 +112,23 @@ object ReadingPositionSafSync {
                 }
                 val data = read(app, target, allowEmpty = true)
                 require(data == null || data.deviceId == id) { "No se modificará un archivo de otro dispositivo." }
-                check(prefs(app).edit().putString(OWN, target.toString()).remove(BOOTSTRAP).commit())
+                val edit = prefs(app).edit().putString(OWN, target.toString()).remove(BOOTSTRAP)
+                if (unified) edit.remove(PEERS).remove(AUTO_PEERS)
+                check(edit.commit())
                 recoverPending(app, target)
                 publishLocked(app, database)
                 published(app)
             }
             val edit = prefs(app).edit().putString(FOLDER, tree.toString())
             if (folder(app) != tree) edit.remove(AUTO_PEERS).remove(BOOTSTRAP)
+            if (unified) edit.remove(PEERS)
             check(edit.commit())
         }
         refreshForRead(app, database)
     }
+
+    fun inFolder(context: Context, tree: Uri): Boolean =
+        hasOwn(context) && StorageGrants.belongs(own(context), tree) && folder(context) == tree
 
     /** No dialog or picker is necessary when a shared folder is already granted. */
     suspend fun ensureAutomaticFolder(context: Context, database: AppDatabase) {
@@ -340,8 +346,10 @@ object ReadingPositionSafSync {
         val latest = ReadingPositionFileCodec.newest(records)
         database.withTransaction {
             val books = database.backupDao().booksAll().associateBy { it.contentHash }
+            val deletions = database.backupDao().deletedBooksAll().associate { it.contentHash to it.deletedAt }
             for ((hash, incoming) in latest) {
                 val book = books[hash] ?: continue
+                if (incoming.updatedAt <= (deletions[hash] ?: Long.MIN_VALUE)) continue
                 val existing = database.backupDao().positionFor(book.id)
                 // Same deterministic tie rule as the ZIP restore; no fresh timestamp
                 // for a received record or a book left open without movement.
@@ -406,8 +414,9 @@ object ReadingPositionSafSync {
                     position.progress, position.updatedAt, id)
             }
         }
+        val deletions = database.backupDao().deletedBooksAll().associate { it.contentHash to it.deletedAt }
         val merged = ReadingPositionFileCodec.newest(
-            previous?.positions.orEmpty() + local
+            (previous?.positions.orEmpty() + local).filter { it.updatedAt > (deletions[it.contentHash] ?: Long.MIN_VALUE) }
         )
         val newDoc = ReadingPositionDocument(id, merged.values.toList())
         val output = ReadingPositionFileCodec.encode(newDoc)
