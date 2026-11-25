@@ -25,7 +25,7 @@ internal class CoordinatorOnboardingHost(
     private val flow = UniqueLibraryOnboarding(EnrollmentOnboardingAdapter(
         CoordinatorEnrollment(AndroidCredentialVault(context.applicationContext)), transport, approval))
     private var pending: Job? = null
-    val view = UniqueLibraryOnboardingView(context, object : UniqueLibraryOnboardingView.Actions {
+    val view: UniqueLibraryOnboardingView = UniqueLibraryOnboardingView(context, object : UniqueLibraryOnboardingView.Actions {
         override fun create() = submit { flow.create() }
         override fun link(libraryId: String, pairingCode: String) = submit { flow.link(libraryId, pairingCode) }
         override fun retry() = submit { flow.retry() }
@@ -44,9 +44,9 @@ internal class CoordinatorOnboardingHost(
         }
     })
 
-    fun refresh() = submit { OnboardingResult(flow.state(), OnboardingFeedback.NONE) }
+    fun refresh(): Unit = submit { OnboardingResult(flow.state(), OnboardingFeedback.NONE) }
 
-    private fun submit(operation: () -> OnboardingResult) {
+    private fun submit(operation: () -> OnboardingResult): Unit {
         if (pending?.isActive == true) return
         pending = scope.launch(Dispatchers.Main.immediate) {
             view.render(withContext(Dispatchers.IO) { operation() })
