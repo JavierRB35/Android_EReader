@@ -6,6 +6,8 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
+import java.text.Normalizer
+import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -16,6 +18,8 @@ import java.util.zip.ZipOutputStream
  */
 object CompleteBackupArchive {
     private const val METADATA = "biblioteca.json"
+    private const val LAYOUT_KEY = "originalLayout"
+    private const val PORTABLE_LAYOUT = "named-books-v1"
     private const val MAX_JSON_BYTES = 16 * 1024 * 1024
     private const val MAX_BOOK_BYTES = 512L * 1024 * 1024
     private const val MAX_TOTAL_BYTES = 4L * 1024 * 1024 * 1024
@@ -57,7 +61,10 @@ object CompleteBackupArchive {
             "La biblioteca cambió durante la preparación de la copia."
         }
         require(books.size <= MAX_BOOKS) { "Demasiados libros para una sola copia." }
-        val metadata = json.toByteArray(Charsets.UTF_8)
+        val entries = portableEntries(included)
+        val metadata = JSONObject(json).apply {
+            getJSONObject("manifest").put(LAYOUT_KEY, PORTABLE_LAYOUT)
+        }.toString().toByteArray(Charsets.UTF_8)
         require(metadata.size in 1..MAX_JSON_BYTES) { "Los metadatos superan el límite de seguridad." }
         var total = 0L
         ZipOutputStream(output.buffered()).use { zip ->
@@ -71,7 +78,7 @@ object CompleteBackupArchive {
                 require(source.isFile && source.length() == book.sizeBytes) {
                     "Falta el original o cambió su tamaño: " + book.title.take(80) + ". La copia se cancela."
                 }
-                zip.putNextEntry(ZipEntry(entryName(book.id)))
+                zip.putNextEntry(ZipEntry(entries.getValue(book.id)))
                 val digest = MessageDigest.getInstance("SHA-256")
                 var count = 0L
                 source.inputStream().use { input ->
@@ -138,11 +145,20 @@ object CompleteBackupArchive {
                     books.forEach(::validateBook)
                     require(books.map { it.id }.distinct().size == books.size) { "La copia repite identificadores de libros." }
                     missing = missingOriginals(json, books)
-                    expected = books.filter { it.contentHash !in missing }.associateBy { entryName(it.id) }
+                    val included = books.filter { it.contentHash !in missing }
+                    val manifest = JSONObject(json).getJSONObject("manifest")
+                    expected = when (manifest.optString(LAYOUT_KEY, "")) {
+                        "" -> included.associateBy { entryName(it.id) }
+                        PORTABLE_LAYOUT -> {
+                            val entries = portableEntries(included)
+                            included.associateBy { entries.getValue(it.id) }
+                        }
+                        else -> throw IllegalArgumentException("Formato de originales ZIP no compatible.")
+                    }
                 } else {
                     val book = expected?.get(entry.name)
                         ?: throw IllegalArgumentException("La copia contiene archivos inesperados.")
-                    require(entry.name !in staged.keys) { "Libro duplicado en copia." }
+                    require(entryName(book.id) !in staged.keys) { "Libro duplicado en copia." }
                     val target = File(stageDir, book.id + ".bin").canonicalFile
                     require(target.parentFile == stageDir.canonicalFile && !target.exists()) {
                         "Ruta no permitida en la copia."
@@ -167,7 +183,8 @@ object CompleteBackupArchive {
                     require(size == book.sizeBytes && hex(digest.digest()) == book.contentHash) {
                         "La copia contiene un libro incompleto o modificado."
                     }
-                    if (keep) staged[entry.name] = target
+                    // Stable internal key for restore, regardless of ZIP layout.
+                    if (keep) staged[entryName(book.id)] = target
                 }
                 zip.closeEntry()
             }
@@ -197,7 +214,55 @@ object CompleteBackupArchive {
         ) { "El manifiesto de la copia completa no coincide con sus datos." }
     }
 
+    /** Legacy internal staging key. Actual portable names are title-based. */
     fun entryName(id: String) = "books/" + id + ".bin"
+
+    /**
+     * Flat directory readable by generic ZIP tools, Windows, Android and
+     * other readers. Original bytes and the manifest's original filename
+     * remain intact; only the ZIP entry name changes. Distinct books with
+     * identical titles are disambiguated deterministically, case-insensitively.
+     */
+    internal fun portableEntries(books: List<BookEntity>): Map<String, String> {
+        val used = hashSetOf<String>()
+        val entries = linkedMapOf<String, String>()
+        for (book in books.sortedBy { it.id }) {
+            val extension = book.format.name.lowercase(Locale.ROOT)
+            val originalStem = book.fileName.substringBeforeLast('.', book.fileName)
+            val raw = book.title.ifBlank { originalStem }.ifBlank { "Libro" }
+            val normalized = Normalizer.normalize(raw, Normalizer.Form.NFC)
+            var stem = normalized.map { ch ->
+                if (ch.isISOControl() || ch in charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')) '_' else ch
+            }.joinToString("").trim().trim('.').trim()
+            if (stem.isBlank()) stem = "Libro"
+            val reserved = Regex("(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?$")
+            if (reserved.matches(stem)) stem = "_" + stem
+            // Keep the full path component within common filesystem byte limits,
+            // without splitting UTF-16 surrogate pairs.
+            val bounded = StringBuilder()
+            var bytes = 0
+            var offset = 0
+            while (offset < stem.length) {
+                val cp = stem.codePointAt(offset)
+                val part = String(Character.toChars(cp))
+                val size = part.toByteArray(Charsets.UTF_8).size
+                if (bytes + size > 200) break
+                bounded.append(part)
+                bytes += size
+                offset += Character.charCount(cp)
+            }
+            val base = bounded.toString().trimEnd(' ', '.').ifBlank { "Libro" }
+            var number = 1
+            var candidate: String
+            do {
+                val suffix = if (number == 1) "" else " ($number)"
+                candidate = "books/" + base + suffix + "." + extension
+                number++
+            } while (!used.add(candidate.lowercase(Locale.ROOT)))
+            entries[book.id] = candidate
+        }
+        return entries
+    }
 
     private fun validateBook(book: BookEntity) {
         require(SEGMENT.matches(book.id) &&
