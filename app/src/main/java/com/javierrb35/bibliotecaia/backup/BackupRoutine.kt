@@ -63,6 +63,17 @@ object BackupRoutine {
     fun savedDestination(context: Context): Uri? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(TARGET_URI, null)?.let(Uri::parse)
 
+    /** Never auto-overwrite an old or peer-owned backup. */
+    fun ownedSharedDestination(context: Context): Uri? {
+        val state = status(context)
+        if (state.recoveryPending || !com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) return null
+        val uri = state.uri ?: return null
+        return uri.takeIf {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(SHARED_AUTO_URI, null) == it.toString()
+        }
+    }
+
     /** Create or refresh one portable backup in the chosen location. Each
      * installation owns its own backup; never race another writer. */
     suspend fun prepareFolder(context: Context, database: AppDatabase, version: String, tree: Uri): Result {
@@ -246,11 +257,19 @@ object BackupRoutine {
         force: Boolean,
         chosenUri: Uri? = null,
         replaceExisting: Boolean = true,
+        expectedOwnedSharedUri: Uri? = null,
+        expectedLibraryUri: Uri? = null,
     ): Result = withContext(Dispatchers.IO) {
         lock.withLock {
             val app = context.applicationContext
             val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val current = status(app)
+            if (expectedOwnedSharedUri != null) {
+                require(ownedSharedDestination(app) == expectedOwnedSharedUri &&
+                    com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app) == expectedLibraryUri) {
+                    "La biblioteca o la copia de seguridad han cambiado."
+                }
+            }
             val uri = chosenUri ?: current.uri
                 ?: throw IllegalStateException("Primero elige dónde guardar la copia.")
             // Do not auto-refresh into a different URI after the destination changed.

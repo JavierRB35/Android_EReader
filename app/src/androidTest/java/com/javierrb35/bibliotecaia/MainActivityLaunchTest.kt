@@ -1,6 +1,11 @@
 package com.javierrb35.bibliotecaia
 
 import android.content.Intent
+import android.app.Activity
+import android.app.Instrumentation
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import android.view.View
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -36,6 +41,34 @@ class MainActivityLaunchTest {
             assertNotNull(activity.findViewById<View>(R.id.mainNavigation))
             assertFalse(activity.isFinishing)
         } finally {
+            instrumentation.runOnMainSync { activity.finish() }
+        }
+    }
+    @Test fun importPickerAllowsMultipleDocumentsAndCancelKeepsLibraryOpen() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val captured = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_OPEN_DOCUMENT) return null
+                captured.set(Intent(intent))
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+        instrumentation.addMonitor(monitor)
+        try {
+            instrumentation.runOnMainSync { activity.findViewById<View>(R.id.btnImport).performClick() }
+            instrumentation.waitForIdleSync()
+            val outgoing = captured.get()
+            assertNotNull("Expected Android document picker", outgoing)
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT, outgoing.action)
+            assertTrue(outgoing.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
+            assertTrue(activity.findViewById<View>(R.id.btnImport).isEnabled)
+            assertFalse(activity.isFinishing)
+        } finally {
+            instrumentation.removeMonitor(monitor)
             instrumentation.runOnMainSync { activity.finish() }
         }
     }

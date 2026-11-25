@@ -27,7 +27,8 @@ import com.javierrb35.bibliotecaia.backup.CentralCatalogue
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.importer.BookImporter
-import com.javierrb35.bibliotecaia.importer.ImportError
+import com.javierrb35.bibliotecaia.importer.BatchImport
+import com.javierrb35.bibliotecaia.sync.SharedLibrary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +48,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recycler: RecyclerView
     private lateinit var emptyState: View
     private var importing = false
+    private var pendingImportCentral = false
+    private var pickerOpen = false
 
     private val queryFlow = MutableStateFlow("")
     private val statusFlow = MutableStateFlow("ALL")
@@ -115,14 +118,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val importLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) importBook(uri)
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        pickerOpen = false
+        if (uris.isNotEmpty()) importBooks(uris, pendingImportCentral)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        pendingImportCentral = savedInstanceState?.getBoolean("pending_import_central") == true
+        pickerOpen = savedInstanceState?.getBoolean("import_picker_open") == true
 
         collectionFlow.value = intent.getStringExtra(EXTRA_COLLECTION_ID).orEmpty()
         intent.getStringExtra(EXTRA_COLLECTION_NAME)?.let { name ->
@@ -198,7 +204,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openImportPicker() {
-        if (!importing) importLauncher.launch(IMPORT_MIME_TYPES)
+        if (importing || pickerOpen) return
+        pendingImportCentral = centralFlow.value.first
+        if (pendingImportCentral && (!SharedLibrary.hasAccess(applicationContext) ||
+                SharedLibrary.needsRepair(applicationContext) ||
+                BackupRoutine.ownedSharedDestination(applicationContext) == null)) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Configura la biblioteca completa")
+                .setMessage("Para importar directamente a la biblioteca necesitas una conexión de escritura y una copia de seguridad propia. Configúralas antes de importar.")
+                .setPositiveButton("Configurar") { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+                .setNegativeButton(android.R.string.cancel, null).show()
+            return
+        }
+        pickerOpen = true
+        try { importLauncher.launch(IMPORT_MIME_TYPES) }
+        catch (e: Exception) {
+            pickerOpen = false
+            Toast.makeText(this, "No se pudo abrir el selector de libros.", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onResume() {
@@ -273,6 +296,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("central_mode", centralFlow.value.first)
+        outState.putBoolean("pending_import_central", pendingImportCentral)
+        outState.putBoolean("import_picker_open", pickerOpen)
         outState.putString(STATE_QUERY, findViewById<EditText>(R.id.txtSearch).text?.toString())
         outState.putInt(STATE_SHELF, findViewById<ChipGroup>(R.id.chipShelves).checkedChipId)
         super.onSaveInstanceState(outState)
@@ -372,39 +397,77 @@ class MainActivity : AppCompatActivity() {
         recycler.scrollToPosition(position)
     }
 
-    private fun importBook(uri: Uri) {
+    private fun importBooks(uris: List<Uri>, central: Boolean) {
         if (importing) return
+        val app = applicationContext
+        val destination = if (central) SharedLibrary.uri(app) else null
+        val backupUri = if (central) BackupRoutine.ownedSharedDestination(app) else null
+        if (central && (destination == null || backupUri == null || !SharedLibrary.hasAccess(app) ||
+                SharedLibrary.needsRepair(app))) {
+            Toast.makeText(this, "No hay una biblioteca y copia propias disponibles. Configúralas en Ajustes.", Toast.LENGTH_LONG).show()
+            return
+        }
         importing = true
         val button = findViewById<View>(R.id.btnImport)
+        val label = findViewById<TextView>(R.id.txtImportLabel)
         button.isEnabled = false
-        findViewById<TextView>(R.id.txtImportLabel).setText(R.string.bia_importing)
+        findViewById<View>(R.id.btnCentralLibrary).isEnabled = false
+        label.setText(R.string.bia_importing)
         findViewById<View>(R.id.importProgress).visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
-                val book = BookImporter(applicationContext, db.bookDao()).import(uri)
-                Toast.makeText(
-                    this@MainActivity,
-                    getString(R.string.import_success, book.title),
-                    Toast.LENGTH_LONG
-                ).show()
-                val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(applicationContext)
-                if (shared) {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.schedule(applicationContext)
+                val importer = BookImporter(app, db.bookDao())
+                val result = BatchImport.run(
+                    uris.distinct(), central,
+                    importOne = { importer.import(it) },
+                    progress = { done, total -> label.text = "$done/$total" },
+                    publishAndBackup = { books ->
+                        val target = requireNotNull(destination)
+                        val targetBackup = requireNotNull(backupUri)
+                        require(SharedLibrary.uri(app) == target) { "La ubicación ha cambiado." }
+                        val synced = SharedLibrary.sync(app, db)
+                        require(synced.errors.isEmpty() && books.all { it.contentHash in SharedLibrary.hashes(app) }) {
+                            "No se han confirmado todos los originales en la biblioteca."
+                        }
+                        val backed = BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, force = true,
+                            expectedOwnedSharedUri = targetBackup, expectedLibraryUri = target)
+                        require(backed == BackupRoutine.Result.SAVED) { "La copia no está completa." }
+                    },
+                    removeStaging = { books ->
+                        SharedLibrary.evictVerifiedImports(app, db, requireNotNull(destination), books)
+                    }
+                )
+                if (result.imported.isNotEmpty()) {
+                    if (SharedLibrary.configured(app)) SharedLibrary.schedule(app, immediate = true)
+                    else if (ReadingPositionSafSync.refresh(app, db) &&
+                        ReadingPositionSafSync.status(app).peerCount == 0) {
+                        BackupRoutine.refreshOnLibraryOpen(app, BuildConfig.VERSION_NAME)
+                    }
                 }
-                val remoteChecked = !shared && ReadingPositionSafSync.refresh(applicationContext, db)
-                if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
-                    BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
+                val text = buildString {
+                    append(result.imported.size).append(" de ").append(uris.distinct().size).append(" libros importados")
+                    if (central && result.centralError == null && result.imported.isNotEmpty())
+                        append(" en la biblioteca completa; copia verificada.")
+                    else if (!central) append(" en el dispositivo.")
+                    if (result.centralError != null)
+                        append("\nNo se completó el envío o la copia. Se conservan los originales no retirados en el dispositivo: ").append(result.centralError)
+                    if (result.failures.isNotEmpty())
+                        append("\n").append(result.failures.size).append(" no importados: ").append(result.failures.take(4).joinToString(" · "))
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: ImportError) {
-                Toast.makeText(this@MainActivity, e.message, Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, R.string.import_error_generic, Toast.LENGTH_LONG).show()
+                if (result.centralError != null || result.failures.isNotEmpty())
+                    androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Resultado de la importación").setMessage(text)
+                        .setPositiveButton("Aceptar", null).show()
+                else Toast.makeText(this@MainActivity, text, Toast.LENGTH_LONG).show()
+                setCentralMode(centralFlow.value.first)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                Toast.makeText(this@MainActivity, e.message ?: getString(R.string.import_error_generic), Toast.LENGTH_LONG).show()
             } finally {
                 importing = false
                 button.isEnabled = true
-                findViewById<TextView>(R.id.txtImportLabel).setText(R.string.premium_import)
+                findViewById<View>(R.id.btnCentralLibrary).isEnabled = true
+                label.setText(R.string.premium_import)
                 findViewById<View>(R.id.importProgress).visibility = View.GONE
             }
         }
