@@ -136,6 +136,13 @@ class MobiReaderActivity : AppCompatActivity() {
             override fun explainWithGemini(word: String) {
                 AiChatActivity.start(this@MobiReaderActivity, bookId, word, locator(selectedAbsoluteOffset))
             }
+            override fun captureAnnotation(quote: String, start: Int, end: Int):
+                com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target? {
+                val absolute = offset + start
+                return if (SelectionAnchors.exactMatch(text, absolute, quote))
+                    com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target(bookId, locator(absolute), quote)
+                else null
+            }
             override fun showError(message: String) {
                 Toast.makeText(this@MobiReaderActivity, message, Toast.LENGTH_LONG).show()
             }

@@ -172,6 +172,11 @@ class PdfOcrStudy(
                 if (locator == null) invalidSelection()
                 else AiChatActivity.start(activity, bookId, word, locator)
             }
+            override fun captureAnnotation(quote: String, start: Int, end: Int):
+                com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target? =
+                anchor(start, quote)?.let {
+                    com.javierrb35.bibliotecaia.study.DefinitionAnnotation.Target(bookId, it, quote)
+                }
             override fun showError(message: String) = toast(message)
         }
         val configured = AiKeyStore.providers().any {
