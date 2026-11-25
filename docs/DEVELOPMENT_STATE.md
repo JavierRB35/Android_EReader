@@ -9,6 +9,7 @@
 ## INVESTIGACIÓN CI — pérdida de foco en Ajustes, 25/11/2026
 - PR #100, HEAD `34762e511faa8f28154843da1680699cac02bf61`: dos intentos de [startup smoke](https://github.com/JavierRB35/Android_EReader/actions/runs/45614799099) fallan en los mismos cuatro tests de Ajustes con `RootViewWithoutFocusException`, 16/20 correctos. PR #99 reproduce el patrón. La causa exacta de la ventana que toma foco no aparece en los logs existentes.
 - Causa de no determinismo identificada por inspección: el smoke ejecutaba debug 0.1.0 con QA_BUILD=false y consultas a Releases reales; UpdateRuntime puede presentar avisos asíncronos que interfieran en recorridos de UI. Se usa la variante QA aislada ya existente (`-PBIBLIOTECA_QA=true`) para el smoke completo, sin retirar ninguna prueba ni cambiar el APK de producción. Añadidos diagnósticos de ventanas, actividades, energía y logcat ante un fallo, conservando el código de salida original.
+- El intento c962703 falló antes de los tests: el runner ejecuta cada línea de `script` por separado, rompiendo el bloque if/fi. Se extrae a `scripts/android-startup-smoke.sh`, se invoca en una sola línea y se añade `sh -n` previo. Se conserva la suite y el código de salida.
 - Hipótesis de foco pendiente de confirmar con CI del nuevo HEAD; no afirmar causa raíz ni publicación hasta resultados. QA de selector usa monitor sintético, no Drive real. Coordinar la corrección común con PR #99 y restantes ramas tras comprobarla.
 ## BORRADO DE NOTAS Y SUS MARCADOS — 23/11/2026
 
