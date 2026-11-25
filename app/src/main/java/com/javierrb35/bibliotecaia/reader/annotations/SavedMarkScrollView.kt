@@ -30,6 +30,8 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     private val shortTapMs = ViewConfiguration.getLongPressTimeout()
     private val horizontalTolerance = 5f * resources.displayMetrics.density
     private var textView: TextView? = null
+    private var edgeSelection: EdgeSelectionController? = null
+    private var selectionGesture = false
     private var marksAt: ((Int) -> List<AnnotationEntity>)? = null
     private var onMarkTap: ((List<AnnotationEntity>) -> Unit)? = null
     private var onUnmarkedTap: (() -> Unit)? = null
@@ -57,7 +59,9 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
         onHorizontalSwipe: ((Int) -> Unit)? = null,
         maySwipe: (() -> Boolean)? = null
     ) {
+        edgeSelection?.dispose()
         textView = text
+        edgeSelection = EdgeSelectionController(this, text)
         this.marksAt = marksAt
         onMarkTap = onMarks
         this.onUnmarkedTap = onUnmarkedTap
@@ -146,6 +150,23 @@ class SavedMarkScrollView(context: Context) : ScrollView(context) {
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // Selection handles live in their own windows; ordinary gestures in
+        // the viewport must also never turn a chapter while a range is active.
+        val selecting = textView?.let {
+            it.selectionStart >= 0 && it.selectionEnd >= 0 && it.selectionStart != it.selectionEnd
+        } == true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) selectionGesture = selecting
+        if (selectionGesture || selecting || edgeSelection?.isDragging == true) {
+            swipe.cancel()
+            cancelMarkedHold()
+            possibleTap = false
+            horizontalCaptured = false
+            longPressTriggered = false
+            downMarks = emptyList()
+            if (event.actionMasked == MotionEvent.ACTION_UP ||
+                event.actionMasked == MotionEvent.ACTION_CANCEL) selectionGesture = false
+            return super.dispatchTouchEvent(event)
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 cancelMarkedHold()
