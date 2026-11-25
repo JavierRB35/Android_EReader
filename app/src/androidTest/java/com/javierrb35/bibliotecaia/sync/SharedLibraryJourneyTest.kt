@@ -31,6 +31,59 @@ class SharedLibraryJourneyTest {
             return item
         }
     }
+    @Test fun interruptedPublicationReusesVerifiedOriginalWithoutTrustingFilename() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "dedup-retry-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(folder)
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val receiver = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val bytes = "valid original bytes".toByteArray()
+        val file = File(root, "original.epub").apply { writeBytes(bytes) }
+        val hash = SharedDocumentStore.hash(bytes)
+        val book = BookEntity("retry", "Libro", null, BookFormat.EPUB, file.name,
+            file.absolutePath, hash, file.length(), 1L)
+        val wrong = File(folder, "bia-book-" + hash + "-00000000-0000-0000-0000-000000000001.bin")
+            .apply { writeBytes(ByteArray(bytes.size) { 0 }) }
+        val good = File(folder, "bia-book-" + hash + "-00000000-0000-0000-0000-000000000002.bin")
+            .apply { writeBytes(bytes) }
+        try {
+            db.bookDao().insert(book)
+            // Both objects predate the catalogue, as after a crash. The first
+            // candidate has the correct name and size but incorrect contents.
+            assertEquals(setOf(hash), SharedLibrary.syncStore(store, db, "a".repeat(32)).hashes)
+            assertEquals(2, folder.listFiles()!!.count { it.name.startsWith("bia-book-") })
+            assertEquals(setOf(hash), SharedLibrary.syncStore(store, receiver, "b".repeat(32)).hashes)
+            val restored = File(root, "restored.epub")
+            SharedLibrary.stageFromStore(store, book, restored)
+            assertArrayEquals(bytes, restored.readBytes())
+            assertTrue(wrong.isFile)
+            assertTrue(good.isFile)
+        } finally { db.close(); receiver.close(); root.deleteRecursively() }
+    }
+
+    @Test fun corruptUnpublishedOriginalIsNotAdopted() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "dedup-corrupt-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(folder)
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val file = File(root, "original.pdf").apply { writeText("valid original") }
+        val hash = SharedDocumentStore.hash(file.readBytes())
+        val book = BookEntity("new", "Libro", null, BookFormat.PDF, file.name,
+            file.absolutePath, hash, file.length(), 1L)
+        File(folder, "bia-book-" + hash + "-00000000-0000-0000-0000-000000000001.bin")
+            .writeBytes(ByteArray(file.length().toInt()))
+        try {
+            db.bookDao().insert(book)
+            assertEquals(setOf(hash), SharedLibrary.syncStore(store, db, "a".repeat(32)).hashes)
+            assertEquals(2, folder.listFiles()!!.count { it.name.startsWith("bia-book-") })
+            val restored = File(root, "restored.pdf")
+            SharedLibrary.stageFromStore(store, book, restored)
+            assertArrayEquals(file.readBytes(), restored.readBytes())
+        } finally { db.close(); root.deleteRecursively() }
+    }
+
     @Test fun emptiedFolderRebuildsFromLocalBooksWithoutResettingDatabase() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "rebuild-" + UUID.randomUUID()).apply { mkdirs() }

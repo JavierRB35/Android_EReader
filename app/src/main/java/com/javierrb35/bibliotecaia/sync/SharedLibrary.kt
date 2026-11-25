@@ -332,6 +332,25 @@ object SharedLibrary {
         return Inventory(found.distinct().groupBy { it.hash }, items, states, errors)
     }
 
+    /**
+     * A provider may have committed the original before a catalogue publication
+     * was interrupted. Reuse an existing immutable object only after verifying
+     * its actual SHA-256 and size, never solely by filename. Do not delete
+     * duplicates: other devices or historic recovery snapshots may reference them.
+     * This reduces retry duplicates; it is not a cross-device atomic reservation.
+     */
+    private fun findVerifiedUnpublishedOriginal(store: SharedStore, inv: Inventory,
+                                               book: BookEntity): Receipt? {
+        return inv.items.values.asSequence().filter { item ->
+            objectName.matchEntire(item.name)?.groupValues?.get(1) == book.contentHash &&
+                (item.size < 0 || item.size == book.sizeBytes)
+        }.sortedBy { it.name }.firstOrNull { item ->
+            try { store.verify(item, book.contentHash, book.sizeBytes) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { false }
+        }?.let { Receipt(book.contentHash, it.name, book.sizeBytes) }
+    }
+
     private fun upload(store: SharedStore, book: BookEntity, file: File): Receipt {
         require(file.isFile && file.length() == book.sizeBytes &&
             OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash) {
@@ -395,8 +414,9 @@ object SharedLibrary {
             for (book in db.backupDao().booksAll()) {
                 if (book.contentHash in available || !CentralCatalogue.local(book)) continue
                 try {
-                    val receipt = upload(store, book, File(book.localPath))
-                    known[book.contentHash] = known[book.contentHash].orEmpty() + receipt
+                    val receipt = findVerifiedUnpublishedOriginal(store, inv, book)
+                        ?: upload(store, book, File(book.localPath))
+                    known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
                     available.add(book.contentHash)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { errors.add(book.title.take(80) + ": " + (e.message ?: "no se pudo subir")) }
