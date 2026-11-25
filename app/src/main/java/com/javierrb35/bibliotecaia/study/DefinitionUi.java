@@ -227,14 +227,17 @@ public final class DefinitionUi {
                     return true;
                 }
                 if(item.getItemId()!=DEFINE_ACTION_ID)return false;
-                final String selected=WordMeaning.searchSelection(textView.getText().toString(),
-                    textView.getSelectionStart(),textView.getSelectionEnd());
+                final String original=textView.getText().toString();
+                final int start=textView.getSelectionStart(),end=textView.getSelectionEnd();
+                final String selected=WordMeaning.searchSelection(original,start,end);
                 if(selected==null){
                     delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
                     return true;
                 }
-                mode.finish();
-                show(activity,selected,geminiEnabled,delegate);
+                // Capture the exact occurrence BEFORE Android clears the selection.
+                final ContextualDefinition.Passage passage=ContextualDefinition.fromSelection(original,start,end);
+                if(mode!=null)mode.finish();
+                show(activity,selected,geminiEnabled,delegate,passage);
                 return true;
             }
             @Override public void onDestroyActionMode(ActionMode mode){
@@ -244,6 +247,11 @@ public final class DefinitionUi {
     }
 
     public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate){
+        show(activity,word,geminiEnabled,delegate,ContextualDefinition.fromParts("",word,""));
+    }
+
+    public static void show(Activity activity,String word,boolean geminiEnabled,Delegate delegate,
+                            ContextualDefinition.Passage passage){
         final String query=WordMeaning.searchPhrase(word);
         if(query==null){
             delegate.showError("Selecciona una palabra o expresión breve para consultar su significado.");
@@ -256,14 +264,28 @@ public final class DefinitionUi {
         content.setPadding(pad,pad,pad,pad);
         content.setBackgroundColor(Color.WHITE);
         addText(activity,content,query,22,NAVY,true,0);
-        String local=WordMeaning.oneWord(query)?WordMeaning.local(query):null;
-        addText(activity,content,local!=null?local:
-            "Esta palabra o expresión no figura en el glosario local. Puedes consultar las fuentes externas que aparecen abajo.",
-            15,NAVY,false,9);
-        addText(activity,content,local!=null?
-            "Glosario orientativo de Biblioteca IA. El sentido varía según el pasaje.":
-            "Las consultas externas solo envían la expresión seleccionada; requieren conexión.",
+        addText(activity,content,"Definición en este contexto · IA",16,GOLD,true,12);
+        final TextView aiResult=addText(activity,content,
+            geminiEnabled?"Consultando el significado en el pasaje…":
+                "Configura Gemini o Groq en Ajustes para obtener una definición contextual.",
+            16,NAVY,false,8);
+        aiResult.setTextIsSelectable(true);
+        final TextView aiSource=addText(activity,content,
+            passage.getHasContext()?
+                "Se envía solo la expresión y un fragmento breve de su entorno al proveedor de IA configurado.":
+                "No hay texto circundante disponible; la IA solo puede dar una definición general.",
             12,MUTED,false,8);
+        final TextView retry=addText(activity,content,"Reintentar definición",14,GOLD,true,8);
+        retry.setMinHeight(dp(activity,42));
+        retry.setGravity(Gravity.CENTER_VERTICAL);
+        retry.setVisibility(View.GONE);
+        String local=WordMeaning.oneWord(query)?WordMeaning.local(query):null;
+        if(local!=null){
+            addText(activity,content,"Glosario local · orientativo",14,GOLD,true,16);
+            addText(activity,content,local,15,NAVY,false,5);
+        }
+        addText(activity,content,"Fuentes de consulta",16,GOLD,true,16);
+        addText(activity,content,"Wikipedia y Wikcionario reciben solo la expresión seleccionada.",12,MUTED,false,5);
         final ScrollView scroll=new ScrollView(activity);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(true);
@@ -273,6 +295,26 @@ public final class DefinitionUi {
             .setView(scroll)
             .setNegativeButton("Cerrar",(d,w)->d.dismiss())
             .create();
+        final Runnable[] cancellation=new Runnable[1];
+        final Runnable request=()->{
+            if(cancellation[0]!=null)cancellation[0].run();
+            retry.setVisibility(View.GONE);
+            aiResult.setText("Consultando el significado…");
+            cancellation[0]=ContextualDefinition.request(activity,query,passage,
+                (answer,provider,error)->{
+                    if(!dialog.isShowing()||activity.isFinishing()||activity.isDestroyed())return;
+                    if(error!=null){
+                        aiResult.setText("No se pudo obtener la definición de IA. "+error);
+                        retry.setVisibility(View.VISIBLE);
+                    }else{
+                        aiResult.setText(answer);
+                        aiSource.setText((passage.getHasContext()?"Interpretación del pasaje":"Definición general (sin contexto)")+
+                            " · "+provider+" · Generada por IA, no es una cita de Wikipedia.");
+                    }
+                });
+        };
+        retry.setOnClickListener(v->request.run());
+        dialog.setOnDismissListener(ignored->{if(cancellation[0]!=null)cancellation[0].run();});
         String catholic=WordMeaning.oneWord(query)?WordMeaning.catholicArticleUrl(query):null;
         if(catholic!=null){
             addLink(activity,content,"Enciclopedia Católica · Abrir artículo",catholic,dialog,delegate);
@@ -306,7 +348,7 @@ public final class DefinitionUi {
                 android.util.Log.e("BibliotecaIADefinir","No se pudo ajustar el tamaño del globo",error);
             }
         });
-        try{dialog.show();}
+        try{dialog.show();if(geminiEnabled)request.run();}
         catch(RuntimeException error){
             android.util.Log.e("BibliotecaIADefinir","No se pudo mostrar la definición",error);
             delegate.showError("No se pudo abrir el globo de la definición.");

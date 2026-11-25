@@ -43,7 +43,8 @@ object AiClients {
         "si puedes aportar contexto externo, añádelo en un párrafo que comience por " +
         "«Externo:». Sé conciso."
 
-    fun geminiBody(question: String, fragments: List<String>, history: List<Pair<String, String>>): JSONObject {
+    fun geminiBody(question: String, fragments: List<String>, history: List<Pair<String, String>>,
+                   systemInstruction: String = SYSTEM_INSTRUCTION): JSONObject {
         val contents = JSONArray()
         history.forEach { (role, text) ->
             contents.put(JSONObject().put("role", if (role == "user") "user" else "model")
@@ -53,13 +54,14 @@ object AiClients {
             contextBlock(fragments) + "\n\nPregunta: " + question))))
         return JSONObject()
             .put("contents", contents)
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_INSTRUCTION))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemInstruction))))
             .put("generationConfig", JSONObject().put("temperature", 0.2))
     }
 
-    fun groqBody(question: String, fragments: List<String>, history: List<Pair<String, String>>): JSONObject {
+    fun groqBody(question: String, fragments: List<String>, history: List<Pair<String, String>>,
+                 systemInstruction: String = SYSTEM_INSTRUCTION): JSONObject {
         val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", SYSTEM_INSTRUCTION))
+            .put(JSONObject().put("role", "system").put("content", systemInstruction))
         history.forEach { (role, text) ->
             messages.put(JSONObject().put("role", if (role == "user") "user" else "assistant").put("content", text))
         }
@@ -105,16 +107,17 @@ object AiClients {
 
     fun ask(provider: String, key: String, question: String, fragments: List<String>,
             history: List<Pair<String, String>>,
-            geminiModel: String = GEMINI_MODEL): Answer {
+            geminiModel: String = GEMINI_MODEL,
+            systemInstruction: String = SYSTEM_INSTRUCTION): Answer {
         val route: Triple<String, JSONObject, (String) -> String> = when (provider) {
             GEMINI -> Triple(
                 "https://generativelanguage.googleapis.com/v1beta/models/$geminiModel:generateContent",
-                geminiBody(question, fragments, history),
+                geminiBody(question, fragments, history, systemInstruction),
                 ::parseGemini,
             )
             GROQ -> Triple(
                 "https://api.groq.com/openai/v1/chat/completions",
-                groqBody(question, fragments, history),
+                groqBody(question, fragments, history, systemInstruction),
                 ::parseGroq,
             )
             else -> throw AiException(AiErrorKind.INVALID_KEY, "Proveedor desconocido: $provider")
