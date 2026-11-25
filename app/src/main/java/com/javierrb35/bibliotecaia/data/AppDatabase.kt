@@ -27,8 +27,11 @@ import java.util.UUID
         BookSynopsisEntity::class,
         SyncQueueEntry::class,
         DeletedBookEntity::class,
+        CoordinatorCursor::class,
+        CoordinatorReplica::class,
+        CoordinatorOutbox::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun refsDao(): RefsDao
     abstract fun backupDao(): BackupDao
     abstract fun syncQueueDao(): SyncQueueDao
+    abstract fun coordinatorJournalDao(): CoordinatorJournalDao
 
     companion object {
 
@@ -56,6 +60,15 @@ abstract class AppDatabase : RoomDatabase() {
             "Economía", "Finanzas", "Empresa", "Psicología", "Biografías",
             "Formación", "Referencia", "Otros"
         )
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS coordinator_cursor (libraryId TEXT NOT NULL, deviceId TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(libraryId, deviceId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS coordinator_replica (libraryId TEXT NOT NULL, deviceId TEXT NOT NULL, kind TEXT NOT NULL, entityId TEXT NOT NULL, revision INTEGER NOT NULL, deleted INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(libraryId, deviceId, kind, entityId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS coordinator_outbox (libraryId TEXT NOT NULL, deviceId TEXT NOT NULL, operationId TEXT NOT NULL, kind TEXT NOT NULL, entityId TEXT NOT NULL, expectedRevision INTEGER NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, resultRevision INTEGER, resultDeleted INTEGER, PRIMARY KEY(libraryId, deviceId, operationId))")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_coordinator_outbox_libraryId_deviceId_kind_entityId ON coordinator_outbox(libraryId, deviceId, kind, entityId)")
+            }
+        }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -115,7 +128,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
