@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.app.Activity
 import android.app.Instrumentation
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -65,10 +66,16 @@ class SharedSettingsJourneyDeviceTest {
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
             onView(withText(button)).inRoot(isDialog()).perform(click())
-            // Espresso waits for the lifecycle coroutine and cancelled result.
-            onView(withText("Guardar en Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
+            // The IO coroutine is not tracked by Espresso. Wait for the real
+            // outgoing intent, then let the cancelled result reach the activity.
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) {
+                SystemClock.sleep(50L)
+            }
             val intent = captured.get()
             assertNotNull("The wizard must launch the requested picker", intent)
+            instrumentation.waitForIdleSync()
+            onView(withText("Guardar en Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
             assertEquals(expected, intent.action)
             assertEquals(mime, intent.type)
             onView(withText("Otra carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
