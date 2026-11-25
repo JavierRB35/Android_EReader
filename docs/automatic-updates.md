@@ -1,5 +1,13 @@
 # Actualizaciones automáticas de Biblioteca IA (Android)
 
+## Directriz obligatoria de versionado y publicación — 25/11/2026
+
+- Toda nueva APK oficial debe tener un `versionName` semánticamente **superior** y un `versionCode` numéricamente **superior** a los de la publicación oficial anterior y a los máximos oficiales publicados. Nunca reutilizar ni reemplazar un número de versión, aunque el cambio sea mínimo.
+- La etiqueta GitHub `vX.Y.Z`, el nombre del archivo APK y su `versionName` interno deben coincidir. Mantener el identificador de paquete y la firma original; verificar el SHA-256.
+- Es obligatorio bloquear automáticamente la publicación si cualquiera de los dos identificadores no aumenta, si el tag ya existe, o si no se puede verificar la correspondencia de versiones y firma. No omitir controles para forzar una release. En caso de reintento de un commit ya publicado, comprobar la release existente sin sobrescribirla.
+- Antes de declarar la publicación completada, comprobar los assets APK/checksum, el commit integrado, la release pública marcada como última y su detección desde una versión anterior. Diferenciar comprobación automatizada de prueba física pendiente. Informar de la versión y del enlace directo de descarga.
+- Ejemplo: si la última APK oficial es `v0.1.128`, la próxima debe ser `v0.1.129` o superior, con un `versionCode` superior. Volver a publicar como 128 impide que las instalaciones 128 detecten el cambio.
+
 ## Comportamiento real
 
 - En cada cambio integrado en `main`, se ejecutan dos validaciones **independientes**:
@@ -48,3 +56,8 @@ El lanzamiento v1.0.0 requiere sus criterios de QA específicos; esta automatiza
 - El permiso `REQUEST_INSTALL_PACKAGES` es necesario para que el usuario pueda aprobar actualizaciones **directamente desde Biblioteca IA**. No concede instalación silenciosa. Si el usuario no lo concede, no instala. El permiso de lectura temporal de FileProvider se limita a `cache/updates/`; nunca libros, claves IA ni bases de datos.
 - No requiere credenciales Gmail, OAuth, Drive ni Supabase. Si no hay Internet o falla la verificación, la lectura offline permanece intacta.
 - **PENDIENTE dispositivo físico:** Android 8/Android 14, primera concesión de «fuentes desconocidas», aceptación/rechazo de instalación, firma release sobre release, cancelación y recuperación sin perder notas. Los tests unitarios cubren política SHA-256/URL y los instrumentados la restricción del FileProvider, pero no sustituyen este QA.
+
+## Notas visibles de cada actualización (25/11/2026)
+- El publicador automático genera el resumen desde el tag de la última release oficial con APK y checksum hasta el SHA exacto firmado. Si varias PR se integran antes de publicar, incluye todas las incorporadas. Preferir fragmentos en español de `docs/release-notes/<identificador>.md`, una línea de lista por cambio visible. Si no existe fragmento, usar el asunto real del commit de integración; nunca inventar cambios. No se incluyen PR abiertas.
+- Biblioteca principal y Ajustes muestran el detalle antes de instalar. En lectores el snackbar presenta la primera mejora y abre el detalle mediante «Ver cambios»; notificación del sistema muestra resumen y texto ampliado. Versiones antiguas sin notas muestran ausencia explícita. Si se saltan versiones, el detalle corresponde al intervalo de la última publicación, no necesariamente a todo lo que falta desde la instalación.
+- Los controles de firma y APK no se alteran. Pruebas JVM de contenido, límite y fallback; validación de publicación real pendiente.

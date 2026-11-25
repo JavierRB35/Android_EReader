@@ -22,6 +22,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.R
+import com.javierrb35.bibliotecaia.ai.AiSetupActivity
+import com.javierrb35.bibliotecaia.ai.AiClients
+import com.javierrb35.bibliotecaia.ai.AiKeyStore
+import com.javierrb35.bibliotecaia.ai.AiFallbackConsent
 import com.javierrb35.bibliotecaia.backup.CompleteBackupManager
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.BackupManager
@@ -32,6 +36,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.updates.UpdateChecker
 import com.javierrb35.bibliotecaia.updates.UpdateInstaller
+import com.javierrb35.bibliotecaia.updates.UpdateNotes
 import kotlinx.coroutines.Dispatchers
 import java.text.DateFormat
 import java.util.Date
@@ -47,6 +52,7 @@ class SettingsActivity : AppCompatActivity() {
     private val db by lazy { AppDatabase.get(this) }
     private lateinit var setupWizard: StorageSetupWizard
     private lateinit var unifiedStatus: TextView
+    private lateinit var aiStatus: TextView
     private lateinit var unifiedAction: MaterialButton
     private var backupBusy = false
     private var sharedBusy = false
@@ -430,6 +436,14 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        section(layout, "Inteligencia artificial")
+        val aiCard = card(layout)
+        aiStatus = hint(aiCard, "")
+        action(aiCard, "Configurar inteligencia artificial") {
+            startActivity(Intent(this, AiSetupActivity::class.java))
+        }
+        refreshAiStatus()
+
         section(layout, getString(R.string.settings_updates))
         val updatesCard = card(layout)
         action(updatesCard, getString(R.string.settings_updates_check)) { checkUpdates() }
@@ -453,10 +467,21 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshAiStatus()
         if (::sharedStatus.isInitialized) refreshSharedPanel()
         if (::backupStatus.isInitialized) refreshBackupStatus()
         if (::positionSyncStatus.isInitialized) refreshPositionSyncStatus()
         refreshUnifiedStatus()
+    }
+
+    private fun refreshAiStatus() {
+        if (!::aiStatus.isInitialized) return
+        val gemini = !AiKeyStore.getKey(this, AiClients.GEMINI).isNullOrBlank()
+        val groq = !AiKeyStore.getKey(this, AiClients.GROQ).isNullOrBlank()
+        aiStatus.text = "Gemini: " + (if (gemini) "configurado" else "sin clave") +
+            " · Groq: " + (if (groq) "configurado" else "sin clave") +
+            if (gemini && AiFallbackConsent.enabled(this)) "\nRespaldo automático activo"
+            else if (groq && !gemini) "\nGroq disponible como proveedor único" else ""
     }
 
     private fun refreshUnifiedStatus() {
@@ -733,7 +758,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                 .setTitle(getString(R.string.updates_available, release.versionName))
-                .setMessage(release.notes.ifBlank { getString(R.string.updates_notes_missing) })
+                .setMessage(UpdateNotes.detail(release.notes))
                 .setPositiveButton("Instalar actualización") { _, _ ->
                     UpdateInstaller.start(this@SettingsActivity, release)
                 }

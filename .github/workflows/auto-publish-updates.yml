@@ -214,6 +214,12 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Check out exact source for release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Download the signed and verified APK
         uses: actions/download-artifact@v4
         with:
@@ -247,11 +253,19 @@ jobs:
             echo "::error::Refusing to overwrite $RELEASE_TAG" >&2
             exit 1
           fi
+          # Use the most recent published official APK, not an arbitrary tag.
+          previous="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | select(.tag_name | test("^v[0-9]+[.][0-9]+[.][0-9]+$")) | . as $r | select(any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk")) and any(.assets[]; .name == ("BibliotecaIA-" + $r.tag_name + ".apk.sha256"))) | .tag_name' | sed -n '1p')"
+          base_sha=""
+          if [[ -n "$previous" ]]; then
+            base_sha="$(git rev-parse "refs/tags/$previous^{commit}")"
+          fi
+          python3 scripts/generate_release_notes.py --base "$base_sha" --head "$RELEASE_SHA" --output "$RUNNER_TEMP/release-notes.md"
           gh release create "$RELEASE_TAG" \
             "$apk" "$apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$RELEASE_SHA" \
             --title "Biblioteca IA $RELEASE_VERSION" \
-            --notes "Actualización Android firmada y comprobada. Compilación del commit $RELEASE_SHA. Serie de desarrollo; instalación voluntaria desde la aplicación." \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             --latest
           echo "Official update published: $RELEASE_TAG"
