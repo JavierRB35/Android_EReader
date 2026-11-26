@@ -5,18 +5,19 @@ from pathlib import Path
 import queue
 import threading
 import os
-from migrator import scan, migrate, choose_files
+import sys
+from migrator import scan, migrate, choose_files, summarize_report
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("BibliotecaAI · Migrar desde Calibre")
-        self.geometry("680x410")
+        self.geometry("740x470")
         self.minsize(600, 380)
         self.source = tk.StringVar()
         self.output = tk.StringVar()
-        self.all_formats = tk.BooleanVar(value=False)
+        self.all_formats = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="Selecciona la carpeta raíz de tu biblioteca Calibre.")
         self.events = queue.Queue()
         self.stop = threading.Event()
@@ -25,16 +26,16 @@ class App(tk.Tk):
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
         ttk.Label(panel, text="Migrar biblioteca de Calibre", font=("Segoe UI", 17, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 16))
-        for row, label, var in [(1, "Biblioteca de origen (MiBiblioteca)", self.source), (3, "Carpeta de destino de los paquetes", self.output)]:
+        for row, label, var in [(1, "Biblioteca de origen (MiBiblioteca)", self.source), (3, "Carpeta temporal de intercambio (fuera de la biblioteca activa)", self.output)]:
             ttk.Label(panel, text=label).grid(row=row,column=0,columnspan=2,sticky="w")
             ttk.Entry(panel,textvariable=var).grid(row=row+1,column=0,sticky="ew",pady=(3,12))
             ttk.Button(panel,text="Examinar…",command=lambda v=var:self.pick(v)).grid(row=row+1,column=1,padx=(8,0),pady=(3,12))
         ttk.Checkbutton(panel,text="Conservar todos los formatos compatibles (si no: EPUB > MOBI > PDF)",variable=self.all_formats).grid(row=5,column=0,columnspan=2,sticky="w")
-        ttk.Label(panel,text="El origen no se modifica. Se generan ZIP verificados, no se cambia Drive.",wraplength=620).grid(row=6,column=0,columnspan=2,sticky="w",pady=12)
+        ttk.Label(panel,text="1. Cierra Calibre y analiza. 2. Prepara los paquetes en una carpeta temporal.\n3. En BibliotecaAI Android, Ajustes → Incorporar libros de un respaldo, selecciona cada ZIP. No sustituir la copia de seguridad ni copiar los ZIP a _Sincronizacion.",wraplength=620).grid(row=6,column=0,columnspan=2,sticky="w",pady=12)
         buttons=ttk.Frame(panel)
         buttons.grid(row=7,column=0,columnspan=2,sticky="w")
         self.preview=ttk.Button(buttons,text="Analizar",command=lambda:self.start(False)); self.preview.pack(side="left")
-        self.go=ttk.Button(buttons,text="Preparar migración",command=lambda:self.start(True)); self.go.pack(side="left",padx=8)
+        self.go=ttk.Button(buttons,text="Preparar para BibliotecaAI",command=lambda:self.start(True)); self.go.pack(side="left",padx=8)
         self.cancel=ttk.Button(buttons,text="Cancelar",command=self.stop.set,state="disabled"); self.cancel.pack(side="left")
         self.bar=ttk.Progressbar(panel,mode="indeterminate")
         self.bar.grid(row=8,column=0,columnspan=2,sticky="ew",pady=14)
@@ -67,7 +68,7 @@ class App(tk.Tk):
             try:
                 if create:
                     run,count,books=migrate(source,output,all_formats,lambda msg:self.events.put(("status",msg)),self.stop.is_set)
-                    self.events.put(("done",(run,count,books)))
+                    self.events.put(("done",(run,count,books,summarize_report(run))))
                 else:
                     records,warnings=scan(source)
                     count=sum(len(choose_files(r,all_formats)) for r in records)
@@ -85,9 +86,10 @@ class App(tk.Tk):
                 self.busy=False; self.bar.stop()
                 self.preview.configure(state="normal"); self.go.configure(state="normal"); self.cancel.configure(state="disabled")
                 if kind=="done":
-                    run,count,books=value
-                    self.status.set(f"{books} originales preparados en {count} ZIP. Consulta Informe.csv.")
-                    if messagebox.askyesno("Preparación terminada",f"{books} originales en {count} paquetes verificados.\n¿Abrir carpeta de salida?"):
+                    run,count,books,summary=value
+                    result = f"{books} originales preparados en {count} ZIP; {summary[\'duplicate\']} duplicados; {summary[\'error\']} errores; {summary[\'unsupported\']} fichas sin formato; {summary[\'warning\']} avisos."
+                    self.status.set(result + " Consulta Informe.csv. Falta incorporarlos desde Android.")
+                    if messagebox.askyesno("Paquetes preparados (no importados aún)", result + "\nEn Android, usa Incorporar libros de un respaldo.\n¿Abrir carpeta de salida?"):
                         os.startfile(str(run))
                 elif kind=="error":
                     self.status.set(value); messagebox.showwarning("Operación no completada",value+"\nConsulta la carpeta de destino si hay paquetes anteriores.")
@@ -99,4 +101,11 @@ class App(tk.Tk):
 
 
 if __name__=="__main__":
+    if "--self-test" in sys.argv:
+        import io
+        import unittest
+        import test_migrator
+        suite = unittest.defaultTestLoader.loadTestsFromModule(test_migrator)
+        result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+        sys.exit(0 if result.wasSuccessful() else 1)
     App().mainloop()
