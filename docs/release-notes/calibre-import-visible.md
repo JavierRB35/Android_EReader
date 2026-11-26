@@ -1,0 +1,2 @@
+- Nueva opción «Importar biblioteca de Calibre» en Ajustes, separada de la recuperación de copias.
+- La importación a la carpeta compartida muestra progreso, resultado y errores, y conserva los ZIP originales.

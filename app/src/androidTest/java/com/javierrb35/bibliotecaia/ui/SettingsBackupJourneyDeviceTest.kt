@@ -24,6 +24,9 @@ class SettingsBackupJourneyDeviceTest {
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo()).check(matches(isDisplayed()))
             onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Importar biblioteca de Calibre")).perform(scrollTo(), click())
+            onView(withText("Conecta primero la biblioteca")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText(android.R.string.cancel)).inRoot(isDialog()).perform(click())
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
             onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
