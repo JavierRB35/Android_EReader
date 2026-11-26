@@ -7,6 +7,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.*
 import com.javierrb35.bibliotecaia.importer.BatchImport
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitAll
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -268,17 +273,100 @@ class SharedLibraryJourneyTest {
             assertTrue(SharedLibrary.syncStore(store, b, ownerB).errors.isEmpty())
             assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
             assertEquals("page:2", a.readingDao().position(book.id)!!.locator)
+            // B stays offline; only A has these two newer positions.
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:3", .15f, 1001L))
+            assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:4", .2f, 1002L))
+            assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
             val newest = states(ownerA).maxByOrNull { SharedStateRetention.parse(it.name)!!.sequence }!!
             File(newest.uri.path!!).writeText("interrupted publication")
             val before = states(ownerA).map { it.name }.toSet()
             SharedLibrary.pullStore(store, recovered, root)
             val recoveredBook = requireNotNull(recovered.bookDao().findByHash(hash))
-            assertEquals("page:2", recovered.readingDao().position(recoveredBook.id)!!.locator)
+            assertEquals("page:3", recovered.readingDao().position(recoveredBook.id)!!.locator)
             assertEquals("note from B", recovered.readingDao().annotation(note.id)!!.body)
             assertEquals(before, states(ownerA).map { it.name }.toSet())
             assertTrue(legacy.isFile)
             assertArrayEquals(file.readBytes(), File(folder, file.name).readBytes())
         } finally { a.close(); b.close(); recovered.close(); root.deleteRecursively() }
+    }
+
+    @Test fun simultaneousWritersConvergeAndNeverRetirePeerState() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "concurrent-states-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val file = File(root, "Concurrent.epub").apply { writeText("original contents") }
+        val hash = SharedDocumentStore.hash(file.readBytes())
+        val book = BookEntity("concurrent-a", "Libro", null, BookFormat.EPUB, file.name,
+            file.absolutePath, hash, file.length(), 1L)
+        val ownerA = "a".repeat(32)
+        val ownerB = "b".repeat(32)
+        val base = TestStore(cloud, namedOriginals = true)
+        fun states(owner: String) = base.list().filter { SharedStateRetention.parse(it.name)?.owner == owner }
+        try {
+            a.bookDao().insert(book)
+            assertTrue(SharedLibrary.syncStore(base, a, ownerA).errors.isEmpty())
+            assertTrue(SharedLibrary.syncStore(base, b, ownerB).errors.isEmpty())
+            val peer = b.bookDao().findByHash(hash)!!
+            // Fill the retention window before making two independent offline edits.
+            for (i in 1..4) {
+                a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:$i", i / 20f, 100L + i * 2))
+                assertTrue(SharedLibrary.syncStore(base, a, ownerA).errors.isEmpty())
+                b.readingDao().savePosition(ReadingPositionEntity(peer.id, "page:$i", i / 20f, 101L + i * 2))
+                assertTrue(SharedLibrary.syncStore(base, b, ownerB).errors.isEmpty())
+            }
+            val noteA = AnnotationEntity("concurrent-note-a", book.id, "page:5", "a", "note A", "NOTE", 0, 1L, 500L)
+            val noteB = AnnotationEntity("concurrent-note-b", peer.id, "page:2", "b", "note B", "NOTE", 0, 1L, 501L)
+            a.readingDao().insertAnnotation(noteA)
+            b.readingDao().insertAnnotation(noteB)
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:5", .25f, 500L))
+            b.readingDao().savePosition(ReadingPositionEntity(peer.id, "page:2", .1f, 501L))
+            val barrier = CyclicBarrier(2)
+            fun concurrentStore(owner: String) = object : SharedStore by base {
+                override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item {
+                    if (SharedStateRetention.parse(name)?.owner == owner)
+                        barrier.await(15, TimeUnit.SECONDS)
+                    return base.create(name, mime, source, hash, size)
+                }
+                override fun retireManagedState(item: SharedDocumentStore.Item, writer: String): Boolean {
+                    assertEquals(owner, writer)
+                    assertEquals(owner, SharedStateRetention.parse(item.name)?.owner)
+                    return base.retireManagedState(item, writer)
+                }
+            }
+            val results = listOf(
+                async(Dispatchers.IO) { SharedLibrary.syncStore(concurrentStore(ownerA), a, ownerA) },
+                async(Dispatchers.IO) { SharedLibrary.syncStore(concurrentStore(ownerB), b, ownerB) }
+            ).awaitAll()
+            assertTrue(results.all { it.errors.isEmpty() })
+            assertEquals(3, states(ownerA).size)
+            assertEquals(3, states(ownerB).size)
+            assertTrue(SharedLibrary.syncStore(base, a, ownerA).errors.isEmpty())
+            assertTrue(SharedLibrary.syncStore(base, b, ownerB).errors.isEmpty())
+            for (db in listOf(a, b)) {
+                assertEquals("note A", db.readingDao().annotation(noteA.id)!!.body)
+                assertEquals("note B", db.readingDao().annotation(noteB.id)!!.body)
+                val id = db.bookDao().findByHash(hash)!!.id
+                assertEquals("page:2", db.readingDao().position(id)!!.locator)
+            }
+            assertEquals(3, states(ownerA).size)
+            assertEquals(3, states(ownerB).size)
+            assertArrayEquals(file.readBytes(), File(cloud, file.name).readBytes())
+            // Provider refuses retirement: publish remains recoverable, and no
+            // candidate is deleted. A later successful retry cleans the surplus.
+            val noDelete = object : SharedStore by base {
+                override fun retireManagedState(item: SharedDocumentStore.Item, owner: String) = false
+            }
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:6", .3f, 600L))
+            assertTrue(SharedLibrary.syncStore(noDelete, a, ownerA).errors.any { it.contains("Compactación pendiente") })
+            assertEquals(4, states(ownerA).size)
+            assertTrue(SharedLibrary.syncStore(base, a, ownerA).errors.isEmpty())
+            assertEquals(3, states(ownerA).size)
+            assertTrue(SharedLibrary.syncStore(base, b, ownerB).errors.isEmpty())
+            assertEquals("page:6", b.readingDao().position(peer.id)!!.locator)
+        } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 
     @Test fun interruptedPublicationReusesVerifiedOriginalWithoutTrustingFilename() = runBlocking {

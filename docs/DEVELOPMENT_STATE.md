@@ -10,7 +10,7 @@
 
 ## P0 — #103 retención de estados de lectura (26/11/2026)
 
-- Rama fix/bounded-reading-state-20261126, base 5dad7975. Guardado Room intacto; modo carpeta agrupa publicaciones 30 s y conserva salida inmediata. Retención de tres generaciones nuevas verificadas por propietario de estado, únicamente en subcarpeta técnica y por URI exacta; UUID v8 distingue las publicaciones gestionadas de las históricas v4, que se conservan. No se toca Drive real ni se añaden servicios. Prueba A/B y recuperación sintética añadida; gates pendientes, no fusionar sin evidencia. La limpieza histórica preexistente queda fuera de esta intervención no destructiva; proveedor que rechaza borrado o datos dudosos: compactación pendiente.
+- Rama fix/bounded-reading-state-20261126, base 5dad7975. Guardado Room intacto; modo carpeta agrupa publicaciones 30 s y conserva salida inmediata. Retención de tres generaciones nuevas verificadas por propietario de estado, únicamente en subcarpeta técnica y por URI exacta; UUID v8 distingue las publicaciones gestionadas de las históricas v4, que se conservan. No se toca Drive real ni se añaden servicios. Pruebas A/B simultáneas con barrera, recuperación desde generación anterior propia y rechazo/reintento de compactación añadidas; gates pendientes, no fusionar sin evidencia. La limpieza histórica preexistente queda fuera de esta intervención no destructiva; proveedor que rechaza borrado o datos dudosos: compactación pendiente.
 - Siguiente: CI exacta, corregir fallos, integrar, publicación oficial y aceptación física A/B.
 
 ## P0 — #126 catálogo rápido y carátulas compartidas (26/11/2026)

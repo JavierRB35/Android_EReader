@@ -551,9 +551,16 @@ object SharedLibrary {
             BackupCodec.fromJson(root.getString("snapshot"))
             receipts(root)
         }
+        var pending = false
         for ((_, item) in managed.drop(SharedStateRetention.KEEP).asReversed()) {
-            check(store.retireManagedState(item, owner)) { "No se pudo retirar una instantánea técnica antigua." }
+            // A single unreadable orphan must not prevent retirement of other
+            // verified superseded generations. Preserve that orphan and report it.
+            try {
+                if (!store.retireManagedState(item, owner)) pending = true
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { pending = true }
         }
+        check(!pending) { "No se pudo retirar alguna instantánea técnica antigua." }
     }
 
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
