@@ -7,7 +7,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.*
 import com.javierrb35.bibliotecaia.importer.BatchImport
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitAll
@@ -104,7 +103,7 @@ class SharedLibraryJourneyTest {
         val cloud = File(root, "cloud").apply { mkdirs() }
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val base = TestStore(cloud, namedOriginals = true)
-        val file = File(cloud, "El verdugo - autor.epub").apply { writeText("Verified original") }
+        val file = File(cloud, "fixture.epub").apply { writeText("Verified original") }
         val book = BookEntity("test-book", "Otro título", "Autor", BookFormat.EPUB, file.name,
             "", SharedDocumentStore.hash(file.readBytes()), file.length(), 1L)
         var reads = 0
@@ -139,8 +138,6 @@ class SharedLibraryJourneyTest {
             catch (_: java.io.IOException) { rejected = true }
             assertTrue("Same-size corruption must be rejected", rejected)
             assertFalse(target.exists())
-            val results = db.bookDao().search("el verdugo", "ALL", 0, "").first()
-            assertEquals(listOf(book.id), results.map { it.id })
         } finally { db.close(); root.deleteRecursively() }
     }
 

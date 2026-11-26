@@ -45,7 +45,6 @@ interface BookDao {
         LEFT JOIN collections col ON col.id = cb.collectionId
         WHERE (:query = '' OR b.title LIKE '%' || :query || '%'
               OR b.authors LIKE '%' || :query || '%'
-              OR b.fileName LIKE '%' || :query || '%'
               OR c.name LIKE '%' || :query || '%'
               OR t.name LIKE '%' || :query || '%'
               OR col.name LIKE '%' || :query || '%')

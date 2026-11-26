@@ -914,7 +914,7 @@ object SharedLibrary {
     }
 
     private fun publishLocalCover(store: SharedStore, book: BookEntity) {
-        if (!store.namedOriginals || book.format != BookFormat.EPUB || !CentralCatalogue.local(book)) return
+        if (!store.namedOriginals || book.format == BookFormat.PDF || !CentralCatalogue.local(book)) return
         try {
             val listing = store.list()
             if (SharedCoverArt.read(store, listing, book.contentHash) != null) return
@@ -930,24 +930,29 @@ object SharedLibrary {
 
     /** Progressive historical backfill outside the UI. Never download a book
      * merely because a grid cell is visible. Keep batches bounded. */
-    internal suspend fun maintainCovers(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
-        if (!namedFolderMode(context)) return@withContext
-        val tree = uri(context) ?: return@withContext
+    internal suspend fun maintainCovers(context: Context, db: AppDatabase): Boolean = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext false
+        val tree = uri(context) ?: return@withContext false
         try {
             folderStore(context, tree, named = true).use { source ->
                 val inv = inventory(source)
-                if (inv.errors.isNotEmpty()) return@withContext
+                if (inv.errors.isNotEmpty()) return@withContext true
                 val listed = inv.listedHashes()
                 val already = inv.items.keys.mapNotNull(SharedCoverArt::bookHash).toHashSet()
-                val absence = context.getSharedPreferences("cover_absence_v1", Context.MODE_PRIVATE)
+                val absence = context.getSharedPreferences("cover_absence_v2", Context.MODE_PRIVATE)
+                val retry = context.getSharedPreferences("cover_retry_v2", Context.MODE_PRIVATE)
                 val books = db.backupDao().booksAll().filter {
-                    it.format == BookFormat.EPUB && it.contentHash !in already &&
+                    it.format != BookFormat.PDF && it.contentHash !in already &&
+                        System.currentTimeMillis() >= retry.getLong(it.contentHash, 0) &&
                         (CentralCatalogue.local(it) || it.contentHash in listed) &&
                         System.currentTimeMillis() - absence.getLong(it.contentHash, 0) > 7L * 24 * 60 * 60 * 1000
                 }.sortedByDescending(CentralCatalogue::local)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 60_000L
+                var attempted = 0
                 for (book in books.take(16)) {
+                    coroutineContext.ensureActive()
                     if (uri(context) != tree || android.os.SystemClock.elapsedRealtime() >= deadline) break
+                    attempted++
                     var temp: File? = null
                     try {
                         val original = if (CentralCatalogue.local(book)) {
@@ -967,16 +972,22 @@ object SharedLibrary {
                             continue
                         }
                         val bytes = try { BookCoverLoader.jpeg(bitmap) } finally { bitmap.recycle() }
-                        if (bytes != null && uri(context) == tree)
+                        if (bytes != null && uri(context) == tree) {
                             SharedCoverArt.publish(source, book.contentHash, bytes)
+                            retry.edit().remove(book.contentHash).apply()
+                        } else retry.edit().putLong(book.contentHash, System.currentTimeMillis() + 300_000L).apply()
                     } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { /* Retry later, independently of original sync. */ }
+                    catch (_: Exception) {
+                        // A failed book must not starve all later books in the queue.
+                        retry.edit().putLong(book.contentHash, System.currentTimeMillis() + 300_000L).apply()
+                    }
                     finally { temp?.delete() }
                 }
                 if (uri(context) == tree) rememberCovers(tree, source.list())
+                uri(context) == tree && attempted < books.size
             }
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { /* No cover failure changes original integrity. */ }
+        catch (_: Exception) { true /* Retry independently; no cover failure changes original integrity. */ }
     }
 
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
@@ -1029,6 +1040,14 @@ object SharedLibrary {
             OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(if (immediate) 0L else delaySeconds, TimeUnit.SECONDS).build())
         work.enqueueUniquePeriodicWork("shared-library-periodic", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<SharedLibraryWorker>(15, TimeUnit.MINUTES).build())
+        scheduleCovers(context)
+    }
+    internal fun scheduleCovers(context: Context) {
+        if (!namedFolderMode(context)) return
+        val work = WorkManager.getInstance(context.applicationContext)
+        work.enqueueUniqueWork("shared-library-covers", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SharedCoverWorker>()
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS).build())
     }
 }
 
@@ -1039,7 +1058,7 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
             val revision = SharedLibrary.revision(applicationContext)
             val db = AppDatabase.get(applicationContext)
             val result = SharedLibrary.syncMetadata(applicationContext, db)
-            SharedLibrary.maintainCovers(applicationContext, db)
+            SharedLibrary.scheduleCovers(applicationContext)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 Result.success()
@@ -1050,4 +1069,11 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
             Result.retry()
         }
     }
+}
+
+/** Thumbnail work never holds the catalogue/download mutex and cannot delay metadata publication. */
+class SharedCoverWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result =
+        if (SharedLibrary.maintainCovers(applicationContext, AppDatabase.get(applicationContext)))
+            Result.retry() else Result.success()
 }
