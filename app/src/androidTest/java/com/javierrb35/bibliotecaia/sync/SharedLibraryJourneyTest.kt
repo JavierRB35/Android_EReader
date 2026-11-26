@@ -183,6 +183,45 @@ class SharedLibraryJourneyTest {
         } finally { db.close(); root.deleteRecursively() }
     }
 
+    @Test fun importingOneBookDoesNotReadExistingOriginals() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "import-incremental-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val base = TestStore(cloud, namedOriginals = true)
+        val reads = mutableListOf<String>()
+        val store = object : SharedStore by base {
+            override fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+                reads.add(item.name)
+                return base.verify(item, hash, size)
+            }
+        }
+        try {
+            val existing = (1..40).map { index ->
+                val file = File(cloud, "old-$index.epub").apply { writeText("Old original $index") }
+                BookEntity("old-$index", "Libro $index", "Autor", BookFormat.EPUB, file.name, "",
+                    SharedDocumentStore.hash(file.readBytes()), file.length(), index.toLong())
+            }
+            existing.forEach { db.bookDao().insert(it) }
+            assertEquals(40, SharedLibrary.syncStore(store, db, "a".repeat(32), root).hashes.size)
+            val new = File(root, "books/new/new.epub").apply { parentFile!!.mkdirs(); writeText("New original") }
+            val book = BookEntity("new", "Nuevo", "Autor", BookFormat.EPUB, new.name, new.absolutePath,
+                SharedDocumentStore.hash(new.readBytes()), new.length(), 41L)
+            db.bookDao().insert(book)
+            reads.clear()
+            val result = SharedLibrary.syncStore(store, db, "a".repeat(32), root,
+                verifyOriginals = false, requiredHashes = setOf(book.contentHash))
+            assertTrue(result.errors.toString(), result.errors.isEmpty())
+            assertEquals(41, result.hashes.size)
+            assertFalse(reads.any { it.startsWith("old-") })
+            SharedLibrary.evictVerifiedBatch(store, db, root, listOf(book))
+            assertFalse(reads.any { it.startsWith("old-") })
+            assertFalse(new.exists())
+            assertTrue(db.bookDao().findById(book.id)!!.localPath.isBlank())
+            assertEquals(book.contentHash, SharedDocumentStore.hash(File(cloud, book.fileName).readBytes()))
+        } finally { db.close(); root.deleteRecursively() }
+    }
+
     @Test fun restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "restore-drive-" + UUID.randomUUID()).apply { mkdirs() }

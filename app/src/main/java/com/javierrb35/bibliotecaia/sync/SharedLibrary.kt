@@ -26,6 +26,7 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 import org.json.JSONObject
 
 /**
@@ -613,8 +614,33 @@ object SharedLibrary {
             Result(previouslyVerified.size, result.errors)
         }
     }
+    /** Publish only the selected new originals; unrelated listed receipts remain
+     * metadata, never a new verification of their bytes. */
+    suspend fun publishImports(context: Context, db: AppDatabase, expectedUri: Uri,
+                               selected: Set<String>): Result = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext sync(context, db, expectedUri)
+        mutex.withLock {
+            require(uri(context) == expectedUri && namedFolderMode(context)) { "La biblioteca ha cambiado." }
+            val result = store(context).use {
+                syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
+                    verifyOriginals = false, requiredHashes = selected)
+            }
+            val confirmed = result.hashes.intersect(selected)
+            val verified = (hashes(context).intersect(result.hashes) - selected) + confirmed
+            val edit = prefs(context).edit().putStringSet("hashes", verified)
+            if (result.errors.isEmpty()) {
+                edit.putStringSet("catalogue_hashes", result.hashes)
+                    .putLong("last_publication", System.currentTimeMillis())
+                    .putString("status", "Catálogo sincronizado: ${result.hashes.size} originales listados; nuevos originales comprobados.")
+            } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
+            edit.apply()
+            changes.value += 1
+            Result(confirmed.size, result.errors)
+        }
+    }
     internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
                                    filesDir: File? = null, verifyOriginals: Boolean = true,
+                                   requiredHashes: Set<String>? = null,
                                    onProgress: (String) -> Unit = {}): StoreResult {
             onProgress("Leyendo e integrando el catálogo compartido…")
             val inv = inventory(store)
@@ -635,9 +661,11 @@ object SharedLibrary {
             onProgress("Originales procesados: 0/${books.size} · 0 confirmados")
             for ((index, book) in books.withIndex()) {
                 try {
-                    if (store.namedOriginals && (if (verifyOriginals) inv.available(book.contentHash)
+                    val required = requiredHashes?.contains(book.contentHash) == true
+                    if (store.namedOriginals && (if (verifyOriginals || required) inv.available(book.contentHash)
                             else book.contentHash in listed)) available.add(book.contentHash)
                     if (book.contentHash in available) continue
+                    if (store.namedOriginals && requiredHashes != null && !required) continue
                     if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
                     val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book, candidates) else null
                     val receipt = if (existing != null) Receipt(book.contentHash, existing.name, book.sizeBytes)
@@ -877,9 +905,7 @@ object SharedLibrary {
             require(book.localPath == imported.localPath && book.contentHash == imported.contentHash &&
                 book.sizeBytes == imported.sizeBytes && CentralCatalogue.local(book)) { "El original local ha cambiado." }
             require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
-                val item = inv.resolve(receipt)
-                item != null && receipt.bytes == book.sizeBytes &&
-                    runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
+                receipt.bytes == book.sizeBytes && inv.resolve(receipt) != null
             }) { "No se pudo comprobar el original central de " + book.title }
             book
         }

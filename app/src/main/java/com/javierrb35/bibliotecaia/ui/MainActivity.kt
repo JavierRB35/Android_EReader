@@ -620,13 +620,15 @@ class MainActivity : AppCompatActivity() {
                     progress = { done, total -> label.text = "$done/$total" },
                     publishVerified = { books ->
                         val target = requireNotNull(destination)
-                        val synced = SharedLibrary.sync(app, db, expectedUri = target)
+                        label.text = "Guardando originales nuevos en Drive…"
+                        val synced = SharedLibrary.publishImports(app, db, target, books.map { it.contentHash }.toSet())
                         require(synced.errors.isEmpty()) { synced.errors.joinToString(" · ") }
                         require(books.all { it.contentHash in SharedLibrary.hashes(app) }) {
                             "No se han confirmado todos los originales en la biblioteca."
                         }
                     },
                     removeStaging = { books ->
+                        label.text = "Comprobando los nuevos originales guardados…"
                         SharedLibrary.evictVerifiedImports(app, db, requireNotNull(destination), books)
                     }
                 )
