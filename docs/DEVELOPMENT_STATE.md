@@ -8,6 +8,12 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — #126 catálogo rápido y carátulas compartidas (26/11/2026)
+
+- Base main 018aec36 (#125 integrada tras 4/4 controles). Propietario autoriza resolver tres síntomas conjuntamente; compatibilidad tablet antigua despriorizada.
+- Rama fix/shared-covers-fast-catalogue-20261126: índice de navegación separado de hashes verificados; vista inmediata desde último catálogo y actualización de metadatos sin leer originales. Mantener verificaciones de integridad en operaciones originales. Miniaturas JPEG por hash de libro + imagen en _Sincronizacion, caché local, sin negativo por original remoto. Backfill progresivo por worker, limitado a 16 candidatos/60 s entre operaciones, sin descargar originales al navegar. No prometer portadas MOBI ni libros sin portada.
+- Pruebas Android de carga tras descarga y limpieza RAM, miniatura reutilizada y corrupción, catálogo sin streams originales y separación de verificación. CI y prueba física A/B pendientes. No fusionar sin gates verdes.
+
 ## P0 — Diagnóstico de carpeta tras prueba física v0.1.181 (26/11/2026)
 
 - #124 integrada f5bd06c y publicada v0.1.181; propietario consigue elegir un archivo Drive pero falla al pasar a carpeta. No se ha confirmado permiso de árbol. Causa de opacidad: showIssue oculta detalles y connectNamedFolder comprueba avance legado antes de destino.

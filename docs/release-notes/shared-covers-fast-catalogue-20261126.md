@@ -1,0 +1,3 @@
+- La biblioteca completa muestra el catálogo guardado inmediatamente y actualiza metadatos sin leer todos los originales al navegar.
+- Las carátulas EPUB y PDF se generan y comparten de forma progresiva entre dispositivos, también para libros no descargados; se guardan miniaturas locales.
+- Corrige carátulas que no reaparecían después de descargar un libro. Los originales y sus controles de integridad se conservan.

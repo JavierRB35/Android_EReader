@@ -26,7 +26,7 @@ class SharedLibraryJourneyTest {
         }
         override fun open(item: SharedDocumentStore.Item): InputStream = File(item.uri.path!!).inputStream()
         override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item {
-            val target = if (namedOriginals && name.startsWith("bia-state-")) metadata.apply {
+            val target = if (namedOriginals && (name.startsWith("bia-state-") || SharedCoverArt.isName(name))) metadata.apply {
                 check(isDirectory || mkdirs())
             } else dir
             val file = File(target, name)
@@ -37,6 +37,54 @@ class SharedLibraryJourneyTest {
             return item
         }
     }
+    @Test fun sharedThumbnailIsReusableWithoutOpeningOriginalAndRejectsCorruption() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "cover-share-" + UUID.randomUUID()).apply { mkdirs() }
+        try {
+            val store = TestStore(root, namedOriginals = true)
+            val hash = "a".repeat(64)
+            val bmp = android.graphics.Bitmap.createBitmap(20, 30, android.graphics.Bitmap.Config.ARGB_8888)
+            val bytes = try { requireNotNull(com.javierrb35.bibliotecaia.ui.BookCoverLoader.jpeg(bmp)) }
+                finally { bmp.recycle() }
+            assertTrue(SharedCoverArt.publish(store, hash, bytes))
+            assertFalse(SharedCoverArt.publish(store, hash, bytes))
+            val other = TestStore(root, namedOriginals = true)
+            assertArrayEquals(bytes, SharedCoverArt.read(other, other.list(), hash))
+            assertNull(SharedCoverArt.read(other, other.list(), "b".repeat(64)))
+            assertEquals(1, File(root, "_Sincronizacion").listFiles()!!.size)
+            val image = File(root, "_Sincronizacion").listFiles()!!.single()
+            image.writeText("corrupted")
+            assertNull(SharedCoverArt.read(other, other.list(), hash))
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun localCoverCanBeLoadedAfterRemoteOnlyBookWithoutRestart() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "cover-download-" + UUID.randomUUID()).apply { mkdirs() }
+        try {
+            val original = File(root, "book.pdf")
+            val document = android.graphics.pdf.PdfDocument()
+            try {
+                val page = document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(200, 300, 1).create())
+                page.canvas.drawColor(android.graphics.Color.BLUE)
+                document.finishPage(page)
+                original.outputStream().use { document.writeTo(it) }
+            } finally { document.close() }
+            val hash = SharedDocumentStore.hash(original.readBytes())
+            val remote = BookEntity("cover", "Libro", null, BookFormat.PDF, original.name, "",
+                hash, original.length(), 1L)
+            val loader = com.javierrb35.bibliotecaia.ui.BookCoverLoader
+            assertNull(loader.load(context, remote))
+            assertNotNull(loader.load(context, remote.copy(localPath = original.absolutePath)))
+            // Clear RAM and remove the original: a persisted derived cache remains usable.
+            loader.clearMemoryCache()
+            assertTrue(original.delete())
+            assertNotNull(loader.load(context, remote))
+            File(context.cacheDir, "book-covers-v1/$hash.jpg").delete()
+            loader.clearMemoryCache()
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun namedOriginalsKeepReadableNamesAndReuseByHashWithoutOverwriting() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "named-originals-" + UUID.randomUUID()).apply { mkdirs() }
@@ -96,6 +144,45 @@ class SharedLibraryJourneyTest {
             assertTrue(cloud.listFiles()!!.none { it.isFile })
             assertEquals("AAAA", first.readText())
             assertEquals("BBBB", second.readText())
+        } finally { a.close(); b.close(); root.deleteRecursively() }
+    }
+
+    @Test fun browseCatalogueDoesNotOpenOriginalStreams() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "fast-catalogue-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val original = File(root, "book.epub").apply { writeText("original bytes") }
+            val hash = SharedDocumentStore.hash(original.readBytes())
+            val book = BookEntity("browse", "Libro", null, BookFormat.EPUB, original.name, original.absolutePath,
+                hash, original.length(), 1L)
+            a.bookDao().insert(book)
+            val base = TestStore(cloud, namedOriginals = true)
+            assertTrue(SharedLibrary.syncStore(base, a, "a".repeat(32), root).errors.isEmpty())
+            var opens = 0
+            val counted = object : SharedStore by base {
+                override fun open(item: SharedDocumentStore.Item): InputStream {
+                    if (item.name.endsWith(".epub")) opens++
+                    return base.open(item)
+                }
+                override fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+                    if (item.name.endsWith(".epub")) opens++
+                    return base.verify(item, hash, size)
+                }
+            }
+            val result = SharedLibrary.readCatalogueStore(counted, b, root)
+            assertTrue(result.errors.isEmpty())
+            assertTrue(hash in result.hashes)
+            assertEquals(0, opens)
+            assertNotNull(b.bookDao().findByHash(hash))
+            assertTrue(hash in SharedLibrary.pullStore(counted, b, root).hashes)
+            assertTrue(opens > 0)
+            // Same-size corruption may remain a browse candidate but must fail verification.
+            File(cloud, original.name).writeBytes(ByteArray(original.length().toInt()) { 7 })
+            assertTrue(hash in SharedLibrary.readCatalogueStore(counted, b, root).hashes)
+            assertFalse(hash in SharedLibrary.pullStore(counted, b, root).hashes)
         } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 

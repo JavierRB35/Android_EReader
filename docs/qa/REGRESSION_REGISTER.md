@@ -25,3 +25,6 @@ El cambio de ubicación conserva los datos locales. Un reinicio completo requier
 
 ## #95 — diagnóstico físico v0.1.181 (26/11)
 Selección de documento Drive lograda; selección/comprobación posterior falla con aviso genérico. No confundir progreso histórico inaccesible con fallo del proveedor. Prueba destino antes de migrar y diagnóstico por etapas; NamedFolderSetupFailureTest y SharedSettingsJourneyDeviceTest.returnedDocumentCannotBeAcceptedAsTree. CI y físico pendientes; no cerrar.
+
+## #126 — carátulas y navegación (26/11)
+No registrar ausencia de portada por original remoto no descargado. Miniaturas JPEG acotadas, verificadas por hash y separadas de originales, caché local persistente y recuperación A/B. Navegar desde índice listado/Room sin leer originales; hash real obligatorio antes de aceptar descargas, publicación, migración y evicción. SharedLibraryJourneyTest: localCoverCanBeLoadedAfterRemoteOnlyBookWithoutRestart, sharedThumbnailIsReusableWithoutOpeningOriginalAndRejectsCorruption, browseCatalogueDoesNotOpenOriginalStreams. CI y mediciones físicas pendientes. MOBI sin extractor; generación progresiva de carátulas históricas.

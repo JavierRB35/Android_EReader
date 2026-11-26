@@ -75,6 +75,11 @@ object BookCoverLoader {
         bitmap
     }
 
+    internal fun clearMemoryCache() {
+        cache.evictAll()
+        missingLocal.evictAll()
+    }
+
     internal fun extract(format: BookFormat, file: File): Bitmap? {
         if (!file.isFile) return null
         return when (format) {
