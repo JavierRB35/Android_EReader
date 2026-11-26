@@ -1,5 +1,5 @@
 # ADR-009 — Una biblioteca lógica, un estado coordinado y una copia
-Estado: diseño objetivo solicitado por el propietario el 25/11/2026. Primera medida de deduplicación en esta rama; transporte transaccional y migración no aprobados/implementados. ADR-008 sigue vinculante para cuentas/OAuth/SAF.
+**Estado: histórico, sustituido definitivamente el 26/11/2026.** No implementar el coordinador, los nombres por hash, OAuth propio ni la copia obligatoria descritos a continuación. Prevalecen #103, la decisión posterior del propietario y el contrato SAF vigente. Se conserva este ADR exclusivamente como historial de decisiones y del límite de atomicidad de SAF.
 
 ## Objetivo
 - Una identidad de biblioteca, no una biblioteca por dispositivo. Originales inmutables direccionados por SHA-256; mismo contenido = mismo original, no mismo título. El dispositivo conserva únicamente caché de libros descargados, datos locales para lectura offline y cola duradera de operaciones.
