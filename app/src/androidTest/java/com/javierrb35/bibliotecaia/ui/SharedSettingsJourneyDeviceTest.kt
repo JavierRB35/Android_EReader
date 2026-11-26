@@ -92,6 +92,34 @@ class SharedSettingsJourneyDeviceTest {
         }
     }
 
+    @Test fun returnedDocumentCannotBeAcceptedAsTree() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? =
+                if (intent.action == Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    Instrumentation.ActivityResult(Activity.RESULT_OK,
+                        Intent().setData(Uri.parse("content://synthetic.provider/document/not-a-tree")))
+                else null
+        }
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            onView(withText("No se ha comprobado el acceso a la carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
     @Test fun sharedFolderCheckOpensTreeWithoutChangingExistingConnection() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val app = instrumentation.targetContext

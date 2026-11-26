@@ -13,6 +13,7 @@ import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.BackupRoutine
 import com.javierrb35.bibliotecaia.backup.CentralCatalogue
 import com.javierrb35.bibliotecaia.data.AppDatabase
+import com.javierrb35.bibliotecaia.sync.NamedFolderSetupFailure
 import com.javierrb35.bibliotecaia.sync.ReadingPositionSafSync
 import com.javierrb35.bibliotecaia.sync.SharedLibrary
 import com.javierrb35.bibliotecaia.sync.StorageGrants
@@ -335,10 +336,27 @@ internal class StorageSetupWizard(
                 busy = false
                 prompt?.dismiss()
                 changed()
-                showIssue(currentIssue(currentPhase), e.message.orEmpty())
+                if (unified) showUnifiedFailure(e)
+                else showIssue(currentIssue(currentPhase), e.message.orEmpty())
             }
         }
     }
+
+    private fun showUnifiedFailure(error: Exception) {
+        val diagnosed = error as? NamedFolderSetupFailure
+        val access = diagnosed?.stage == NamedFolderSetupFailure.Stage.FOLDER_ACCESS ||
+            (diagnosed == null && currentPhase == StorageSetupOutcome.Issue.LIBRARY_ACCESS)
+        val message = diagnosed?.userMessage() ?: (
+            (if (access) "No se han podido conservar los permisos de la carpeta."
+            else "No se ha completado la comprobación de la biblioteca.") +
+                "\n\nDetalle: " + (error.message?.take(600)?.takeIf { it.isNotBlank() }
+                    ?: error.javaClass.simpleName))
+        show(if (access) "No se ha comprobado el acceso a la carpeta" else "No se ha completado la biblioteca",
+            message + "\n\nNo borres los libros ni la ubicación anterior.",
+            "Reintentar" to { retryCheck() },
+            "Cambiar ubicación" to { showLocationChoice() })
+    }
+
     private fun advance() {
         if (unified) {
             val selected = folder

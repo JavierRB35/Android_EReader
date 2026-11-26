@@ -279,6 +279,12 @@ object SharedLibrary {
      */
     suspend fun connectNamedFolder(context: Context, db: AppDatabase, tree: Uri): Result =
         withContext(Dispatchers.IO) {
+            var stage = NamedFolderSetupFailure.Stage.FOLDER_ACCESS
+            try {
+            // Verify the selected destination independently of the previous
+            // connection. A stale legacy URI must not masquerade as a Drive error.
+            folderStore(context, tree, named = true).use { it.probe() }
+            stage = NamedFolderSetupFailure.Stage.LEGACY_PROGRESS
             // Preserve any newer positions from the previous standalone JSON channel.
             if (!namedFolderMode(context) && ReadingPositionSafSync.hasOwn(context)) {
                 require(ReadingPositionSafSync.refresh(context, db)) {
@@ -289,7 +295,7 @@ object SharedLibrary {
                 val previous = currentConnection(context)
                 val owner = ReadingPositionSafSync.deviceId(context)
                 val result = folderStore(context, tree, named = true).use { target ->
-                    target.probe()
+                    stage = NamedFolderSetupFailure.Stage.TARGET_CATALOGUE
                     val existing = inventory(target)
                     require(existing.errors.isEmpty()) { existing.errors.joinToString(" · ") }
                     require(target.list().none { objectName.matches(it.name) }) {
@@ -298,6 +304,7 @@ object SharedLibrary {
                     // Pull old metadata before staging missing originals. Never delete
                     // either source files or local copies. A failed migration can retry.
                     if (previous != null && previous.uri != tree) {
+                        stage = NamedFolderSetupFailure.Stage.LEGACY_LIBRARY
                         store(context).use { source ->
                             val restored = pullStore(source, db, context.filesDir)
                             require(restored.errors.isEmpty()) { restored.errors.joinToString(" · ") }
@@ -314,9 +321,11 @@ object SharedLibrary {
                             }
                         }
                     }
+                    stage = NamedFolderSetupFailure.Stage.SYNC
                     val moved = syncStore(target, db, owner, context.filesDir)
                     require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
                     // Verify all originals, not just receipt names or byte counts.
+                    stage = NamedFolderSetupFailure.Stage.VERIFY
                     val published = inventory(target)
                     require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
                     require(db.backupDao().booksAll().all { book ->
@@ -327,12 +336,15 @@ object SharedLibrary {
                                 target.verify(item, book.contentHash, book.sizeBytes)
                         }
                     }) { "No se han verificado todos los originales; se conserva la conexión anterior." }
+                    stage = NamedFolderSetupFailure.Stage.SAVE
                     activate(context, SavedConnection(tree, false, emptySet(), named = true))
                     publishStatus(context, moved.hashes, moved.errors)
                     moved
                 }
                 Result(result.hashes.size, result.errors)
             }.also { schedule(context) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { throw NamedFolderSetupFailure(stage, e) }
         }
 
     private fun readBounded(store: SharedStore, item: SharedDocumentStore.Item): ByteArray =

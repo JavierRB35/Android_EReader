@@ -8,6 +8,11 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — Diagnóstico de carpeta tras prueba física v0.1.181 (26/11/2026)
+
+- #124 integrada f5bd06c y publicada v0.1.181; propietario consigue elegir un archivo Drive pero falla al pasar a carpeta. No se ha confirmado permiso de árbol. Causa de opacidad: showIssue oculta detalles y connectNamedFolder comprueba avance legado antes de destino.
+- Rama fix/drive-setup-stage-errors-20261126: primero probe de carpeta; diagnóstico por etapa con detalle visible; mantener recuperación anterior obligatoria, no borrar ni reactivar ZIP/OAuth. Pruebas JVM e instrumentada añadidas; CI pendiente. Siguiente: gates exactos, fusionar y publicar; probar acceso A/B y registrar error concreto si persiste.
+
 ## P0 — Regresión de acceso a Drive (26/11/2026)
 
 - Base main ac0e9418, release v0.1.179 con importación sin backup obligatorio. Auditoría #95/#103: #96 (9019da52, v0.1.127) recuperó acceso a un documento ZIP; 8e5993e (#119, presente en v0.1.175) eliminó intencionalmente esa ruta y sus pruebas al pasar a árbol único. No hay evidencia de permiso de carpeta Drive real en ese historial.
