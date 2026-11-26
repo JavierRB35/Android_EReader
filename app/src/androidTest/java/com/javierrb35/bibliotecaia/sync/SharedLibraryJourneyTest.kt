@@ -97,6 +97,52 @@ class SharedLibraryJourneyTest {
         } finally { db.close(); root.deleteRecursively() }
     }
 
+    @Test fun restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "restore-drive-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val stage = File(root, "stage").apply { mkdirs() }
+        val files = File(root, "private").apply { mkdirs() }
+        val store = TestStore(folder, namedOriginals = true)
+        val source = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val originals = (1..15).map { n ->
+            val file = File(root, "restore-$n.epub").apply { writeText("Original $n") }
+            BookEntity(UUID.randomUUID().toString(), "Libro $n", null, BookFormat.EPUB,
+                file.name, file.absolutePath, SharedDocumentStore.hash(file.readBytes()), file.length(), n.toLong())
+        }
+        try {
+            originals.forEach { source.bookDao().insert(it) }
+            val first = originals.first()
+            source.readingDao().savePosition(ReadingPositionEntity(first.id, "chapter:2", .2f, 10L))
+            val json = com.javierrb35.bibliotecaia.backup.BackupManager(source, "test").exportJson()
+            val zip = java.io.ByteArrayOutputStream()
+            com.javierrb35.bibliotecaia.backup.CompleteBackupArchive.write(zip, json, originals)
+            val content = com.javierrb35.bibliotecaia.backup.CompleteBackupArchive.read(zip.toByteArray().inputStream(), stage)
+            val local = File(files, "books/${first.id}/${first.fileName}").apply {
+                parentFile!!.mkdirs()
+                writeBytes(File(first.localPath).readBytes())
+            }
+            a.bookDao().insert(first.copy(localPath = local.absolutePath))
+            val result = SharedLibrary.migrateZipStore(store, a, "a".repeat(32), content, files)
+            assertTrue(result.errors.toString(), result.errors.isEmpty())
+            assertEquals(15, result.hashes.size)
+            assertEquals(15, a.bookDao().count())
+            assertEquals(1, a.backupDao().booksAll().count { it.localPath.isNotBlank() })
+            assertEquals(local.absolutePath, a.bookDao().findById(first.id)?.localPath)
+            assertTrue(local.isFile)
+            assertEquals(15, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+            val retry = SharedLibrary.migrateZipStore(store, a, "a".repeat(32), content, files)
+            assertEquals(result.hashes, retry.hashes)
+            assertEquals(15, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+            val remote = SharedLibrary.readCatalogueStore(store, b)
+            assertEquals(result.hashes, remote.hashes)
+            assertTrue(b.backupDao().booksAll().all { it.localPath.isBlank() })
+            assertEquals("chapter:2", b.readingDao().position(first.id)?.locator)
+        } finally { source.close(); a.close(); b.close(); root.deleteRecursively() }
+    }
+
     @Test fun sharedThumbnailIsReusableWithoutOpeningOriginalAndRejectsCorruption() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "cover-share-" + UUID.randomUUID()).apply { mkdirs() }

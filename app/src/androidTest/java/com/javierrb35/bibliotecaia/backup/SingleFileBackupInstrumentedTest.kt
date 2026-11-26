@@ -18,6 +18,54 @@ import java.util.UUID
 /** Proves that each new export replaces ONE existing content URI, not another ZIP. */
 @RunWith(AndroidJUnit4::class)
 class SingleFileBackupInstrumentedTest {
+    @Test fun calibreLegacyZipWithVerifiedOriginalIsRestoredWithoutDuplicates() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val id = UUID.randomUUID().toString()
+        val tag = UUID.randomUUID().toString()
+        val dir = File(context.cacheDir, "backup-test/calibre-" + id).apply { mkdirs() }
+        val zip = File(dir, "Migracion-001.zip")
+        val bytes = "%PDF-1.4 synthetic calibre original".toByteArray()
+        val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        // The Windows migrator emits BackupCodec v2 metadata first, then
+        // books/<uuid>.bin, without a named-books-v1 layout flag.
+        val json = """{
+            "manifest":{"app":"biblioteca-ia","formatVersion":2,"appVersion":"CalibreMigrator-1",
+            "exportedAt":100,"counts":{"books":1,"annotations":0,"versions":0,"positions":0,"synopses":0}},
+            "books":[{"id":"$id","title":"Libro Calibre","authors":"Autor",
+            "format":"PDF","file_name":"Libro.pdf","content_hash":"$hash","size_bytes":${bytes.size},
+            "added_at":100,"last_opened_at":null,"reading_status":"PENDING","favorite":false,"progress":0.0}],
+            "categories":[],"tags":[{"id":"$tag","name":"Historia"}],"collections":[],
+            "bookCategories":[],"bookTags":[{"first":"$id","second":"$tag"}],"collectionBooks":[],
+            "annotations":[],"annotationVersions":[],"readingPositions":[],"bookSynopses":[],"deletedBooks":[]
+        }""".trimIndent()
+        try {
+            java.util.zip.ZipOutputStream(zip.outputStream()).use { out ->
+                out.putNextEntry(java.util.zip.ZipEntry("biblioteca.json"))
+                out.write(json.toByteArray(Charsets.UTF_8))
+                out.closeEntry()
+                out.putNextEntry(java.util.zip.ZipEntry("books/$id.bin"))
+                out.write(bytes)
+                out.closeEntry()
+            }
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".testbackup", zip)
+            val manager = CompleteBackupManager(context, db, "test")
+            assertEquals(1, manager.restoreFrom(uri).originals)
+            val restored = requireNotNull(db.bookDao().findByHash(hash))
+            assertEquals("Libro Calibre", restored.title)
+            assertEquals("Autor", restored.authors)
+            assertArrayEquals(bytes, File(restored.localPath).readBytes())
+            manager.restoreFrom(uri)
+            assertEquals(1, db.backupDao().booksAll().size)
+            assertTrue(zip.isFile)
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+            File(context.filesDir, "books/$id").deleteRecursively()
+        }
+    }
+
     @Test fun reuseSameDocumentAndPreservePreviousIfPreparingBackupFails() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()

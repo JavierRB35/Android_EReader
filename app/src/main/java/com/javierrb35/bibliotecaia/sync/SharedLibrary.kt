@@ -640,35 +640,77 @@ object SharedLibrary {
             val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
             return StoreResult(available.intersect(activeHashes), errors)
     }
-    suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri): Result = withContext(Dispatchers.IO) {
+    suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri,
+                           onProgress: (String) -> Unit = {}): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
+            require(namedFolderMode(context) && hasAccess(context)) {
+                "Conecta primero la carpeta compartida de la biblioteca."
+            }
             store(context).use { store ->
-            val inv = inventory(store)
-            val stage = File(context.cacheDir, "shared-migrate-" + UUID.randomUUID())
-            check(stage.mkdirs())
-            try {
-                val content = context.contentResolver.openInputStream(zip)?.use {
-                    CompleteBackupArchive.read(it, stage)
-                } ?: throw IOException("No se puede leer el ZIP.")
-                val snapshot = BackupCodec.fromJson(content.json)
-                val known = inv.receipts.toMutableMap()
-                val available = inv.availableHashes().toMutableSet()
-                for (book in snapshot.books) {
-                    if (book.contentHash !in available && book.contentHash !in content.missingHashes) {
-                        val file = content.staged.getValue(CompleteBackupArchive.entryName(book.id))
-                        known[book.contentHash] = known[book.contentHash].orEmpty() + upload(store, book, file)
-                        available.add(book.contentHash)
-                    }
-                }
-                BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir).restoreJson(content.json, synchronize = true)
-                publish(ReadingPositionSafSync.deviceId(context), store, db, known.values.flatten())
-                store.commit()
-                val active = available.intersect(db.backupDao().booksAll().map { it.contentHash }.toSet())
-                publishStatus(context, active, inv.errors)
-                Result(active.size, inv.errors)
-            } finally { stage.deleteRecursively() }
+                val stage = File(context.cacheDir, "shared-migrate-" + UUID.randomUUID())
+                check(stage.mkdirs())
+                try {
+                    onProgress("Comprobando la copia ZIP y sus originales…")
+                    val content = context.contentResolver.openInputStream(zip)?.use {
+                        CompleteBackupArchive.read(it, stage)
+                    } ?: throw IOException("No se puede leer el ZIP.")
+                    val result = migrateZipStore(store, db, ReadingPositionSafSync.deviceId(context),
+                        content, context.filesDir, onProgress)
+                    publishStatus(context, result.hashes, result.errors)
+                    Result(result.hashes.size, result.errors)
+                } finally { stage.deleteRecursively() }
             }
         }
+    }
+
+    /** Publish verified originals to the shared folder; never install ZIP
+     * originals into filesDir/books. Preserve previously downloaded paths. */
+    internal suspend fun migrateZipStore(store: SharedStore, db: AppDatabase, owner: String,
+                                        content: CompleteBackupArchive.Contents, filesDir: File? = null,
+                                        onProgress: (String) -> Unit = {}): StoreResult {
+        require(store.namedOriginals) { "La restauración necesita una carpeta compartida." }
+        val inv = inventory(store)
+        require(inv.errors.isEmpty()) { inv.errors.joinToString(" · ") }
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
+        onProgress("Integrando el catálogo compartido…")
+        for (json in inv.states) manager.restoreJson(json, synchronize = true)
+        val snapshot = BackupCodec.fromJson(content.json)
+        val known = inv.receipts.toMutableMap()
+        val available = inv.availableHashes().toMutableSet()
+        val errors = mutableListOf<String>()
+        val candidates = inv.items.values.flatten()
+        for ((index, book) in snapshot.books.withIndex()) {
+            if (book.contentHash !in available) {
+                val existing = SharedNamedOriginals.find(store, book, candidates)
+                val receipt = when {
+                    existing != null -> Receipt(book.contentHash, existing.name, book.sizeBytes)
+                    book.contentHash !in content.missingHashes -> {
+                        val file = content.staged.getValue(CompleteBackupArchive.entryName(book.id))
+                        upload(store, book, file)
+                    }
+                    else -> null
+                }
+                if (receipt == null) errors.add(book.title.take(80) + ": original no incluido en la copia ni verificado en Drive.")
+                else {
+                    known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
+                    available.add(book.contentHash)
+                }
+            }
+            onProgress("Originales de la copia procesados: ${index + 1}/${snapshot.books.size}")
+        }
+        // No availableOriginals paths: all ZIP originals remain in Drive.
+        manager.restoreJson(content.json, synchronize = true)
+        onProgress("Publicando y verificando el catálogo compartido…")
+        publish(owner, store, db, known.values.flatten())
+        store.commit()
+        val published = inventory(store)
+        require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
+        val active = db.backupDao().booksAll().map { it.contentHash }.toSet()
+        val confirmed = available.intersect(active)
+        require(published.listedHashes().containsAll(confirmed)) {
+            "El catálogo o los originales aún no aparecen en la carpeta. Conserva el ZIP y reintenta."
+        }
+        return StoreResult(confirmed, errors)
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {

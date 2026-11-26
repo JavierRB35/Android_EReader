@@ -42,3 +42,7 @@ B12 descarga, B13 guardado, B14 retirada, B16 cancelación/fallos parciales: Lib
 
 ## #103 — rendimiento de preparación de biblioteca grande (26/11/2026)
 Reutilización de listado para candidatos existentes; enumeración raíz única por listado; verificación final independiente de SHA-256 una vez por original confirmado (sin duplicar resolve); progreso real de originales procesados/confirmados, publicación y auditoría. Prueba SharedLibraryJourneyTest.largeNamedCatalogueReusesInventoryAndAuditsEachOriginalOnce: 40 originales, máximo cuatro listados, 40 lecturas por fase, progreso y rechazo de corrupción de igual tamaño. No sustituir SHA-256 por nombre/tamaño; mantener verificación de creación y no activar conexión tras fallo. Gates y medición física de 540 archivos pendientes.
+
+
+## #137 — restauración masiva en biblioteca Drive
+Ajustes Recuperar una copia exige carpeta compartida; mismo flujo que Calibre, sin materializar originales permanentes del ZIP. restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals conserva descarga previa, publica 15 originales, reintenta sin duplicados y restaura posición en B. SettingsBackupJourneyDeviceTest prueba requisito de conexión. Mantener recuperación de ZIP histórico y staging temporal. CI y físico pendientes.

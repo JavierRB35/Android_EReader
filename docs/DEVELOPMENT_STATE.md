@@ -8,6 +8,10 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — #137 restauración masiva en Drive (26/11/2026)
+- Recuperar una copia y migrar Calibre reutilizan SharedLibrary.migrateZip; exigir conexión compartida, publicar originales y catálogo, preservar descargas previas, sin restaurar paths locales del ZIP. Staging temporal privado eliminado, ZIP fuente intacto. Integrar estados de pares antes de publicar y mostrar progreso/avisos.
+- Prueba permanente restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals y acceso desde Ajustes; 15 originales, reintento idempotente, posición en segundo Room, descarga previa conservada. CI y físico pendientes. No borrar datos del propietario: catálogo de 542 recibos, listado visible de 540.
+
 ## P0 — #103 preparación lenta de biblioteca (26/11/2026)
 - Reporte físico: 540 originales visibles en Drive, sin nueva instantánea de catálogo tras finalizar subida. Causa concreta en código: listados repetidos y doble lectura SHA-256 por original en auditoría final; no hay telemetría del proceso físico en curso.
 - Reutilizar listado del inventario para originales ya existentes, conservar consulta fresca antes de creación y comprobación de identidad/bytes, auditar catálogo recién publicado con una lectura completa por original y mostrar fases/contadores reales. Sin cambios de protocolo, permisos, datos reales ni publicación parcial por lotes; los originales quedan intactos.
