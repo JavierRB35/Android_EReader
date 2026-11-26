@@ -119,4 +119,15 @@ class FormatDetectionTest {
         assertTrue(TitleSanitizer.fromFileName("  a b.epub").isNotEmpty())
         assertFalse(TitleSanitizer.fromFileName("libro.epub").endsWith(".epub"))
     }
+    @org.junit.Test fun pdfIsRejectedForImportEvenWhenRenamedEpub() {
+        val detected = BookFormatDetector.detectFull { "%PDF-1.7".byteInputStream() }
+        var rejected = false
+        try { BookFormatDetector.importFormat(detected, "renamed.epub") }
+        catch (_: com.javierrb35.bibliotecaia.importer.ImportError.UnsupportedPdf) { rejected = true }
+        org.junit.Assert.assertTrue(rejected)
+        org.junit.Assert.assertEquals(com.javierrb35.bibliotecaia.data.BookFormat.EPUB,
+            BookFormatDetector.importFormat(DetectedFormat.EPUB, "a.epub"))
+        org.junit.Assert.assertEquals(com.javierrb35.bibliotecaia.data.BookFormat.MOBI,
+            BookFormatDetector.importFormat(DetectedFormat.MOBI, "b.mobi"))
+    }
 }

@@ -154,7 +154,9 @@ class BookDetailActivity : AppCompatActivity() {
         val existing = savedSynopsis?.takeIf {
             it.bookId == current.id && it.text.isNotBlank()
         }
-        if (existing == null) {
+        if (existing == null && current.format.name == "PDF") {
+            editSynopsis()
+        } else if (existing == null) {
             // The CTA requests an AI-generated synopsis automatically; manual editing
             // remains available in the saved-synopsis modal.
             com.javierrb35.bibliotecaia.ai.AiChatActivity.startSynopsis(this, current.id)
@@ -474,7 +476,7 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.txtDetailTitle).text = b.title
         findViewById<TextView>(R.id.txtDetailAuthors).text =
             b.authors ?: getString(R.string.detail_no_authors)
-        findViewById<TextView>(R.id.txtDetailFormat).text = b.format.name
+        findViewById<TextView>(R.id.txtDetailFormat).text = if (b.format.name == "PDF") "PDF · histórico, sin lector" else b.format.name
 
         val size = Formatter.formatShortFileSize(this, b.sizeBytes)
         findViewById<TextView>(R.id.txtDetailSize).apply {
@@ -504,12 +506,13 @@ class BookDetailActivity : AppCompatActivity() {
             else text
         }
         findViewById<View>(R.id.btnDownloadCentral).visibility =
-            if (!fileAvailable && (inCentral || centralUnknown)) View.VISIBLE else View.GONE
+            if (b.format.name != "PDF" && !fileAvailable && (inCentral || centralUnknown)) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnLink).visibility =
-            if (!fileAvailable && !inCentral) View.VISIBLE else View.GONE
+            if (b.format.name != "PDF" && !fileAvailable && !inCentral) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnRemoveLocalCopy).visibility =
             if (fileAvailable) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.btnReadBook).isEnabled = fileAvailable
+        findViewById<View>(R.id.btnReadBook).isEnabled = fileAvailable && b.format.name != "PDF"
+        findViewById<View>(R.id.btnAi).isEnabled = b.format.name != "PDF"
         findViewById<TextView>(R.id.btnFavorite).apply {
             setText(if (b.favorite) R.string.detail_favorite_selected else R.string.detail_favorite_short)
             contentDescription = getString(if (b.favorite) R.string.btn_unfavorite else R.string.btn_favorite)

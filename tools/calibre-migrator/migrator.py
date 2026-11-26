@@ -12,7 +12,7 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
-FORMATS = ("epub", "mobi", "pdf")
+FORMATS = ("epub", "mobi")
 MAX_BOOK = 512 * 1024**2
 MAX_JSON = 16 * 1024**2
 MAX_BATCH = 1024**3  # comfortably below Android's 4 GiB limit
@@ -103,6 +103,9 @@ def scan(root):
         for directory, dirs, names in os.walk(root, followlinks=False):
             dirs[:] = sorted(d for d in dirs if not (Path(directory) / d).is_symlink())
             folder = Path(directory)
+            for name in names:
+                if Path(name).suffix.lower() == ".pdf":
+                    warnings.append((str(folder / name), "Formato no compatible: PDF"))
             files = tuple(sorted((folder / n for n in names
                            if Path(n).suffix.lower().lstrip(".") in FORMATS), key=str))
             if not files and "metadata.opf" not in names:
@@ -136,8 +139,8 @@ def identify(path, cancelled=lambda: False):
         header = f.read(128)
         f.seek(0)
         ext = path.suffix.lower()
-        if ext == ".pdf" and b"%PDF-" not in header[:1024]:
-            raise ValueError("Cabecera PDF no válida")
+        if ext.lstrip(".") not in FORMATS:
+            raise ValueError("Formato no compatible: " + ext)
         if ext == ".mobi" and header[60:68] != b"BOOKMOBI":
             raise ValueError("Cabecera MOBI no válida")
         if ext == ".epub":

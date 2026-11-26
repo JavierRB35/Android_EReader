@@ -32,7 +32,7 @@ internal object SharedNamedOriginals {
      */
     fun find(store: SharedStore, book: BookEntity): SharedDocumentStore.Item? = find(store, book, store.list())
 
-    private fun find(store: SharedStore, book: BookEntity, listing: List<SharedDocumentStore.Item>): SharedDocumentStore.Item? {
+    internal fun find(store: SharedStore, book: BookEntity, listing: List<SharedDocumentStore.Item>): SharedDocumentStore.Item? {
         val files = listing.filter {
             validName(it.name) && extension(it.name) == book.format.name.lowercase(Locale.ROOT) &&
                 (it.size == -1L || it.size == book.sizeBytes)

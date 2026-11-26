@@ -88,12 +88,7 @@ class BookImporter(
         try {
             // 1. Formato por contenido (§8.6.1)
             val detected = BookFormatDetector.detectFull { FileInputStream(tmp) }
-            val format = when (detected) {
-                DetectedFormat.EPUB -> BookFormat.EPUB
-                DetectedFormat.PDF -> BookFormat.PDF
-                DetectedFormat.MOBI -> BookFormat.MOBI
-                DetectedFormat.UNKNOWN -> throw ImportError.UnknownFormat(fileName)
-            }
+            val format = BookFormatDetector.importFormat(detected, fileName)
 
             // 2. Duplicados por hash (§8.6.4)
             bookDao.findByHash(copy.hash)?.let { existing ->

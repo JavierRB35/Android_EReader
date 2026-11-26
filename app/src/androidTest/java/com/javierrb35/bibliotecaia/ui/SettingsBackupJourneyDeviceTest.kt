@@ -23,7 +23,9 @@ class SettingsBackupJourneyDeviceTest {
         val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Recuperar una copia")).perform(scrollTo(), click())
+            onView(withText("Conecta primero la biblioteca")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText(android.R.string.cancel)).inRoot(isDialog()).perform(click())
             onView(withText("Importar biblioteca de Calibre")).perform(scrollTo(), click())
             onView(withText("Conecta primero la biblioteca")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText(android.R.string.cancel)).inRoot(isDialog()).perform(click())

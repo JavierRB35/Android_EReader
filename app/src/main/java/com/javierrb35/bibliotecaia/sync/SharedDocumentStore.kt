@@ -72,8 +72,7 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri,
             }
         } ?: throw IOException("El proveedor no permite listar esta carpeta.")
     }
-    private fun technicalFolder(create: Boolean): Uri? {
-        val before = childrenOf(root)
+    private fun technicalFolder(create: Boolean, before: List<Item> = childrenOf(root)): Uri? {
         val candidates = before.filter { it.name.equals(technicalName, ignoreCase = true) }
         require(candidates.size <= 1 && candidates.all { it.directory && it.name == technicalName }) {
             "La carpeta técnica es ambigua; no se modificará."
@@ -91,10 +90,11 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri,
         return created
     }
     override fun list(): List<Item> {
-        val files = childrenOf(root).filterNot { it.directory }
+        val rootItems = childrenOf(root)
+        val files = rootItems.filterNot { it.directory }
         // Preserve the legacy catalogue at root; never move or delete it.
         // New metadata is isolated; unrelated nested files are not scanned.
-        val metadata = if (namedOriginals) technicalFolder(false)?.let { folder ->
+        val metadata = if (namedOriginals) technicalFolder(false, rootItems)?.let { folder ->
             childrenOf(folder).filter { !it.directory &&
                 ((it.name.startsWith("bia-state-") && it.name.endsWith(".json")) || SharedCoverArt.isName(it.name)) }
         }.orEmpty() else emptyList()

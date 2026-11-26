@@ -1,4 +1,4 @@
-name: Android emulator OCR and reader verification
+name: Android emulator EPUB MOBI and functional regression verification
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   emulator:
-    name: PDF OCR, annotation and reader instrumented tests (API 34)
+    name: EPUB MOBI and remaining functional regressions (API 34)
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:

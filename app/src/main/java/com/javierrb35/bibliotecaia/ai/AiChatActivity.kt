@@ -93,6 +93,11 @@ class AiChatActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val book = db.bookDao().findById(bookId) ?: run { finish(); return@launch }
+            if (book.format.name == "PDF") {
+                android.widget.Toast.makeText(this@AiChatActivity, "PDF histórico: no compatible con el lector ni con la IA.", android.widget.Toast.LENGTH_LONG).show()
+                finish()
+                return@launch
+            }
             bookTitle = book.title
             bookAuthors = book.authors
             progress = book.progress
@@ -116,7 +121,6 @@ class AiChatActivity : AppCompatActivity() {
                 chapters = withContext(Dispatchers.IO) {
                     BookTextSource.chapters(
                         File(book.localPath), book.format.name,
-                        if (book.format.name == "PDF") File(filesDir, "ocr/$bookId") else null,
                     )
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

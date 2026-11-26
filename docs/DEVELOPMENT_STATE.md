@@ -1,12 +1,25 @@
 # DEVELOPMENT_STATE — Estado vivo del desarrollo
 
-> **Mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. La cabecera #103 y AGENTS.md prevalecen. Supabase/gateway y OAuth propio quedan suspendidos, sin borrar servicios ni datos.
+> **Mantenimiento (25/11/2026):** las entradas antiguas son historial, no tareas vigentes. La cabecera #103 y AGENTS.md prevalecen. Supabase/gateway y OAuth propio quedan definitivamente retirados, sin borrar servicios ni datos.
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
 **Última actualización:** 2026-11-25 — protocolo unificado y redirección a biblioteca única simple.
-**Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
+**Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
+
+## #136 — retirada de PDF/OCR (26/11/2026)
+- Retirados lector PDF, servicio, extracción de portada, OCR, ML Kit y tests exclusivos; se mantiene compatibilidad del esquema y recuperación de originales/locators PDF históricos. Importador rechaza PDF por contenido, ficha histórica no abre lector/IA. Conversión de pruebas compartidas a EPUB/MOBI; conserva persistencia y portadas.
+- Gate emulador renombrado y cobertura funcional conservada. Cancelación de run antiguo 45839227254 confirmada. CI y medición de APK pendientes.
+
+## P0 — #137 restauración masiva en Drive (26/11/2026)
+- Recuperar una copia y migrar Calibre reutilizan SharedLibrary.migrateZip; exigir conexión compartida, publicar originales y catálogo, preservar descargas previas, sin restaurar paths locales del ZIP. Staging temporal privado eliminado, ZIP fuente intacto. Integrar estados de pares antes de publicar y mostrar progreso/avisos.
+- Prueba permanente restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals y acceso desde Ajustes; 15 originales, reintento idempotente, posición en segundo Room, descarga previa conservada. CI y físico pendientes. No borrar datos del propietario: catálogo de 542 recibos, listado visible de 540.
+
+## P0 — #103 preparación lenta de biblioteca (26/11/2026)
+- Reporte físico: 540 originales visibles en Drive, sin nueva instantánea de catálogo tras finalizar subida. Causa concreta en código: listados repetidos y doble lectura SHA-256 por original en auditoría final; no hay telemetría del proceso físico en curso.
+- Reutilizar listado del inventario para originales ya existentes, conservar consulta fresca antes de creación y comprobación de identidad/bytes, auditar catálogo recién publicado con una lectura completa por original y mostrar fases/contadores reales. Sin cambios de protocolo, permisos, datos reales ni publicación parcial por lotes; los originales quedan intactos.
+- Prueba instrumental permanente largeNamedCatalogueReusesInventoryAndAuditsEachOriginalOnce: 40 originales existentes, límite de listados, contador de lecturas, avance y corrupción del mismo tamaño. Gates pendientes y medición física A/B con biblioteca grande pendiente.
 
 ## #131 — selección múltiple (26/11/2026)
 - Rama feat/library-multi-select-20261126, base 5dad7975. Incremento independiente de #128/#129: UI, sombreado sin checks, operaciones seguras por lote, selección filtrada y cancelación entre libros. Reutiliza BackupRoutine/SharedLibrary, sin cambios a sincronización. Guardar publica el catálogo normal completo y verifica los hashes seleccionados. 

@@ -1,4 +1,4 @@
-name: Android v0.1 reading journeys - EPUB, PDF and MOBI plus contextual AI
+name: Android v0.1 reading journeys - EPUB and MOBI plus contextual AI
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   reader-journeys:
-    name: Reader UI mark-close-reopen-edit-delete in EPUB, PDF and MOBI (API 34)
+    name: Reader UI mark-close-reopen-edit-delete in EPUB and MOBI (API 34)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -42,7 +42,7 @@ jobs:
           else
             echo "No KVM available; emulator falls back to TCG."
           fi
-      - name: Run EPUB, PDF and MOBI reader journeys on real Android emulator
+      - name: Run EPUB and MOBI reader journeys on real Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ANDROID_I_WANT_MY_TCG: 'yes'
@@ -56,12 +56,12 @@ jobs:
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
-          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.EpubReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.pdf.PdfReadingJourneyDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+          script: sh ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.EpubReadingJourneyDeviceTest --no-daemon --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
       - name: Archive test XML and failure context
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: epub-pdf-mobi-reading-journeys-results
+          name: epub-mobi-reading-journeys-results
           path: |
             app/build/outputs/androidTest-results/connected/
             app/build/reports/androidTests/connected/

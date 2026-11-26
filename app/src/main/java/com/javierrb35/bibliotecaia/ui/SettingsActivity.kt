@@ -152,7 +152,7 @@ class SettingsActivity : AppCompatActivity() {
         else Toast.makeText(this, "Importación cancelada. No se ha añadido ningún libro.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun chooseSharedMigration() {
+    private fun chooseSharedMigration(recovery: Boolean = false) {
         if (sharedBusy || backupBusy) {
             Toast.makeText(this, "Hay otra operación en curso.", Toast.LENGTH_SHORT).show()
             return
@@ -161,14 +161,15 @@ class SettingsActivity : AppCompatActivity() {
             SharedLibrary.writeAccess(applicationContext) != com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) {
             androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("Conecta primero la biblioteca")
-                .setMessage("Configura la carpeta de la biblioteca única con permiso de escritura antes de incorporar los libros de Calibre. Conserva el ZIP.")
+                .setMessage("Configura la carpeta de la biblioteca única con permiso de escritura antes de restaurar o incorporar libros. Conserva el ZIP.")
                 .setPositiveButton("Configurar biblioteca") { _, _ -> setupWizard.start() }
                 .setNegativeButton(android.R.string.cancel, null).show()
             return
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Importar biblioteca de Calibre")
-            .setMessage("Selecciona un ZIP generado por el migrador de Calibre (no el ZIP del programa para Windows). Se incorporará a la biblioteca compartida verificando cada original y evitando duplicados exactos. No se borrará la copia.")
+            .setTitle(if (recovery) "Recuperar una copia en Drive" else "Importar biblioteca de Calibre")
+            .setMessage(if (recovery) "Selecciona la copia ZIP de BibliotecaAI. Los originales se restaurarán en la biblioteca de Drive, sin descargar nuevas copias permanentes al dispositivo. Se conservan las descargas previas."
+                else "Selecciona un ZIP generado por el migrador de Calibre (no el ZIP del programa para Windows). Se incorporará a la biblioteca compartida verificando cada original y evitando duplicados exactos. No se borrará la copia.")
             .setPositiveButton("Seleccionar ZIP") { _, _ ->
                 sharedMigration.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
             }
@@ -192,7 +193,9 @@ class SettingsActivity : AppCompatActivity() {
                     SharedLibrary.writeAccess(applicationContext) == com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) {
                     "La carpeta compartida no está preparada para escritura."
                 }
-                val result = SharedLibrary.migrateZip(applicationContext, db, uri)
+                val result = SharedLibrary.migrateZip(applicationContext, db, uri) { message ->
+                    runOnUiThread { if (!isFinishing && !isDestroyed) progress.setMessage(message) }
+                }
                 progress.dismiss()
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(if (result.errors.isEmpty()) "Importación finalizada" else "Importación con avisos")
@@ -494,10 +497,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private val importBackup = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? -> if (uri != null) confirmRestore(uri) }
-
     private val importLegacyJson = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> if (uri != null) confirmLegacyRestore(uri) }
@@ -533,7 +532,7 @@ class SettingsActivity : AppCompatActivity() {
         // Restoration is not another configuration process.
         action(setupCard, "Recuperar una copia") {
             if (BackupRoutine.status(this).recoveryPending) recoverPreviousBackup()
-            else importBackup.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+            else chooseSharedMigration(recovery = true)
         }
         refreshUnifiedStatus()
         lifecycleScope.launch {
@@ -780,39 +779,6 @@ class SettingsActivity : AppCompatActivity() {
             } finally {
                 backupBusy = false
                 refreshBackupStatus()
-            }
-        }
-    }
-
-    private fun confirmRestore(uri: Uri) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.settings_backup_restore)
-            .setMessage(R.string.backup_restore_confirm)
-            .setPositiveButton(R.string.dialog_ok) { _, _ -> restoreFrom(uri) }
-            .setNegativeButton(R.string.dialog_cancel, null).show()
-    }
-
-    private fun restoreFrom(uri: Uri) {
-        if (backupBusy) return
-        backupBusy = true
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    BackupRoutine.restore(applicationContext, db, BuildConfig.VERSION_NAME, uri)
-                }
-                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
-                    .setTitle(R.string.backup_restore_done_title)
-                    .setMessage(getString(R.string.backup_restore_done_full,
-                        result.originals, result.report.annotationsRestored,
-                        result.report.versionsRestored, result.report.positionsUpdated) +
-                        if (result.missingTitles.isEmpty()) "" else "\n\nOriginales no incluidos en la copia (sus datos se han conservado):\n" +
-                            result.missingTitles.joinToString("\n"))
-                    .setPositiveButton(R.string.dialog_ok, null).show()
-            } catch (e: Exception) {
-                Toast.makeText(this@SettingsActivity, getString(R.string.backup_error,
-                    e.message ?: getString(R.string.backup_error_generic)), Toast.LENGTH_LONG).show()
-            } finally {
-                backupBusy = false
             }
         }
     }

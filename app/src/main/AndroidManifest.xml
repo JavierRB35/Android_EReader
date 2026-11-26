@@ -52,10 +52,7 @@
         <activity android:name=".ai.AiSetupActivity" android:exported="false" />
         <activity android:name=".ai.AiChatActivity" android:exported="false" />
         <activity android:name=".reader.epub.EpubReaderActivity" android:exported="false" />
-        <activity android:name=".reader.pdf.PdfReaderActivity" android:exported="false" />
         <activity android:name=".reader.mobi.MobiReaderActivity" android:exported="false" />
-        <service android:name=".reader.pdf.PdfRenderService" android:process=":pdf_renderer"
-            android:isolatedProcess="true" android:exported="false" />
     </application>
 
 </manifest>
