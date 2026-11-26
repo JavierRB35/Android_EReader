@@ -22,3 +22,6 @@ Registrar PR, SHA exacto, links de Actions, versión publicada y resultado de pr
 ## Pendiente crítico: empezar de cero
 
 El cambio de ubicación conserva los datos locales. Un reinicio completo requiere una operación independiente, confirmada, que detenga trabajos de sincronización y backup, desvincule todos los URI/peers e historial de conexión, vacíe catálogo y datos derivados de libros sin tocar claves IA ni archivos remotos, y cree una nueva identidad/ubicación sin restauración implícita. Debe ser recuperable ante interrupción, con pruebas de dos dispositivos y respaldo previo. No implementar como borrado parcial de preferencias ni como cambio de carpeta; no hay reset destructivo en esta PR.
+
+## #95 — diagnóstico físico v0.1.181 (26/11)
+Selección de documento Drive lograda; selección/comprobación posterior falla con aviso genérico. No confundir progreso histórico inaccesible con fallo del proveedor. Prueba destino antes de migrar y diagnóstico por etapas; NamedFolderSetupFailureTest y SharedSettingsJourneyDeviceTest.returnedDocumentCannotBeAcceptedAsTree. CI y físico pendientes; no cerrar.
