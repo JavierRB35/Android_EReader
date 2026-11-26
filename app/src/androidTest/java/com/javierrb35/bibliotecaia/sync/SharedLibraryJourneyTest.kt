@@ -25,6 +25,12 @@ class SharedLibraryJourneyTest {
             SharedDocumentStore.Item(it.name, Uri.fromFile(it), it.length())
         }
         override fun open(item: SharedDocumentStore.Item): InputStream = File(item.uri.path!!).inputStream()
+        override fun retireManagedState(item: SharedDocumentStore.Item, owner: String): Boolean {
+            val state = SharedStateRetention.parse(item.name) ?: return false
+            val file = File(item.uri.path!!)
+            return namedOriginals && state.owner == owner && file.parentFile == metadata &&
+                file.name == item.name && SharedDocumentStore.hash(file.readBytes()) == state.hash && file.delete()
+        }
         override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): SharedDocumentStore.Item {
             val target = if (namedOriginals && (name.startsWith("bia-state-") || SharedCoverArt.isName(name))) metadata.apply {
                 check(isDirectory || mkdirs())
@@ -215,6 +221,64 @@ class SharedLibraryJourneyTest {
             assertEquals("page:3", a.readingDao().position(book.id)!!.locator)
             assertEquals(1, folder.listFiles()!!.count { it.isFile })
         } finally { a.close(); b.close(); root.deleteRecursively() }
+    }
+
+    @Test fun repeatedReadingStatesAreBoundedAndRecoverAcrossDevices() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "bounded-state-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val recovered = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val file = File(root, "Libro.epub").apply { writeText("original contents") }
+        val hash = SharedDocumentStore.hash(file.readBytes())
+        val book = BookEntity("bounded-a", "Libro", null, BookFormat.EPUB, file.name,
+            file.absolutePath, hash, file.length(), 1L)
+        val ownerA = "a".repeat(32)
+        val ownerB = "b".repeat(32)
+        val store = TestStore(folder, namedOriginals = true)
+        fun states(owner: String) = store.list().filter { SharedStateRetention.parse(it.name)?.owner == owner }
+        try {
+            a.bookDao().insert(book)
+            a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:0", 0f, 100L))
+            assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
+            // Simulate an existing pre-upgrade immutable publication.
+            val old = File(states(ownerA).single().uri.path!!)
+            val nonceStart = old.name.length - 5 - 36
+            val legacy = File(old.parentFile, old.name.replaceRange(nonceStart + 14, nonceStart + 15, "4"))
+            assertTrue(old.renameTo(legacy))
+            assertTrue(SharedLibrary.syncStore(store, b, ownerB).errors.isEmpty())
+            val peer = b.bookDao().findByHash(hash)!!
+            val note = AnnotationEntity("bounded-note", peer.id, "page:0", "quote", "note from B", "NOTE", 0, 1L, 101L)
+            b.readingDao().insertAnnotation(note)
+            assertTrue(SharedLibrary.syncStore(store, b, ownerB).errors.isEmpty())
+            val peerFiles = states(ownerB).map { it.name }.toSet()
+            for (i in 1..12) {
+                a.readingDao().savePosition(ReadingPositionEntity(book.id, "page:$i", i / 20f, 100L + i))
+                assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
+                assertTrue(states(ownerA).size <= SharedStateRetention.KEEP)
+            }
+            assertTrue(legacy.isFile)
+            assertEquals(peerFiles, states(ownerB).map { it.name }.toSet())
+            assertEquals(3, states(ownerA).size)
+            assertEquals("note from B", a.readingDao().annotation(note.id)!!.body)
+            assertTrue(SharedLibrary.syncStore(store, b, ownerB).errors.isEmpty())
+            assertEquals("page:12", b.readingDao().position(peer.id)!!.locator)
+            b.readingDao().savePosition(ReadingPositionEntity(peer.id, "page:2", .1f, 1000L))
+            assertTrue(SharedLibrary.syncStore(store, b, ownerB).errors.isEmpty())
+            assertTrue(SharedLibrary.syncStore(store, a, ownerA).errors.isEmpty())
+            assertEquals("page:2", a.readingDao().position(book.id)!!.locator)
+            val newest = states(ownerA).maxByOrNull { SharedStateRetention.parse(it.name)!!.sequence }!!
+            File(newest.uri.path!!).writeText("interrupted publication")
+            val before = states(ownerA).map { it.name }.toSet()
+            SharedLibrary.pullStore(store, recovered, root)
+            val recoveredBook = requireNotNull(recovered.bookDao().findByHash(hash))
+            assertEquals("page:2", recovered.readingDao().position(recoveredBook.id)!!.locator)
+            assertEquals("note from B", recovered.readingDao().annotation(note.id)!!.body)
+            assertEquals(before, states(ownerA).map { it.name }.toSet())
+            assertTrue(legacy.isFile)
+            assertArrayEquals(file.readBytes(), File(folder, file.name).readBytes())
+        } finally { a.close(); b.close(); recovered.close(); root.deleteRecursively() }
     }
 
     @Test fun interruptedPublicationReusesVerifiedOriginalWithoutTrustingFilename() = runBlocking {

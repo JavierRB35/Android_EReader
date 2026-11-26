@@ -407,7 +407,8 @@ object ReadingPositionSafSync {
     fun requestPublish(context: Context) {
         val app = context.applicationContext
         if (SharedLibrary.namedFolderMode(app)) {
-            SharedLibrary.publishReadingExit(app)
+            // Room already committed the locator. Real reader exits flush.
+            SharedLibrary.schedule(app, delaySeconds = 30L)
             return
         }
         if (own(app) == null) return

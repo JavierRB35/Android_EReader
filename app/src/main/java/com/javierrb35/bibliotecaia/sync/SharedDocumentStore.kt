@@ -11,7 +11,8 @@ import java.security.MessageDigest
 import java.util.UUID
 
 /** No shared mutable file. Each publication has a new name; incomplete files
- * are never advertised by a verified receipt. No remote delete or overwrite. */
+ * are never advertised by a verified receipt. Only superseded managed metadata
+ * may be retired; originals and historic publications are never removed. */
 internal class DocumentTooLargeException : IllegalArgumentException("Documento mayor que el tamaño esperado.")
 
 internal interface SharedStore : java.io.Closeable {
@@ -19,6 +20,7 @@ internal interface SharedStore : java.io.Closeable {
     // Opt-in for the new folder layout; legacy ZIP and existing folders remain readable.
     val namedOriginals: Boolean get() = false
     fun commit() {}
+    fun retireManagedState(item: SharedDocumentStore.Item, owner: String): Boolean = false
     override fun close() {}
     fun list(): List<SharedDocumentStore.Item>
     fun open(item: SharedDocumentStore.Item): InputStream
@@ -124,6 +126,19 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri,
             ?: throw IOException("El documento escrito no aparece todavía en la carpeta.")
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
+    }
+    override fun retireManagedState(item: Item, owner: String): Boolean {
+        require(namedOriginals && !item.directory)
+        val state = requireNotNull(SharedStateRetention.parse(item.name))
+        require(state.owner == owner)
+        val parent = technicalFolder(false) ?: return false
+        // Never retire by display name alone, never touch a root document,
+        // and never act on an ambiguous or changed provider listing.
+        val exact = childrenOf(parent).filter { it.name == item.name }.singleOrNull() ?: return false
+        if (exact.directory || !sameDocument(exact.uri, item.uri)) return false
+        if (exact.size > 16L * 1024 * 1024) return false
+        if (open(exact).use { digest(it, 16L * 1024 * 1024).first } != state.hash) return false
+        return DocumentsContract.deleteDocument(resolver, exact.uri)
     }
     override fun verify(item: Item, hash: String, size: Long): Boolean =
         open(item).use { digest(it, size) } == (hash to size)
