@@ -105,6 +105,10 @@ if __name__=="__main__":
         import io
         import unittest
         import test_migrator
+        window = App()
+        window.withdraw()
+        window.update_idletasks()
+        window.destroy()
         suite = unittest.defaultTestLoader.loadTestsFromModule(test_migrator)
         result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
         sys.exit(0 if result.wasSuccessful() else 1)
