@@ -141,6 +141,48 @@ class SharedLibraryJourneyTest {
         } finally { db.close(); root.deleteRecursively() }
     }
 
+    @Test fun downloadSelectionCopiesBothFormatsOnceAndRetainsSuccessfulBooksOnFailure() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "download-batch-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val local = File(root, "local").apply { mkdirs() }
+        val cache = File(root, "cache").apply { mkdirs() }
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val base = TestStore(cloud, namedOriginals = true)
+        val books = listOf(BookFormat.EPUB, BookFormat.MOBI, BookFormat.EPUB).mapIndexed { i, format ->
+            val file = File(cloud, "book-$i.${format.name.lowercase()}").apply { writeText("Original $i") }
+            BookEntity("book-$i", "Libro $i", "Autor", format, file.name, "",
+                SharedDocumentStore.hash(file.readBytes()), file.length(), i.toLong())
+        }
+        var lists = 0
+        var reads = 0
+        val store = object : SharedStore by base {
+            override fun list(): List<SharedDocumentStore.Item> { lists++; return base.list() }
+            override fun extract(item: SharedDocumentStore.Item, file: File, hash: String, size: Long) {
+                reads++
+                base.extract(item, file, hash, size)
+            }
+        }
+        try {
+            books.forEach { db.bookDao().insert(it) }
+            assertEquals(3, SharedLibrary.syncStore(store, db, "a".repeat(32)).hashes.size)
+            val third = File(cloud, books.last().fileName)
+            third.writeBytes(ByteArray(third.length().toInt()))
+            lists = 0; reads = 0
+            val result = SharedLibrary.downloadBatchStore(store, db, books.map { it.contentHash }, local, cache)
+            assertEquals(2, result.completed)
+            assertEquals(1, result.failures.size)
+            assertEquals(1, lists)
+            assertEquals(3, reads)
+            for (book in books.take(2)) {
+                val downloaded = requireNotNull(db.bookDao().findById(book.id))
+                assertEquals(book.contentHash, SharedDocumentStore.hash(File(downloaded.localPath).readBytes()))
+            }
+            assertTrue(db.bookDao().findById(books.last().id)!!.localPath.isBlank())
+            assertTrue(cache.listFiles()!!.isEmpty())
+        } finally { db.close(); root.deleteRecursively() }
+    }
+
     @Test fun restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "restore-drive-" + UUID.randomUUID()).apply { mkdirs() }

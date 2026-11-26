@@ -468,7 +468,16 @@ class MainActivity : AppCompatActivity() {
                 // only the requested books, and never claim success on a failed sync.
                 var savedHashes: Set<String>? = null
                 var saveError: Exception? = null
-                val result = LibraryBatch.run(books, { cancelBatch }, { done, total ->
+                val result = if (action == LibraryBatchAction.DOWNLOAD && SharedLibrary.configured(app)) {
+                    require(SharedLibrary.uri(app) == destination) { "La biblioteca ha cambiado." }
+                    val downloaded = SharedLibrary.downloadBatch(app, db, books.map { it.contentHash }) { done, total, title ->
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            status.text = if (title.isBlank()) "${action.label}: $done/$total"
+                                else "${action.label}: $done/$total · ${title.take(60)}"
+                        }
+                    }
+                    LibraryBatch.Result(downloaded.completed, downloaded.failures, 0)
+                } else LibraryBatch.run(books, { cancelBatch }, { done, total ->
                     status.text = "${action.label}: $done/$total"
                 }, describe = { it.title }) { book ->
                     require(SharedLibrary.uri(app) == destination &&
@@ -515,6 +524,11 @@ class MainActivity : AppCompatActivity() {
                 if (cancelBatch && action == LibraryBatchAction.DOWNLOAD && !isDestroyed)
                     Toast.makeText(this@MainActivity, "Descarga detenida. Se conservan las copias completadas.", Toast.LENGTH_LONG).show()
                 throw e
+            } catch (e: Exception) {
+                if (!isDestroyed) com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(action.label)
+                    .setMessage(e.message ?: "No se pudo completar la operación. Puedes reintentar.")
+                    .setPositiveButton("Aceptar", null).show()
             } finally {
                 batchRunning = false
                 batchJob = null

@@ -757,32 +757,71 @@ object SharedLibrary {
         }
         throw IOException("No se encuentra un original central íntegro de " + book.title.take(80))
     }
-    suspend fun download(context: Context, db: AppDatabase, hash: String) = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            store(context).use { store ->
-            val inv = inventory(store)
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir)
-            for (json in inv.states) {
-                try { manager.restoreJson(json, synchronize = true) }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Isolate invalid peer metadata. */ }
-            }
-            val book = db.bookDao().findByHash(hash) ?: error("Libro no encontrado.")
-            require(book.format != BookFormat.PDF) { "PDF histórico; no se descarga desde el lector." }
-            if (CentralCatalogue.local(book) &&
-                OriginalLinker(context.filesDir).sha256Hex(File(book.localPath)) == hash) return@withLock
-            val file = File.createTempFile("shared-download-", ".tmp", context.cacheDir)
-            try {
-                runInterruptible { verifiedCopy(store, inv, book, file) }
-                coroutineContext.ensureActive()
-                val linked = OriginalLinker(context.filesDir).link(file, listOf(book))
-                    ?: error("No se puede colocar el original en el dispositivo.")
-                // Local link is a verified, atomic copy; commit only that book.
-                db.bookDao().update(linked)
+    internal data class DownloadResult(val completed: Int, val failures: List<String>)
+
+    suspend fun download(context: Context, db: AppDatabase, hash: String) {
+        val result = downloadBatch(context, db, listOf(hash))
+        require(result.completed == 1) { result.failures.firstOrNull() ?: "No se ha confirmado la descarga." }
+    }
+
+    internal suspend fun downloadBatch(context: Context, db: AppDatabase, hashes: List<String>,
+                                      onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }): DownloadResult =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val result = store(context).use {
+                    downloadBatchStore(it, db, hashes, context.filesDir, context.cacheDir, onProgress)
+                }
                 changes.value += 1
-            } finally { file.delete() }
-            }
+                result
+            }.also { scheduleCovers(context) }
         }
+
+    /** One inventory and merge for the whole selection, one verified read per
+     * missing local original. Never persist an unverified or partial file. */
+    internal suspend fun downloadBatchStore(store: SharedStore, db: AppDatabase, hashes: List<String>,
+                                           filesDir: File, cacheDir: File,
+                                           onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }): DownloadResult {
+        val inv = runInterruptible { inventory(store) }
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
+        for (json in inv.states) {
+            try { manager.restoreJson(json, synchronize = true) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Isolate invalid peer metadata. */ }
+        }
+        var completed = 0
+        val failures = mutableListOf<String>()
+        val unique = hashes.distinct()
+        for ((index, hash) in unique.withIndex()) {
+            coroutineContext.ensureActive()
+            val book = db.bookDao().findByHash(hash)
+            val title = book?.title ?: "Libro no encontrado"
+            onProgress(index, unique.size, title)
+            try {
+                requireNotNull(book) { "Libro no encontrado." }
+                require(book.format != BookFormat.PDF) { "PDF histórico; no se descarga desde el lector." }
+                if (!CentralCatalogue.local(book) ||
+                    OriginalLinker(filesDir).sha256Hex(File(book.localPath)) != hash) {
+                    val file = File.createTempFile("shared-download-", ".tmp", cacheDir)
+                    try {
+                        runInterruptible { verifiedCopy(store, inv, book, file) }
+                        coroutineContext.ensureActive()
+                        // This local copy/Room update is an atomic, verified per-book operation.
+                        // Finish its short commit if cancellation arrives after the remote read.
+                        withContext(kotlinx.coroutines.NonCancellable) {
+                            val current = db.bookDao().findByHash(hash)
+                                ?: error("El libro ya no pertenece a la biblioteca.")
+                            val linked = OriginalLinker(filesDir).link(file, listOf(current))
+                                ?: error("No se puede colocar el original en el dispositivo.")
+                            db.bookDao().update(linked)
+                        }
+                    } finally { file.delete() }
+                }
+                completed++
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { failures.add(title.take(80) + ": " + (e.message ?: "No se pudo descargar.")) }
+            onProgress(index + 1, unique.size, "")
+        }
+        return DownloadResult(completed, failures)
     }
     suspend fun deleteEverywhere(context: Context, db: AppDatabase, id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
