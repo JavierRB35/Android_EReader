@@ -148,8 +148,71 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
     private val sharedMigration = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) sharedAction {
-            com.javierrb35.bibliotecaia.sync.SharedLibrary.migrateZip(applicationContext, db, uri)
+        if (uri != null) importSharedMigration(uri)
+        else Toast.makeText(this, "Importación cancelada. No se ha añadido ningún libro.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun chooseSharedMigration() {
+        if (sharedBusy || backupBusy) {
+            Toast.makeText(this, "Hay otra operación en curso.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!SharedLibrary.namedFolderMode(applicationContext) ||
+            SharedLibrary.writeAccess(applicationContext) != com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Conecta primero la biblioteca")
+                .setMessage("Configura la carpeta de la biblioteca única con permiso de escritura antes de incorporar los libros de Calibre. Conserva el ZIP.")
+                .setPositiveButton("Configurar biblioteca") { _, _ -> setupWizard.start() }
+                .setNegativeButton(android.R.string.cancel, null).show()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Importar biblioteca de Calibre")
+            .setMessage("Selecciona un ZIP generado por el migrador de Calibre (no el ZIP del programa para Windows). Se incorporará a la biblioteca compartida verificando cada original y evitando duplicados exactos. No se borrará la copia.")
+            .setPositiveButton("Seleccionar ZIP") { _, _ ->
+                sharedMigration.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+            }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun importSharedMigration(uri: Uri) {
+        if (sharedBusy || backupBusy) {
+            Toast.makeText(this, "Hay otra operación en curso. Selecciona el ZIP de nuevo al terminar.", Toast.LENGTH_LONG).show()
+            return
+        }
+        sharedBusy = true
+        val progress = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Importando libros a la biblioteca")
+            .setMessage("Verificando el ZIP y los originales, incorporando libros y guardando el catálogo compartido. Mantén abierta la aplicación; los paquetes grandes pueden tardar.")
+            .setCancelable(false).create()
+        progress.show()
+        lifecycleScope.launch {
+            try {
+                check(SharedLibrary.namedFolderMode(applicationContext) &&
+                    SharedLibrary.writeAccess(applicationContext) == com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) {
+                    "La carpeta compartida no está preparada para escritura."
+                }
+                val result = SharedLibrary.migrateZip(applicationContext, db, uri)
+                progress.dismiss()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(if (result.errors.isEmpty()) "Importación finalizada" else "Importación con avisos")
+                    .setMessage("Originales activos verificados en la biblioteca: ${result.verified}. Este total incluye los libros que ya estaban disponibles.\n\nAbre Biblioteca completa para consultar el catálogo." +
+                        if (result.errors.isEmpty()) "" else "\n\nAvisos:\n" + result.errors.joinToString("\n").take(1800))
+                    .setPositiveButton("Entendido", null).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                progress.dismiss()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("No se pudo completar la importación")
+                    .setMessage((e.message ?: "No se pudo leer o incorporar el ZIP.") +
+                        "\n\nConserva el ZIP. Puedes volver a intentarlo sin duplicar originales.")
+                    .setPositiveButton("Entendido", null).show()
+            } finally {
+                progress.dismiss()
+                sharedBusy = false
+                refreshUnifiedStatus()
+            }
         }
     }
     private fun sharedAction(operation: suspend () -> Any) {
@@ -466,6 +529,7 @@ class SettingsActivity : AppCompatActivity() {
                 .setPositiveButton("Seleccionar carpeta") { _, _ -> sharedFolderProbe.launch(null) }
                 .setNegativeButton(android.R.string.cancel, null).show()
         }
+        action(setupCard, "Importar biblioteca de Calibre") { chooseSharedMigration() }
         // Restoration is not another configuration process.
         action(setupCard, "Recuperar una copia") {
             if (BackupRoutine.status(this).recoveryPending) recoverPreviousBackup()
