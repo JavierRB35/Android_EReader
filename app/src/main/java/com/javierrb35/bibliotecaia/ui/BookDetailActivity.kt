@@ -445,12 +445,17 @@ class BookDetailActivity : AppCompatActivity() {
         button.isEnabled = false
         val previous = button.text
         button.text = "Descargando…"
+        var job: kotlinx.coroutines.Job? = null
         val progress = AlertDialog.Builder(this)
             .setTitle("Descargando libro")
             .setMessage("Conectando con la biblioteca y verificando el original…")
+            .setNegativeButton("Cancelar") { _, _ ->
+                button.text = "Cancelando…"
+                job?.cancel()
+            }
             .setCancelable(false).create()
         progress.show()
-        lifecycleScope.launch {
+        job = lifecycleScope.launch {
             try {
                 BackupRoutine.downloadBook(applicationContext, db, BuildConfig.VERSION_NAME, current.contentHash)
                 val downloaded = requireNotNull(db.bookDao().findById(current.id))

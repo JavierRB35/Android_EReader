@@ -53,6 +53,8 @@ class MainActivity : AppCompatActivity() {
     private var selectionBack: androidx.activity.OnBackPressedCallback? = null
     private var batchRunning = false
     private var cancelBatch = false
+    private var batchJob: kotlinx.coroutines.Job? = null
+    private var batchAction: LibraryBatchAction? = null
     private var importing = false
     private var pendingImportCentral = false
     private var pickerOpen = false
@@ -187,6 +189,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnCancelBookBatch).setOnClickListener {
             cancelBatch = true
             findViewById<View>(R.id.btnCancelBookBatch).isEnabled = false
+            if (batchAction == LibraryBatchAction.DOWNLOAD) {
+                findViewById<TextView>(R.id.txtBookBatchProgress).text =
+                    "Cancelando descarga… Puedes seguir navegando."
+                batchJob?.cancel()
+            }
         }
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
@@ -439,6 +446,7 @@ class MainActivity : AppCompatActivity() {
         val destination = SharedLibrary.uri(app)
         val centralUri = BackupRoutine.centralUri(app)
         batchRunning = true
+        batchAction = action
         cancelBatch = false
         selection.clear()
         renderSelection()
@@ -450,9 +458,11 @@ class MainActivity : AppCompatActivity() {
         progress.visibility = View.VISIBLE
         cancel.isEnabled = true
         importButton.isEnabled = false
-        centralButton.isEnabled = false
-        status.text = "${action.label}: 0/${books.size}"
-        lifecycleScope.launch {
+        // Downloads do not modify the central originals or connection. Browsing
+        // the local shelf remains possible even if a provider blocks an I/O call.
+        centralButton.isEnabled = action == LibraryBatchAction.DOWNLOAD
+        status.text = "${action.label}: 0/${books.size} · conectando…"
+        batchJob = lifecycleScope.launch {
             try {
                 // A save publishes the normal shared catalogue just once. Report
                 // only the requested books, and never claim success on a failed sync.
@@ -466,7 +476,13 @@ class MainActivity : AppCompatActivity() {
                     val latest = db.bookDao().findById(book.id)
                     require(latest != null && latest.contentHash == book.contentHash) { "El libro ha cambiado." }
                     when (action) {
-                        LibraryBatchAction.DOWNLOAD -> BackupRoutine.downloadBook(app, db, BuildConfig.VERSION_NAME, book.contentHash)
+                        LibraryBatchAction.DOWNLOAD -> {
+                            status.text = "Descargando: ${book.title.take(80)}"
+                            BackupRoutine.downloadBook(app, db, BuildConfig.VERSION_NAME, book.contentHash)
+                            require(db.bookDao().findById(book.id)?.let(CentralCatalogue::local) == true) {
+                                "No se confirmó la copia local."
+                            }
+                        }
                         LibraryBatchAction.SAVE -> {
                             if (savedHashes == null && saveError == null) {
                                 try {
@@ -495,9 +511,14 @@ class MainActivity : AppCompatActivity() {
                 com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
                     .setTitle(action.label).setMessage(summary)
                     .setPositiveButton("Aceptar", null).show()
-            } catch (e: CancellationException) { throw e }
-            finally {
+            } catch (e: CancellationException) {
+                if (cancelBatch && action == LibraryBatchAction.DOWNLOAD && !isDestroyed)
+                    Toast.makeText(this@MainActivity, "Descarga detenida. Se conservan las copias completadas.", Toast.LENGTH_LONG).show()
+                throw e
+            } finally {
                 batchRunning = false
+                batchJob = null
+                batchAction = null
                 progress.visibility = View.GONE
                 importButton.isEnabled = true
                 centralButton.isEnabled = true

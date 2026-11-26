@@ -1,6 +1,10 @@
 package com.javierrb35.bibliotecaia.ui
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.awaitCancellation
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -17,6 +21,21 @@ class LibrarySelectionTest {
         assertEquals(setOf("b", "c"), selection.ids)
         selection.toggleAll(listOf("c", "b"))
         assertFalse(selection.active)
+    }
+    @Test fun cancellationWhileFirstDownloadWaitsDoesNotStartAnotherBook() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val called = mutableListOf<Int>()
+        val job = launch {
+            LibraryBatch.run(listOf(1, 2), { false }, { _, _ -> }) {
+                called.add(it)
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        entered.await()
+        job.cancelAndJoin()
+        assertTrue(job.isCancelled)
+        assertEquals(listOf(1), called)
     }
     @Test fun batchReportsFailuresAndStopsBetweenBooks() = runBlocking {
         val called = mutableListOf<Int>()

@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.io.IOException
@@ -749,6 +751,7 @@ object SharedLibrary {
                     store.extract(item, target, book.contentHash, book.sizeBytes)
                     return
                 } catch (e: CancellationException) { target.delete(); throw e }
+                catch (e: InterruptedException) { target.delete(); throw e }
                 catch (_: Exception) { target.delete() }
             }
         }
@@ -770,10 +773,13 @@ object SharedLibrary {
                 OriginalLinker(context.filesDir).sha256Hex(File(book.localPath)) == hash) return@withLock
             val file = File.createTempFile("shared-download-", ".tmp", context.cacheDir)
             try {
-                verifiedCopy(store, inv, book, file)
+                runInterruptible { verifiedCopy(store, inv, book, file) }
+                coroutineContext.ensureActive()
                 val linked = OriginalLinker(context.filesDir).link(file, listOf(book))
                     ?: error("No se puede colocar el original en el dispositivo.")
+                // Local link is a verified, atomic copy; commit only that book.
                 db.bookDao().update(linked)
+                changes.value += 1
             } finally { file.delete() }
             }
         }
