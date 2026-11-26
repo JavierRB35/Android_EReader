@@ -37,9 +37,9 @@ def inside(root, path):
     return path
 
 
-def metadata(folder, title, authors):
+def metadata(folder, title, authors, fallback_tags=()):
     opf = folder / "metadata.opf"
-    tags = []
+    tags = list(fallback_tags)
     if opf.is_file():
         if opf.stat().st_size > 2 * 1024**2:
             raise ValueError("metadata.opf demasiado grande")
@@ -54,7 +54,7 @@ def metadata(folder, title, authors):
                 vals.setdefault(name, []).append(e.text.strip())
         title = (vals.get("title") or [title])[0]
         authors = " & ".join(vals.get("creator", [])) or authors
-        tags = list(dict.fromkeys(vals.get("subject", [])))
+        tags = list(dict.fromkeys(vals.get("subject", []) + tags))
     return title, authors, tuple(tags)
 
 
@@ -68,23 +68,31 @@ def scan(root):
         # No writes to Calibre. Read exact paths registered in metadata.db.
         conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)
         try:
+            tables = {r[0] for r in conn.execute("select name from sqlite_master where type = 'table'")}
             for bid, folder, title, authors in conn.execute(
                 "select id,path,title,author_sort from books order by id"
             ):
                 try:
                     path = inside(root, root / folder)
+                    tags = ()
+                    if {"authors", "books_authors_link"} <= tables:
+                        names = [x[0] for x in conn.execute("select a.name from authors a join books_authors_link l on a.id=l.author where l.book=? order by l.id", (bid,))]
+                        authors = " & ".join(names) or authors
+                    if {"tags", "books_tags_link"} <= tables:
+                        tags = tuple(x[0] for x in conn.execute("select t.name from tags t join books_tags_link l on t.id=l.tag where l.book=? order by l.id", (bid,)))
                     # Use Calibre's declared format filenames, not backups in the folder.
                     files = []
                     for fmt, stem in conn.execute("select format,name from data where book=? order by format", (bid,)):
                         ext = fmt.lower()
                         if ext not in FORMATS:
+                            warnings.append((str(path / (stem + "." + ext)), "Formato no compatible: " + fmt))
                             continue
                         f = inside(root, path / (stem + "." + ext))
                         if f.is_file():
                             files.append(f)
                         else:
                             warnings.append((str(f), "Formato registrado pero archivo ausente"))
-                    rows.append((path, title or path.name, authors or "", tuple(files)))
+                    rows.append((path, title or path.name, authors or "", tuple(files), tags))
                 except (OSError, ValueError) as exc:
                     warnings.append((str(folder), str(exc)))
         finally:
@@ -102,15 +110,15 @@ def scan(root):
             try:
                 files = tuple(inside(root, f) for f in files)
                 rows.append((folder, re.sub(r"\s+\(\d+\)$", "", folder.name),
-                             folder.parent.name, files))
+                             folder.parent.name, files, ()))
             except (OSError, ValueError) as exc:
                 warnings.append((str(folder), str(exc)))
     records = []
-    for folder, title, authors, files in rows:
+    for folder, title, authors, files, fallback_tags in rows:
         try:
-            title, authors, tags = metadata(folder, title, authors)
+            title, authors, tags = metadata(folder, title, authors, fallback_tags)
         except (OSError, ValueError, ET.ParseError) as exc:
-            tags = ()
+            tags = fallback_tags
             warnings.append((str(folder), "Metadatos no legibles; se usa catálogo/nombre: " + str(exc)))
         records.append(Record(folder, title, authors, tags, files))
     return records, warnings
@@ -282,6 +290,10 @@ def migrate(root, output, all_formats=False, progress=lambda msg: None, cancelle
                 if not all_formats:
                     break
         flush()
+    except (Exception, KeyboardInterrupt):
+        for record, source, digest, size in pending:
+            report.append((record.title, record.authors, str(source), digest, "Pendiente: paquete no completado", ""))
+        raise
     finally:
         # Report only committed packages; a partial package never appears as ready.
         for source, issue in warnings:
@@ -293,3 +305,17 @@ def migrate(root, output, all_formats=False, progress=lambda msg: None, cancelle
             for row in report:
                 writer.writerow(["'" + x if x.startswith(("=", "+", "-", "@", "\t", "\r")) else x for x in row])
     return run, len(packages), sum(row[4] == "Preparado" for row in report)
+
+def summarize_report(run):
+    """Summarize committed output, not merely selected candidates."""
+    counts = dict(prepared=0, duplicate=0, error=0, unsupported=0, warning=0, pending=0)
+    with (Path(run) / "Informe.csv").open(encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f, delimiter=";"):
+            status = row["Resultado"]
+            if status == "Preparado": counts["prepared"] += 1
+            elif status == "Duplicado exacto": counts["duplicate"] += 1
+            elif status.startswith("Error:"): counts["error"] += 1
+            elif status == "Sin formato compatible": counts["unsupported"] += 1
+            elif status.startswith("Aviso:"): counts["warning"] += 1
+            elif status.startswith("Pendiente:"): counts["pending"] += 1
+    return counts
