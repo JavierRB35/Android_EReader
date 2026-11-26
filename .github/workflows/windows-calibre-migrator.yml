@@ -34,6 +34,11 @@ jobs:
           if (!(Test-Path dist/BibliotecaAI-Migrador-Calibre.exe)) { throw "Missing executable" }
           $hash = (Get-FileHash dist/BibliotecaAI-Migrador-Calibre.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  BibliotecaAI-Migrador-Calibre.exe" | Set-Content -Encoding ascii dist/BibliotecaAI-Migrador-Calibre.exe.sha256
+      - name: Run functional tests inside the portable executable
+        run: |
+          $exe = (Resolve-Path dist/BibliotecaAI-Migrador-Calibre.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Packaged migration self-test failed: $($process.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: BibliotecaAI-Migrador-Calibre-Windows
