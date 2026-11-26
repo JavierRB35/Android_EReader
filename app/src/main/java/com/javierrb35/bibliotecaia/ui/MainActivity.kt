@@ -199,6 +199,8 @@ class MainActivity : AppCompatActivity() {
         search.setText(savedInstanceState?.getString(STATE_QUERY).orEmpty())
         queryFlow.value = search.text?.toString()?.trim().orEmpty()
         search.doOnTextChanged { text, _, _, _ ->
+            selection.clear()
+            renderSelection()
             queryFlow.value = text?.toString()?.trim().orEmpty()
         }
 
@@ -207,6 +209,8 @@ class MainActivity : AppCompatActivity() {
         shelves.check(restoredShelf)
         updateShelfFilter(shelves.checkedChipId)
         shelves.setOnCheckedStateChangeListener { group, _ ->
+            selection.clear()
+            renderSelection()
             updateShelfFilter(group.checkedChipId)
         }
 
@@ -456,7 +460,7 @@ class MainActivity : AppCompatActivity() {
                 var saveError: Exception? = null
                 val result = LibraryBatch.run(books, { cancelBatch }, { done, total ->
                     status.text = "${action.label}: $done/$total"
-                }) { book ->
+                }, describe = { it.title }) { book ->
                     require(SharedLibrary.uri(app) == destination &&
                         BackupRoutine.centralUri(app) == centralUri) { "La biblioteca ha cambiado." }
                     val latest = db.bookDao().findById(book.id)

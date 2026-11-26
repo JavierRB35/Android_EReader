@@ -24,7 +24,8 @@ internal object LibraryBatch {
     data class Result(val completed: Int, val failures: List<String>, val pending: Int)
     /** Cancel between books, not during an integrity-sensitive file operation. */
     suspend fun <T> run(items: List<T>, cancelled: () -> Boolean,
-                        progress: (Int, Int) -> Unit, action: suspend (T) -> Unit): Result {
+                        progress: (Int, Int) -> Unit, describe: (T) -> String = { "" },
+                        action: suspend (T) -> Unit): Result {
         var done = 0
         var completed = 0
         val failures = mutableListOf<String>()
@@ -34,7 +35,11 @@ internal object LibraryBatch {
                 action(item)
                 completed++
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { failures.add(e.message ?: "No se pudo completar el libro.") }
+            catch (e: Exception) {
+                val name = describe(item)
+                failures.add((if (name.isBlank()) "" else "$name: ") +
+                    (e.message ?: "No se pudo completar el libro."))
+            }
             done++
             progress(done, items.size)
         }
