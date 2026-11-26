@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.*
+import com.javierrb35.bibliotecaia.importer.BatchImport
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -255,6 +256,41 @@ class SharedLibraryJourneyTest {
             assertEquals(setOf(first.contentHash, second.contentHash), SharedLibrary.syncStore(store, a, ownerA).hashes)
         } finally { a.close(); b.close(); root.deleteRecursively() }
     }
+    @Test fun centralImportWithoutBackupRetainsOfflineOriginalAndReconcilesOnSecondDevice() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "import-no-backup-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val store = TestStore(cloud, namedOriginals = true)
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val receiver = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val original = File(root, "books/new/Mi libro.epub").apply {
+            parentFile!!.mkdirs()
+            writeText("new original")
+        }
+        val hash = SharedDocumentStore.hash(original.readBytes())
+        val book = BookEntity("new", "Libro", null, BookFormat.EPUB, original.name,
+            original.absolutePath, hash, original.length(), 1L)
+        try {
+            assertEquals(SharedWriteAccess.READY, SharedWriteAccess.evaluate(true, true, false))
+            val result = BatchImport.run(listOf(book), true,
+                importOne = { db.bookDao().insert(it); it },
+                publishVerified = { throw java.io.IOException("Sin conexión") },
+                removeStaging = { fail("No retirar originales sin verificación") })
+            assertEquals("Sin conexión", result.centralError)
+            assertTrue(original.isFile)
+            assertNotNull(db.bookDao().findByHash(hash))
+            // Retry from persisted Room and local bytes; no backup or ZIP configured.
+            assertTrue(SharedLibrary.syncStore(store, db, "a".repeat(32), root).errors.isEmpty())
+            assertEquals(setOf(hash), SharedLibrary.syncStore(store, receiver, "b".repeat(32)).hashes)
+            val copy = File(root, "remote.epub")
+            SharedLibrary.stageFromStore(store, receiver.bookDao().findByHash(hash)!!, copy)
+            assertArrayEquals(original.readBytes(), copy.readBytes())
+            SharedLibrary.evictVerifiedBatch(store, db, root, listOf(book))
+            assertFalse(original.exists())
+            assertEquals(listOf(book.fileName), cloud.listFiles()!!.filter { it.isFile }.map { it.name })
+        } finally { db.close(); receiver.close(); root.deleteRecursively() }
+    }
+
     @Test fun batchCentralEvictionVerifiesAllBeforeRemovingAnyLocalOriginal() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "batch-" + UUID.randomUUID()).apply { mkdirs() }

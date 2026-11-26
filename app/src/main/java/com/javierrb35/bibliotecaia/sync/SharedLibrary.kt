@@ -64,6 +64,11 @@ object SharedLibrary {
             status.contains("El archivo pertenece a otro dispositivo") ||
             status.contains("La identidad del archivo no coincide"))
     }
+    // Persisted SAF grants allow local staging even when the provider is offline.
+    // The actual publication and remote re-read verify effective access before eviction.
+    fun writeAccess(context: Context): SharedWriteAccess =
+        SharedWriteAccess.evaluate(configured(context), hasAccess(context), needsRepair(context))
+
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
     fun healthy(context: Context): Boolean = hasAccess(context) &&
         prefs(context).getString("status", "").orEmpty().startsWith("Biblioteca comprobada:")
@@ -466,8 +471,9 @@ object SharedLibrary {
             "application/json", bytes.inputStream(), hash, bytes.size.toLong())
     }
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
-    suspend fun sync(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
+    suspend fun sync(context: Context, db: AppDatabase, expectedUri: Uri? = null): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
+            if (expectedUri != null) require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
             val result = store(context).use { syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir) }
             if (result.errors.isEmpty()) prefs(context).edit()
                 .putLong("last_publication", System.currentTimeMillis()).apply()
@@ -605,8 +611,9 @@ object SharedLibrary {
             }
         }
     }
-    /** Caller has just verified a complete owned backup. Validate every remote
+    /** Caller has just published the shared catalogue. Validate every remote
      * original again before removing any of this batch's temporary local files.
+     * A separate backup is optional and is never a publication prerequisite.
      * Never touch a pre-existing downloaded copy (the importer rejects duplicates). */
     suspend fun evictVerifiedImports(context: Context, db: AppDatabase, expectedUri: Uri,
                                      books: List<BookEntity>) = withContext(Dispatchers.IO) {

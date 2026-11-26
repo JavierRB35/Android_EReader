@@ -29,6 +29,7 @@ import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.importer.BookImporter
 import com.javierrb35.bibliotecaia.importer.BatchImport
 import com.javierrb35.bibliotecaia.sync.SharedLibrary
+import com.javierrb35.bibliotecaia.sync.SharedWriteAccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -206,16 +207,7 @@ class MainActivity : AppCompatActivity() {
     private fun openImportPicker() {
         if (importing || pickerOpen) return
         pendingImportCentral = centralFlow.value.first
-        if (pendingImportCentral && (!SharedLibrary.hasAccess(applicationContext) ||
-                SharedLibrary.needsRepair(applicationContext) ||
-                BackupRoutine.ownedSharedDestination(applicationContext) == null)) {
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Configura la biblioteca completa")
-                .setMessage("Para importar directamente a la biblioteca necesitas una conexión de escritura y una copia de seguridad propia. Configúralas antes de importar.")
-                .setPositiveButton("Configurar") { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
-                .setNegativeButton(android.R.string.cancel, null).show()
-            return
-        }
+        if (pendingImportCentral && !checkSharedImportAccess()) return
         pickerOpen = true
         try { importLauncher.launch(IMPORT_MIME_TYPES) }
         catch (e: Exception) {
@@ -397,16 +389,22 @@ class MainActivity : AppCompatActivity() {
         recycler.scrollToPosition(position)
     }
 
+    private fun checkSharedImportAccess(): Boolean {
+        val access = SharedLibrary.writeAccess(applicationContext)
+        if (access == SharedWriteAccess.READY) return true
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Biblioteca compartida no disponible")
+            .setMessage(access.message)
+            .setPositiveButton("Configurar") { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+            .setNegativeButton(android.R.string.cancel, null).show()
+        return false
+    }
+
     private fun importBooks(uris: List<Uri>, central: Boolean) {
         if (importing) return
         val app = applicationContext
-        val destination = if (central) SharedLibrary.uri(app) else null
-        val backupUri = if (central) BackupRoutine.ownedSharedDestination(app) else null
-        if (central && (destination == null || backupUri == null || !SharedLibrary.hasAccess(app) ||
-                SharedLibrary.needsRepair(app))) {
-            Toast.makeText(this, "No hay una biblioteca y copia propias disponibles. Configúralas en Ajustes.", Toast.LENGTH_LONG).show()
-            return
-        }
+        if (central && !checkSharedImportAccess()) return
+        val destination = if (central) SharedLibrary.uri(app) ?: return else null
         importing = true
         val button = findViewById<View>(R.id.btnImport)
         val label = findViewById<TextView>(R.id.txtImportLabel)
@@ -421,17 +419,13 @@ class MainActivity : AppCompatActivity() {
                     uris.distinct(), central,
                     importOne = { importer.import(it) },
                     progress = { done, total -> label.text = "$done/$total" },
-                    publishAndBackup = { books ->
+                    publishVerified = { books ->
                         val target = requireNotNull(destination)
-                        val targetBackup = requireNotNull(backupUri)
-                        require(SharedLibrary.uri(app) == target) { "La ubicación ha cambiado." }
-                        val synced = SharedLibrary.sync(app, db)
-                        require(synced.errors.isEmpty() && books.all { it.contentHash in SharedLibrary.hashes(app) }) {
+                        val synced = SharedLibrary.sync(app, db, expectedUri = target)
+                        require(synced.errors.isEmpty()) { synced.errors.joinToString(" · ") }
+                        require(books.all { it.contentHash in SharedLibrary.hashes(app) }) {
                             "No se han confirmado todos los originales en la biblioteca."
                         }
-                        val backed = BackupRoutine.save(app, db, BuildConfig.VERSION_NAME, force = true,
-                            expectedOwnedSharedUri = targetBackup, expectedLibraryUri = target)
-                        require(backed == BackupRoutine.Result.SAVED) { "La copia no está completa." }
                     },
                     removeStaging = { books ->
                         SharedLibrary.evictVerifiedImports(app, db, requireNotNull(destination), books)
@@ -447,10 +441,10 @@ class MainActivity : AppCompatActivity() {
                 val text = buildString {
                     append(result.imported.size).append(" de ").append(uris.distinct().size).append(" libros importados")
                     if (central && result.centralError == null && result.imported.isNotEmpty())
-                        append(" en la biblioteca completa; copia verificada.")
+                        append(" en la biblioteca compartida; originales verificados.")
                     else if (!central) append(" en el dispositivo.")
                     if (result.centralError != null)
-                        append("\nNo se completó el envío o la copia. Se conservan los originales no retirados en el dispositivo: ").append(result.centralError)
+                        append("\nPublicación pendiente o incompleta. Los originales no retirados se conservan en el dispositivo para sincronizarlos más adelante: ").append(result.centralError)
                     if (result.failures.isNotEmpty())
                         append("\n").append(result.failures.size).append(" no importados: ").append(result.failures.take(4).joinToString(" · "))
                 }

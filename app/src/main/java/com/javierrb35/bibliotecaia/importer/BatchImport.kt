@@ -4,14 +4,14 @@ import com.javierrb35.bibliotecaia.data.BookEntity
 import kotlinx.coroutines.CancellationException
 
 /** Sequential bounded import. An individual bad file does not abort the rest.
- * No original is evicted until the complete remote publication AND backup succeed. */
+ * No original is evicted until remote publication is verified; backup is independent. */
 internal object BatchImport {
     data class Result(val imported: List<BookEntity>, val failures: List<String>, val centralError: String?)
     suspend fun <T> run(
         items: List<T>, central: Boolean,
         importOne: suspend (T) -> BookEntity,
         progress: (Int, Int) -> Unit = { _, _ -> },
-        publishAndBackup: suspend (List<BookEntity>) -> Unit,
+        publishVerified: suspend (List<BookEntity>) -> Unit,
         removeStaging: suspend (List<BookEntity>) -> Unit
     ): Result {
         val imported = mutableListOf<BookEntity>()
@@ -26,7 +26,7 @@ internal object BatchImport {
         var centralError: String? = null
         if (central && imported.isNotEmpty()) {
             try {
-                publishAndBackup(imported)
+                publishVerified(imported)
                 removeStaging(imported)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { centralError = e.message ?: "No se ha podido verificar la biblioteca central." }

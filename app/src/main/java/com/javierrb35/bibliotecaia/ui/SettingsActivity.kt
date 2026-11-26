@@ -530,12 +530,14 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshUnifiedStatus() {
         if (!::unifiedStatus.isInitialized) return
         val app = applicationContext
-        val lib = SharedLibrary.configured(app) && SharedLibrary.healthy(app) &&
-            !SharedLibrary.needsRepair(app) && SharedLibrary.lastSuccess(app) > 0
+        val access = SharedLibrary.writeAccess(app)
+        val lib = access == com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY &&
+            SharedLibrary.healthy(app) && SharedLibrary.lastSuccess(app) > 0
         if (SharedLibrary.namedFolderMode(app)) {
             unifiedStatus.text = if (lib)
                 "Biblioteca única conectada. Originales y datos de lectura comprobados en este dispositivo.\nSelecciona la misma carpeta en los demás dispositivos."
-            else "La biblioteca única necesita comprobar su acceso o sincronización. Tus libros locales se conservan."
+            else if (access != com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) access.message
+            else "Biblioteca conectada; sincronización pendiente de comprobar. Puedes importar y conservar los libros localmente hasta sincronizar."
             unifiedAction.text = if (lib) "Comprobar configuración" else "Resolver configuración"
             return
         }
