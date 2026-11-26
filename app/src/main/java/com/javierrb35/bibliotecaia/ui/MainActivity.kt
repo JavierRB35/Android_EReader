@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
     private var editions = emptyMap<String, List<com.javierrb35.bibliotecaia.data.BookEntity>>()
     private var selectionBack: androidx.activity.OnBackPressedCallback? = null
     private var batchRunning = false
-    private var cancelBatch = false
+    @Volatile private var cancelBatch = false
     private var batchJob: kotlinx.coroutines.Job? = null
     private var batchAction: LibraryBatchAction? = null
     private var importing = false
@@ -499,8 +499,8 @@ class MainActivity : AppCompatActivity() {
                     LibraryBatch.Result(downloaded.completed, downloaded.failures, 0)
                 } else if (action == LibraryBatchAction.REMOVE && SharedLibrary.namedFolderMode(app)) {
                     status.text = "Comprobando los ${books.size} originales seleccionados…"
-                    SharedLibrary.evictSelection(app, db, requireNotNull(destination), books)
-                    LibraryBatch.Result(books.size, emptyList(), 0)
+                    val removed = SharedLibrary.evictSelection(app, db, requireNotNull(destination), books) { cancelBatch }
+                    LibraryBatch.Result(removed, emptyList(), books.size - removed)
                 } else LibraryBatch.run(books, { cancelBatch }, { done, total ->
                     status.text = "${action.label}: $done/$total"
                 }, describe = { it.title }) { book ->

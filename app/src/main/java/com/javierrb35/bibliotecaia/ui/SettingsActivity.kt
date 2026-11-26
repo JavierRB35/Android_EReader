@@ -597,11 +597,13 @@ class SettingsActivity : AppCompatActivity() {
         val lib = access == com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY &&
             SharedLibrary.healthy(app) && SharedLibrary.lastSuccess(app) > 0
         if (SharedLibrary.namedFolderMode(app)) {
+            val catalogueReady = SharedLibrary.catalogueReady(app)
             unifiedStatus.text = if (lib)
                 "Biblioteca única conectada. Originales y datos de lectura comprobados en este dispositivo.\nSelecciona la misma carpeta en los demás dispositivos."
             else if (access != com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY) access.message
+            else if (catalogueReady) "Biblioteca única conectada. Catálogo sincronizado; originales comprobados al descargar o retirar.\nSelecciona la misma carpeta en los demás dispositivos."
             else "Biblioteca conectada; sincronización pendiente de comprobar. Puedes importar y conservar los libros localmente hasta sincronizar."
-            unifiedAction.text = if (lib) "Comprobar configuración" else "Resolver configuración"
+            unifiedAction.text = if (lib || catalogueReady) "Comprobar configuración" else "Resolver configuración"
             return
         }
         val backup = BackupRoutine.status(app)

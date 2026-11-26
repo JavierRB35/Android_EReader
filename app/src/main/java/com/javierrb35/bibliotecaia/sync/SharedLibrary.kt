@@ -113,6 +113,8 @@ object SharedLibrary {
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
     fun healthy(context: Context): Boolean = hasAccess(context) &&
         prefs(context).getString("status", "").orEmpty().startsWith("Biblioteca comprobada:")
+    fun catalogueReady(context: Context): Boolean = hasAccess(context) &&
+        (healthy(context) || prefs(context).getString("status", "").orEmpty().startsWith("Catálogo sincronizado:"))
     fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
@@ -482,13 +484,14 @@ object SharedLibrary {
         }?.let { Receipt(book.contentHash, it.name, book.sizeBytes) }
     }
 
-    private fun upload(store: SharedStore, book: BookEntity, file: File): Receipt {
+    private fun upload(store: SharedStore, book: BookEntity, file: File,
+                       excludedNames: Set<String> = emptySet()): Receipt {
         require(file.isFile && file.length() == book.sizeBytes &&
             OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash) {
             "Original local no válido: " + book.title.take(80)
         }
         if (store.namedOriginals) {
-            val item = SharedNamedOriginals.ensure(store, book, file)
+            val item = SharedNamedOriginals.ensure(store, book, file, excludedNames)
             return Receipt(book.contentHash, item.name, book.sizeBytes)
         }
         val name = "bia-book-" + book.contentHash + "-" + UUID.randomUUID() + ".bin"
@@ -580,7 +583,8 @@ object SharedLibrary {
         }
     }
 
-    internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
+    internal data class StoreResult(val hashes: Set<String>, val errors: List<String>,
+                                    val verifiedNow: Set<String> = emptySet())
     suspend fun sync(context: Context, db: AppDatabase, expectedUri: Uri? = null): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             if (expectedUri != null) require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
@@ -601,7 +605,7 @@ object SharedLibrary {
                 syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
                     verifyOriginals = false)
             }
-            val previouslyVerified = hashes(context).intersect(result.hashes)
+            val previouslyVerified = hashes(context).intersect(result.hashes) + result.verifiedNow
             val edit = prefs(context).edit().putStringSet("hashes", previouslyVerified)
             if (result.errors.isEmpty()) {
                 edit.putStringSet("catalogue_hashes", result.hashes)
@@ -625,8 +629,8 @@ object SharedLibrary {
                 syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
                     verifyOriginals = false, requiredHashes = selected)
             }
-            val confirmed = result.hashes.intersect(selected)
-            val verified = (hashes(context).intersect(result.hashes) - selected) + confirmed
+            val confirmed = result.verifiedNow.intersect(selected)
+            val verified = (hashes(context).intersect(result.hashes) - selected) + result.verifiedNow
             val edit = prefs(context).edit().putStringSet("hashes", verified)
             if (result.errors.isEmpty()) {
                 edit.putStringSet("catalogue_hashes", result.hashes)
@@ -653,6 +657,7 @@ object SharedLibrary {
             }
             val known = inv.receipts.toMutableMap()
             val available = if (store.namedOriginals) mutableSetOf<String>() else inv.availableHashes().toMutableSet()
+            val verifiedNow = available.toMutableSet()
             val listed = if (store.namedOriginals && !verifyOriginals) inv.listedHashes() else emptySet()
             // Existing candidates come from this inventory only. Creation still uses a
             // fresh listing and identity checks; a final independent audit catches changes.
@@ -662,21 +667,40 @@ object SharedLibrary {
             for ((index, book) in books.withIndex()) {
                 try {
                     val required = requiredHashes?.contains(book.contentHash) == true
-                    if (store.namedOriginals && (if (verifyOriginals || required) inv.available(book.contentHash)
-                            else book.contentHash in listed)) available.add(book.contentHash)
+                    if (store.namedOriginals) {
+                        if (verifyOriginals || required) {
+                            if (inv.available(book.contentHash)) {
+                                available.add(book.contentHash)
+                                verifiedNow.add(book.contentHash)
+                            }
+                        } else if (book.contentHash in listed) available.add(book.contentHash)
+                    }
                     if (book.contentHash in available) continue
                     if (store.namedOriginals && requiredHashes != null && !required) continue
                     if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
-                    val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book, candidates) else null
+                    if (store.namedOriginals && !verifyOriginals && !required && !CentralCatalogue.local(book)) {
+                        errors.add(book.title.take(80) + ": original no listado; comprobación pendiente.")
+                        continue
+                    }
+                    // A uniquely named original already registered to a different
+                    // hash cannot be a candidate for deduplication of a new hash.
+                    // Ambiguous names and unregistered orphan files remain candidates.
+                    val excluded = if (store.namedOriginals && !verifyOriginals)
+                        known.filterKeys { it != book.contentHash }.values.flatten().map { it.name }.toSet() -
+                            known[book.contentHash].orEmpty().map { it.name }.toSet()
+                    else emptySet()
+                    val existing = if (store.namedOriginals)
+                        SharedNamedOriginals.find(store, book, candidates, excluded) else null
                     val receipt = if (existing != null) Receipt(book.contentHash, existing.name, book.sizeBytes)
                         else if (!CentralCatalogue.local(book)) {
                             if (store.namedOriginals) errors.add(book.title.take(80) + ": original no disponible.")
                             continue
-                        } else if (store.namedOriginals) upload(store, book, File(book.localPath))
+                        } else if (store.namedOriginals) upload(store, book, File(book.localPath), excluded)
                         else findVerifiedUnpublishedOriginal(store, inv, book)
                             ?: upload(store, book, File(book.localPath))
                     known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
                     available.add(book.contentHash)
+                    verifiedNow.add(book.contentHash)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { errors.add(book.title.take(80) + ": " + (e.message ?: "no se pudo subir")) }
                 finally {
@@ -694,7 +718,7 @@ object SharedLibrary {
                 catch (e: Exception) { errors.add("Compactación pendiente: " + (e.message ?: "error")) }
             }
             val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
-            return StoreResult(available.intersect(activeHashes), errors)
+            return StoreResult(available.intersect(activeHashes), errors, verifiedNow.intersect(activeHashes))
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri,
                            onProgress: (String) -> Unit = {}): Result = withContext(Dispatchers.IO) {
@@ -891,15 +915,23 @@ object SharedLibrary {
     /** One directed publication and one independent verification pass for a selection.
      * No unrelated original needs to be opened. */
     internal suspend fun evictSelection(context: Context, db: AppDatabase, expectedUri: Uri,
-                                        books: List<BookEntity>) {
+                                        books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
         require(books.isNotEmpty() && namedFolderMode(context))
+        if (cancelled()) return 0
         val requested = books.map { it.contentHash }.toSet()
         val result = publishImports(context, db, expectedUri, requested)
         require(result.errors.isEmpty() && result.verified == requested.size) {
             "No se han comprobado todos los originales seleccionados. Se conservan las copias locales."
         }
-        evictVerifiedImports(context, db, expectedUri, books)
-        scheduleCovers(context)
+        if (cancelled()) return 0
+        return withContext(Dispatchers.IO) {
+            mutex.withLock {
+                require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
+                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, cancelled) }
+                changes.value += 1
+                removed
+            }.also { scheduleCovers(context) }
+        }
     }
     /** Caller has just published the shared catalogue. Validate every remote
      * original again before removing any of this batch's temporary local files.
@@ -915,10 +947,12 @@ object SharedLibrary {
     }
 
     internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
-                                            books: List<BookEntity>) {
+                                            books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
+        if (cancelled()) return 0
         val inv = inventory(store)
         require(inv.errors.isEmpty()) { "No se ha podido verificar la biblioteca." }
         val latest = books.map { imported ->
+            if (cancelled()) return 0
             val book = db.bookDao().findById(imported.id) ?: error("No se encuentra el libro importado.")
             require(book.localPath == imported.localPath && book.contentHash == imported.contentHash &&
                 book.sizeBytes == imported.sizeBytes && CentralCatalogue.local(book)) { "El original local ha cambiado." }
@@ -927,12 +961,18 @@ object SharedLibrary {
             }) { "No se pudo comprobar el original central de " + book.title }
             book
         }
+        var removed = 0
         for (book in latest) {
+            if (cancelled()) break
             // The verified remote original remains available to the independent
             // thumbnail worker; do not delay safe local removal on cover I/O.
-            LocalBookCopyRemover.delete(filesDir, book)
-            check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
+            withContext(kotlinx.coroutines.NonCancellable) {
+                LocalBookCopyRemover.delete(filesDir, book)
+                check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
+            }
+            removed++
         }
+        return removed
     }
 
     /** Independent portable ZIP export can recover non-downloaded originals

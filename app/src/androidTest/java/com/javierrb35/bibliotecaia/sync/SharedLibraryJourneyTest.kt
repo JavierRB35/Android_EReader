@@ -204,7 +204,9 @@ class SharedLibraryJourneyTest {
             }
             existing.forEach { db.bookDao().insert(it) }
             assertEquals(40, SharedLibrary.syncStore(store, db, "a".repeat(32), root).hashes.size)
-            val new = File(root, "books/new/new.epub").apply { parentFile!!.mkdirs(); writeText("New original") }
+            // Same size as a previously catalogued book: do not hash its bytes
+            // merely because it is a potential filename/size collision.
+            val new = File(root, "books/new/new.epub").apply { parentFile!!.mkdirs(); writeText("NEW original 1") }
             val book = BookEntity("new", "Nuevo", "Autor", BookFormat.EPUB, new.name, new.absolutePath,
                 SharedDocumentStore.hash(new.readBytes()), new.length(), 41L)
             db.bookDao().insert(book)
@@ -213,8 +215,11 @@ class SharedLibraryJourneyTest {
                 verifyOriginals = false, requiredHashes = setOf(book.contentHash))
             assertTrue(result.errors.toString(), result.errors.isEmpty())
             assertEquals(41, result.hashes.size)
+            assertEquals(setOf(book.contentHash), result.verifiedNow)
             assertFalse(reads.any { it.startsWith("old-") })
-            SharedLibrary.evictVerifiedBatch(store, db, root, listOf(book))
+            assertEquals(0, SharedLibrary.evictVerifiedBatch(store, db, root, listOf(book)) { true })
+            assertTrue(new.exists())
+            assertEquals(1, SharedLibrary.evictVerifiedBatch(store, db, root, listOf(book)))
             assertFalse(reads.any { it.startsWith("old-") })
             assertFalse(new.exists())
             assertTrue(db.bookDao().findById(book.id)!!.localPath.isBlank())
