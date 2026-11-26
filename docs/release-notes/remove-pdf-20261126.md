@@ -1,0 +1,1 @@
+- BibliotecaAI se centra en libros electrónicos EPUB y MOBI. Se retiran el lector PDF y OCR; los datos históricos se conservan.

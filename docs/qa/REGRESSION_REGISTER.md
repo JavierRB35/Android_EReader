@@ -46,3 +46,7 @@ Reutilización de listado para candidatos existentes; enumeración raíz única 
 
 ## #137 — restauración masiva en biblioteca Drive
 Ajustes Recuperar una copia exige carpeta compartida; mismo flujo que Calibre, sin materializar originales permanentes del ZIP. restoreZipPublishesIntoDriveWithoutInstallingLocalOriginals conserva descarga previa, publica 15 originales, reintenta sin duplicados y restaura posición en B. SettingsBackupJourneyDeviceTest prueba requisito de conexión. Mantener recuperación de ZIP histórico y staging temporal. CI y físico pendientes.
+
+
+## #136 — formatos EPUB/MOBI; PDF histórico
+FormatDetectionTest.pdfIsRejectedForImportEvenWhenRenamedEpub, BookTextSourceTest.historicalPdfDoesNotUseOcrFiles, ReadingExperienceDeviceTest de persistencia EPUB/MOBI y localCoverCanBeLoadedAfterRemoteOnlyBookWithoutRestart con EPUB. Mantener pruebas de recuperación de archivos/metadatos históricos PDF, no borrar esquema. Retiradas únicamente pruebas exclusivas PDF/OCR. Gates y físico pendientes.

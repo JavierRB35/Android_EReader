@@ -1,4 +1,4 @@
-package com.javierrb35.bibliotecaia.reader.pdf
+package com.javierrb35.bibliotecaia.reader.annotations
 
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,22 +18,22 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ReadingExperienceDeviceTest {
-    @Test fun twoBookPositionsAndPdfHighlightSurviveSqliteCloseAndReopen() = runBlocking {
+    @Test fun twoBookPositionsAndHighlightSurviveSqliteCloseAndReopen() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "test-reader-persistence-" + System.nanoTime() + ".db"
         fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
-        val oneId = "pdf-book-one"
+        val oneId = "mobi-book-one"
         val twoId = "epub-book-two"
-        val hash = "sha256-pdf-same-edition"
+        val hash = "sha256-mobi-same-edition"
         var savedMark = ""
-        val locator = """{"format":"PDF","page":7}"""
+        val locator = """{"format":"MOBI","offset":7}"""
         try {
             val first = open()
             try {
                 val db = first
                 db.bookDao().insert(BookEntity(
                     id = oneId, title = "Documento A", authors = null,
-                    format = BookFormat.PDF, fileName = "a.pdf", localPath = "",
+                    format = BookFormat.MOBI, fileName = "a.mobi", localPath = "",
                     contentHash = hash, sizeBytes = 100, addedAt = 1
                 ))
                 db.bookDao().insert(BookEntity(
@@ -44,10 +44,7 @@ class ReadingExperienceDeviceTest {
                 val repo = ReadingRepository(db)
                 repo.savePosition(oneId, locator, .5f)
                 repo.savePosition(twoId, """{"href":"chapter3","type":"EPUB"}""", .8f)
-                val snapshot = requireNotNull(PdfOcrGeometry.fromLines(
-                    listOf(listOf("Hola" to PdfOcrRect(.10f, .20f, .30f, .25f))), hash))
-                val marked = requireNotNull(PdfOcrAnchors.anchoredLocator(
-                    7, 0, "Hola", snapshot))
+                val marked = """{"format":"MOBI","offset":7,"end":11}"""
                 savedMark = repo.addAnnotation(oneId, marked, "Hola", "", "HIGHLIGHT")
             } finally { first.close() }
             val second = open()
@@ -61,8 +58,8 @@ class ReadingExperienceDeviceTest {
                 val mark = requireNotNull(db.readingDao().annotation(savedMark))
                 assertEquals("HIGHLIGHT", mark.kind)
                 assertEquals(oneId, mark.bookId)
-                assertEquals(1, PdfOcrAnchors.overlayBoxes(mark.locator, 7,
-                    mark.quote, hash).size)
+                assertEquals("""{"format":"MOBI","offset":7,"end":11}""", mark.locator)
+                assertEquals("Hola", mark.quote)
                 repo.setDeleted(mark.id, true)
                 assertNotNull(db.readingDao().annotation(savedMark)?.deletedAt)
             } finally { second.close() }

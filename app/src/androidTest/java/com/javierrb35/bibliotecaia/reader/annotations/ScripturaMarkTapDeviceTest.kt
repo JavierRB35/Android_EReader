@@ -1,7 +1,5 @@
 package com.javierrb35.bibliotecaia.reader.annotations
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.text.SpannableString
 import android.text.Spanned
 import android.os.SystemClock
@@ -11,9 +9,6 @@ import android.widget.TextView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
-import com.javierrb35.bibliotecaia.reader.pdf.PdfOcrRect
-import com.javierrb35.bibliotecaia.reader.pdf.PdfPageView
-import com.javierrb35.bibliotecaia.reader.pdf.PdfPaintedMark
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,35 +83,4 @@ class ScripturaMarkTapDeviceTest {
         }
     }
 
-    @Test fun pdfOverlappingGeometryReturnsEachAnnotationExactlyOnce() {
-        val hits = mutableListOf<List<String>>()
-        instrumentation.runOnMainSync {
-            val page = PdfPageView(context)
-            val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-            val output = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
-            try {
-                page.layout(0, 0, 200, 200)
-                page.display(bitmap)
-                val rect = PdfOcrRect(.2f, .2f, .6f, .6f)
-                page.showMarks(listOf(
-                    PdfPaintedMark("note", rect, "NOTE"),
-                    PdfPaintedMark("note", rect, "NOTE"),
-                    PdfPaintedMark("underline", rect, "HIGHLIGHT")
-                ))
-                page.onMarkedTap { ids -> hits.add(ids) }
-                page.draw(Canvas(output)) // populates the same zoom/pan hit matrix
-                assertEquals(listOf("underline", "note"), page.markedIdsAt(65f, 65f))
-                touch(page, 65f, 65f)
-            // GestureDetector confirms a single tap asynchronously. Verify below
-            // after its double-tap timeout, outside the main-thread callback.
-                assertTrue(hits.size <= 1)
-            } finally {
-                output.recycle()
-                // The page still owns bitmap until the pending single-tap event.
-            }
-        }
-        SystemClock.sleep(android.view.ViewConfiguration.getDoubleTapTimeout().toLong() + 200)
-        instrumentation.waitForIdleSync()
-        assertEquals(listOf("underline", "note"), hits.single())
-    }
 }

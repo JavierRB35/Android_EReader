@@ -168,16 +168,22 @@ class SharedLibraryJourneyTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "cover-download-" + UUID.randomUUID()).apply { mkdirs() }
         try {
-            val original = File(root, "book.pdf")
-            val document = android.graphics.pdf.PdfDocument()
-            try {
-                val page = document.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(200, 300, 1).create())
-                page.canvas.drawColor(android.graphics.Color.BLUE)
-                document.finishPage(page)
-                original.outputStream().use { document.writeTo(it) }
-            } finally { document.close() }
+            val original = File(root, "book.epub")
+            val bitmap = android.graphics.Bitmap.createBitmap(20, 30, android.graphics.Bitmap.Config.ARGB_8888)
+            val image = try { requireNotNull(com.javierrb35.bibliotecaia.ui.BookCoverLoader.jpeg(bitmap)) }
+                finally { bitmap.recycle() }
+            java.util.zip.ZipOutputStream(original.outputStream()).use { zip ->
+                fun entry(name: String, bytes: ByteArray) {
+                    zip.putNextEntry(java.util.zip.ZipEntry(name))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                }
+                entry("META-INF/container.xml", """<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>""".toByteArray())
+                entry("book.opf", """<package><manifest><item id="cover" properties="cover-image" href="cover.jpg" media-type="image/jpeg"/></manifest></package>""".toByteArray())
+                entry("cover.jpg", image)
+            }
             val hash = SharedDocumentStore.hash(original.readBytes())
-            val remote = BookEntity("cover", "Libro", null, BookFormat.PDF, original.name, "",
+            val remote = BookEntity("cover", "Libro", null, BookFormat.EPUB, original.name, "",
                 hash, original.length(), 1L)
             val loader = com.javierrb35.bibliotecaia.ui.BookCoverLoader
             assertNull(loader.load(context, remote))
