@@ -204,7 +204,7 @@ object ReadingPositionSafSync {
         val app = context.applicationContext
         if (!SharedLibrary.configured(app)) return refresh(app, database)
         if (SharedLibrary.namedFolderMode(app)) return try {
-            SharedLibrary.pull(app, database).errors.isEmpty()
+            SharedLibrary.refreshCatalogue(app, database).errors.isEmpty()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { SharedLibrary.recordFailure(app, e); false }
         val ready = fastReady(app)

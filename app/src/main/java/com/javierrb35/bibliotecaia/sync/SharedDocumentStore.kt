@@ -93,14 +93,15 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri,
         // Preserve the legacy catalogue at root; never move or delete it.
         // New metadata is isolated; unrelated nested files are not scanned.
         val metadata = if (namedOriginals) technicalFolder(false)?.let { folder ->
-            childrenOf(folder).filter { !it.directory && it.name.startsWith("bia-state-") && it.name.endsWith(".json") }
+            childrenOf(folder).filter { !it.directory &&
+                ((it.name.startsWith("bia-state-") && it.name.endsWith(".json")) || SharedCoverArt.isName(it.name)) }
         }.orEmpty() else emptyList()
         return files + metadata
     }
     override fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
         ?: throw IOException("No se puede leer " + item.name)
     override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
-        val parent = if (namedOriginals && name.startsWith("bia-state-") && name.endsWith(".json"))
+        val parent = if (namedOriginals && ((name.startsWith("bia-state-") && name.endsWith(".json")) || SharedCoverArt.isName(name)))
             requireNotNull(technicalFolder(true)) else root
         val before = childrenOf(parent)
         require(before.none { it.name.equals(name, ignoreCase = true) }) {

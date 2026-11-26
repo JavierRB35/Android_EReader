@@ -141,6 +141,12 @@ object BackupRoutine {
         return prefs.getStringSet("central_index_hashes", null)?.toSet()
     }
 
+    /** Browse-only candidate index; never use for eviction or integrity decisions. */
+    fun browseHashes(context: Context): Set<String>? =
+        if (com.javierrb35.bibliotecaia.sync.SharedLibrary.namedFolderMode(context))
+            com.javierrb35.bibliotecaia.sync.SharedLibrary.catalogueHashes(context)
+        else centralHashes(context)
+
     private fun rememberCentral(context: Context, uri: Uri, hashes: Set<String>) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("central_index_uri", uri.toString())
@@ -162,7 +168,11 @@ object BackupRoutine {
         withContext(Dispatchers.IO) {
             lock.withLock {
                 if (com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(context)) {
-                    com.javierrb35.bibliotecaia.sync.SharedLibrary.sync(context, database)
+                    val shared = com.javierrb35.bibliotecaia.sync.SharedLibrary
+                    if (shared.namedFolderMode(context)) {
+                        val result = shared.refreshCatalogue(context, database)
+                        require(result.errors.isEmpty()) { result.errors.joinToString(" · ") }
+                    } else shared.sync(context, database)
                     return@withLock
                 }
                 val uri = centralUri(context) ?: error("Conecta primero la biblioteca central.")

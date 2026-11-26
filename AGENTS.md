@@ -35,6 +35,8 @@ Referencia funcional: Scriptura para Android.
 
 ## No regresión (obligatorio)
 
+- Contrato de carátulas y catálogo: `docs/architecture/SHARED_COVERS_AND_CATALOGUE.md`. No envenenar caché negativa por libro no descargado; mantener derivados separados de originales y sus hashes verificados. No leer todo el contenido para mostrar el catálogo ni usar el índice de navegación para operaciones de integridad; conservar pruebas de #126.
+
 - Contrato vinculante Drive/SAF: leer `docs/architecture/GOOGLE_DRIVE_ACCESS.md` antes de modificar almacenamiento o sincronización. Preservar la selección de árbol y la búsqueda de proveedor por documento como ruta no destructiva de navegación; jamás equiparar un URI de documento con un grant de carpeta ni crear ZIP por dispositivo. Mantener pruebas de intents, permisos, cancelación, acceso real a originales/metadatos, migración y reconciliación; distinguir CI sintética de Drive físico.
 
 - Antes de cambiar una funcionalidad, consulta `docs/qa/REGRESSION_REGISTER.md` y las incidencias relacionadas. Toda corrección significativa debe enlazar una prueba permanente, o declarar de forma explícita por qué requiere validación física.

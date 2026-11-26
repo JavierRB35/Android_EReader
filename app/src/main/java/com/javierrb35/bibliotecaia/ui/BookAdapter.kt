@@ -68,7 +68,7 @@ class BookAdapter(private val onClick: (BookEntity) -> Unit) : RecyclerView.Adap
             ", ${book.authors.orEmpty()}, ${holder.format.text}, ${holder.progressText.text}"
         holder.itemView.setOnClickListener { onClick(book) }
         holder.job = holder.scope?.launch {
-            val bitmap = BookCoverLoader.load(book)
+            val bitmap = BookCoverLoader.load(context, book)
             if (holder.boundId == book.id && bitmap != null) {
                 holder.cover.setImageBitmap(bitmap)
                 holder.fallback.visibility = View.GONE
