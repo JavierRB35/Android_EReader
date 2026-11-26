@@ -271,7 +271,7 @@ class MainActivity : AppCompatActivity() {
                 val coverView = findViewById<ImageView>(R.id.imgRecentCover)
                 coverView.setImageDrawable(null)
                 val bitmap = try {
-                    BookCoverLoader.load(latest)
+                    BookCoverLoader.load(applicationContext, latest)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
