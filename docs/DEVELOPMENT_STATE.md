@@ -8,6 +8,12 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 #138 — recuperación de operatividad tras prueba v0.1.198 (26/11/2026)
+- PR #139: descargas individuales y múltiples con una sesión verificada, cancelación y navegación no bloqueada, importación/guardado/retirada dirigida a los originales seleccionados; sincronización ordinaria basada en metadatos, sin auditoría de originales ya listados.
+- Carátulas EPUB/MOBI EXTH 201/202, worker independiente, caché derivada; agrupación visual reversible de par EPUB/MOBI de título/autor no ambiguos. Selector de alternativas y datos por original intactos. Búsqueda excluida por el propietario.
+- Pruebas de regresión en SharedLibraryJourneyTest, LibrarySelectionTest, MobiCoverSourceTest y BibliographicEditionsTest. CI y prueba física pendientes; conservar los 537 registros de catálogo y los ZIP. No restablecer ni borrar Drive. #135 sigue vigente para optimizaciones restantes y medición.
+- No declarar publicación hasta gates del HEAD y APK firmada acreditados.
+
 ## #136 — retirada de PDF/OCR (26/11/2026)
 - Retirados lector PDF, servicio, extracción de portada, OCR, ML Kit y tests exclusivos; se mantiene compatibilidad del esquema y recuperación de originales/locators PDF históricos. Importador rechaza PDF por contenido, ficha histórica no abre lector/IA. Conversión de pruebas compartidas a EPUB/MOBI; conserva persistencia y portadas.
 - Gate emulador renombrado y cobertura funcional conservada. Cancelación de run antiguo 45839227254 confirmada. CI y medición de APK pendientes.

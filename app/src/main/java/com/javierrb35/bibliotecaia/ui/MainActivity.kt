@@ -480,7 +480,7 @@ class MainActivity : AppCompatActivity() {
         importButton.isEnabled = false
         // Downloads do not modify the central originals or connection. Browsing
         // the local shelf remains possible even if a provider blocks an I/O call.
-        centralButton.isEnabled = action == LibraryBatchAction.DOWNLOAD
+        centralButton.isEnabled = action != LibraryBatchAction.REMOVE
         status.text = "${action.label}: 0/${books.size} · conectando…"
         batchJob = lifecycleScope.launch {
             try {
@@ -497,6 +497,10 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     LibraryBatch.Result(downloaded.completed, downloaded.failures, 0)
+                } else if (action == LibraryBatchAction.REMOVE && SharedLibrary.namedFolderMode(app)) {
+                    status.text = "Comprobando los ${books.size} originales seleccionados…"
+                    SharedLibrary.evictSelection(app, db, requireNotNull(destination), books)
+                    LibraryBatch.Result(books.size, emptyList(), 0)
                 } else LibraryBatch.run(books, { cancelBatch }, { done, total ->
                     status.text = "${action.label}: $done/$total"
                 }, describe = { it.title }) { book ->
@@ -515,7 +519,8 @@ class MainActivity : AppCompatActivity() {
                         LibraryBatchAction.SAVE -> {
                             if (savedHashes == null && saveError == null) {
                                 try {
-                                    val sync = SharedLibrary.sync(app, db, expectedUri = requireNotNull(destination))
+                                    val sync = SharedLibrary.publishImports(app, db, requireNotNull(destination),
+                                        books.map { it.contentHash }.toSet())
                                     require(sync.errors.isEmpty()) { sync.errors.joinToString(" · ") }
                                     savedHashes = SharedLibrary.hashes(app)
                                 } catch (e: CancellationException) { throw e }
@@ -628,7 +633,7 @@ class MainActivity : AppCompatActivity() {
         val button = findViewById<View>(R.id.btnImport)
         val label = findViewById<TextView>(R.id.txtImportLabel)
         button.isEnabled = false
-        findViewById<View>(R.id.btnCentralLibrary).isEnabled = false
+        // Keep shelf navigation available during publication.
         label.setText(R.string.bia_importing)
         findViewById<View>(R.id.importProgress).visibility = View.VISIBLE
         lifecycleScope.launch {

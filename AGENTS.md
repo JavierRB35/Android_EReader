@@ -7,6 +7,8 @@ Referencia funcional: Scriptura para Android.
 
 ## Directriz funcional vigente — P0 biblioteca única
 
+- #138 (26/11): operaciones habituales consultan el catálogo JSON/Room sin reauditar originales ya publicados; verificar bytes de nuevos originales y solicitudes de descarga/retirada, auditoría separada. Mantener navegación y cancelación, miniaturas independientes, variantes bibliográficas sin fusión destructiva; prioridad a recuperar operatividad de v0.1.198. No modificar búsqueda por el ejemplo descartado.
+
 - #136: EPUB 2/3 y MOBI; PDF y OCR retirados del alcance. Conservar esquema, metadatos y originales PDF históricos en copias/sincronización, sin lector ni importación directa. #137: recuperación ZIP masiva solo a la biblioteca compartida; no instalar nuevas copias locales.
 
 - La cabecera de [#103](https://github.com/JavierRB35/Android_EReader/issues/103) es la decisión funcional vinculante más reciente; prevalece sobre especificaciones anteriores incompatibles. Consultarla antes de cada ejecución.

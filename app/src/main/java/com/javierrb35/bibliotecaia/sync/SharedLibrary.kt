@@ -864,6 +864,11 @@ object SharedLibrary {
     }
 
     suspend fun evict(context: Context, db: AppDatabase, id: String) {
+        if (namedFolderMode(context)) {
+            val book = db.bookDao().findById(id) ?: error("Libro no encontrado.")
+            evictSelection(context, db, requireNotNull(uri(context)), listOf(book))
+            return
+        }
         val result = sync(context, db)
         require(result.errors.isEmpty()) { "Sincronización incompleta; no se retirará el original." }
         withContext(Dispatchers.IO) {
@@ -883,6 +888,19 @@ object SharedLibrary {
             }
         }
     }
+    /** One directed publication and one independent verification pass for a selection.
+     * No unrelated original needs to be opened. */
+    internal suspend fun evictSelection(context: Context, db: AppDatabase, expectedUri: Uri,
+                                        books: List<BookEntity>) {
+        require(books.isNotEmpty() && namedFolderMode(context))
+        val requested = books.map { it.contentHash }.toSet()
+        val result = publishImports(context, db, expectedUri, requested)
+        require(result.errors.isEmpty() && result.verified == requested.size) {
+            "No se han comprobado todos los originales seleccionados. Se conservan las copias locales."
+        }
+        evictVerifiedImports(context, db, expectedUri, books)
+        scheduleCovers(context)
+    }
     /** Caller has just published the shared catalogue. Validate every remote
      * original again before removing any of this batch's temporary local files.
      * A separate backup is optional and is never a publication prerequisite.
@@ -893,7 +911,7 @@ object SharedLibrary {
             require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
             store(context).use { store -> evictVerifiedBatch(store, db, context.filesDir, books) }
             changes.value += 1
-        }
+        }.also { scheduleCovers(context) }
     }
 
     internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
@@ -910,7 +928,8 @@ object SharedLibrary {
             book
         }
         for (book in latest) {
-            publishLocalCover(store, book)
+            // The verified remote original remains available to the independent
+            // thumbnail worker; do not delay safe local removal on cover I/O.
             LocalBookCopyRemover.delete(filesDir, book)
             check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
         }
