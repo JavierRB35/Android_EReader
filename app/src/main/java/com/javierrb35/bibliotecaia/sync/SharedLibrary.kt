@@ -365,7 +365,7 @@ object SharedLibrary {
                         }
                     }
                     stage = NamedFolderSetupFailure.Stage.SYNC
-                    val moved = syncStore(target, db, owner, context.filesDir, onProgress)
+                    val moved = syncStore(target, db, owner, context.filesDir, onProgress = onProgress)
                     require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
                     // Fresh post-publication inventory and full SHA-256 verification.
                     stage = NamedFolderSetupFailure.Stage.VERIFY
@@ -588,8 +588,32 @@ object SharedLibrary {
             Result(result.hashes.size, result.errors)
         }
     }
+    /** Routine named-folder publication is a metadata operation, not an integrity audit.
+     * A listed receipt is only a candidate; explicit download, eviction, migration and
+     * full sync still verify original bytes. Repair unlisted originals using the old path. */
+    suspend fun syncMetadata(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext sync(context, db)
+        mutex.withLock {
+            val result = store(context).use {
+                syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
+                    verifyOriginals = false)
+            }
+            val previouslyVerified = hashes(context).intersect(result.hashes)
+            val edit = prefs(context).edit().putStringSet("hashes", previouslyVerified)
+            if (result.errors.isEmpty()) {
+                edit.putStringSet("catalogue_hashes", result.hashes)
+                    .putLong("last_publication", System.currentTimeMillis())
+                if (previouslyVerified != result.hashes || !healthy(context))
+                    edit.putString("status", "Catálogo sincronizado: ${result.hashes.size} originales listados; auditoría de bytes independiente.")
+            } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
+            edit.apply()
+            changes.value += 1
+            Result(previouslyVerified.size, result.errors)
+        }
+    }
     internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
-                                   filesDir: File? = null, onProgress: (String) -> Unit = {}): StoreResult {
+                                   filesDir: File? = null, verifyOriginals: Boolean = true,
+                                   onProgress: (String) -> Unit = {}): StoreResult {
             onProgress("Leyendo e integrando el catálogo compartido…")
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
@@ -601,6 +625,7 @@ object SharedLibrary {
             }
             val known = inv.receipts.toMutableMap()
             val available = if (store.namedOriginals) mutableSetOf<String>() else inv.availableHashes().toMutableSet()
+            val listed = if (store.namedOriginals && !verifyOriginals) inv.listedHashes() else emptySet()
             // Existing candidates come from this inventory only. Creation still uses a
             // fresh listing and identity checks; a final independent audit catches changes.
             val candidates = inv.items.values.flatten()
@@ -608,7 +633,8 @@ object SharedLibrary {
             onProgress("Originales procesados: 0/${books.size} · 0 confirmados")
             for ((index, book) in books.withIndex()) {
                 try {
-                    if (store.namedOriginals && inv.available(book.contentHash)) available.add(book.contentHash)
+                    if (store.namedOriginals && (if (verifyOriginals) inv.available(book.contentHash)
+                            else book.contentHash in listed)) available.add(book.contentHash)
                     if (book.contentHash in available) continue
                     if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
                     val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book, candidates) else null
@@ -660,7 +686,7 @@ object SharedLibrary {
                     Result(result.hashes.size, result.errors)
                 } finally { stage.deleteRecursively() }
             }
-        }
+        }.also { schedule(context, immediate = true) }
     }
 
     /** Publish verified originals to the shared folder; never install ZIP
@@ -714,13 +740,17 @@ object SharedLibrary {
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {
-            val item = inv.resolve(receipt) ?: continue
-            try {
-                require(receipt.bytes == book.sizeBytes)
-                store.extract(item, target, book.contentHash, book.sizeBytes)
-                return
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { target.delete() }
+            if (receipt.bytes != book.sizeBytes) continue
+            for (item in inv.items[receipt.name].orEmpty()) {
+                if (item.directory || (item.size >= 0 && item.size != receipt.bytes)) continue
+                try {
+                    // extract independently checks SHA-256 and length while copying.
+                    // Do not open the entire remote original a second time to resolve it.
+                    store.extract(item, target, book.contentHash, book.sizeBytes)
+                    return
+                } catch (e: CancellationException) { target.delete(); throw e }
+                catch (_: Exception) { target.delete() }
+            }
         }
         throw IOException("No se encuentra un original central íntegro de " + book.title.take(80))
     }
@@ -961,7 +991,7 @@ object SharedLibrary {
         exitPublisher.launch {
             for (app in exitRequests) {
                 if (!configured(app)) continue
-                try { sync(app, AppDatabase.get(app)) }
+                try { syncMetadata(app, AppDatabase.get(app)) }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { recordFailure(app, e) }
             }
@@ -1002,7 +1032,7 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
         return try {
             val revision = SharedLibrary.revision(applicationContext)
             val db = AppDatabase.get(applicationContext)
-            val result = SharedLibrary.sync(applicationContext, db)
+            val result = SharedLibrary.syncMetadata(applicationContext, db)
             SharedLibrary.maintainCovers(applicationContext, db)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)

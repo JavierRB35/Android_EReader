@@ -7,6 +7,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.data.*
 import com.javierrb35.bibliotecaia.importer.BatchImport
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitAll
@@ -94,6 +95,52 @@ class SharedLibraryJourneyTest {
             catch (_: IllegalArgumentException) { rejected = true }
             assertTrue("Same-size corruption must block setup", rejected)
             assertEquals(40, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+        } finally { db.close(); root.deleteRecursively() }
+    }
+
+    @Test fun routineMetadataAndDownloadAvoidRepeatedOriginalReads() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "metadata-fast-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val base = TestStore(cloud, namedOriginals = true)
+        val file = File(cloud, "El verdugo - autor.epub").apply { writeText("Verified original") }
+        val book = BookEntity("test-book", "Otro título", "Autor", BookFormat.EPUB, file.name,
+            "", SharedDocumentStore.hash(file.readBytes()), file.length(), 1L)
+        var reads = 0
+        val store = object : SharedStore by base {
+            override fun open(item: SharedDocumentStore.Item): InputStream {
+                if (item.name == file.name) reads++
+                return base.open(item)
+            }
+            override fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean =
+                open(item).use { SharedDocumentStore.digest(it, size) } == (hash to size)
+            override fun extract(item: SharedDocumentStore.Item, target: File, hash: String, size: Long) {
+                open(item).use { input -> target.outputStream().use { input.copyTo(it) } }
+                require(target.length() == size && SharedDocumentStore.hash(target.readBytes()) == hash)
+            }
+        }
+        try {
+            db.bookDao().insert(book)
+            assertEquals(setOf(book.contentHash), SharedLibrary.syncStore(store, db, "a".repeat(32)).hashes)
+            reads = 0
+            db.readingDao().savePosition(ReadingPositionEntity(book.id, "chapter:1", .1f, 10L))
+            val result = SharedLibrary.syncStore(store, db, "a".repeat(32), verifyOriginals = false)
+            assertTrue(result.errors.toString(), result.errors.isEmpty())
+            assertEquals(setOf(book.contentHash), result.hashes)
+            assertEquals("Routine metadata sync must not open original bytes", 0, reads)
+            val target = File(root, "download.epub")
+            SharedLibrary.stageFromStore(store, book, target)
+            assertEquals(1, reads)
+            assertEquals(book.contentHash, SharedDocumentStore.hash(target.readBytes()))
+            file.writeBytes(ByteArray(file.length().toInt()))
+            var rejected = false
+            try { SharedLibrary.stageFromStore(store, book, target) }
+            catch (_: java.io.IOException) { rejected = true }
+            assertTrue("Same-size corruption must be rejected", rejected)
+            assertFalse(target.exists())
+            val results = db.bookDao().search("el verdugo", "ALL", 0, "").first()
+            assertEquals(listOf(book.id), results.map { it.id })
         } finally { db.close(); root.deleteRecursively() }
     }
 
