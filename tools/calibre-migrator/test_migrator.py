@@ -91,5 +91,29 @@ class MigratorTest(unittest.TestCase):
             self.assertEqual(summarize_report(out),dict(prepared=2,duplicate=0,error=0,unsupported=0,warning=1,pending=0))
             self.assertEqual((root/"metadata.db").read_bytes(),before)
 
+    def test_interrupted_batch_is_not_reported_as_prepared(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/"Calibre"; folder=root/"Autor/Libro (1)"
+            folder.mkdir(parents=True)
+            original=folder/"Libro.pdf"
+            data=b"%PDF-1.4\n%%EOF"
+            original.write_bytes(data)
+            output=Path(d)/"out"
+            cancel=[False]
+            def on_progress(message):
+                if message.startswith("Creando"):
+                    cancel[0]=True
+            with self.assertRaises(InterruptedError):
+                migrate(root,output,True,on_progress,lambda:cancel[0])
+            run=next(output.iterdir())
+            self.assertEqual(list(run.glob("*.zip")),[])
+            self.assertEqual(list(run.glob("*.partial")),[])
+            self.assertEqual(summarize_report(run)["pending"],1)
+            self.assertEqual(summarize_report(run)["prepared"],0)
+            self.assertEqual(original.read_bytes(),data)
+            retry,n,count=migrate(root,output,True)
+            self.assertEqual((n,count),(1,1))
+            self.assertEqual(summarize_report(retry)["prepared"],1)
+
 if __name__=="__main__":
     unittest.main()
