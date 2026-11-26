@@ -35,6 +35,8 @@ Referencia funcional: Scriptura para Android.
 
 ## No regresión (obligatorio)
 
+- Contrato vinculante Drive/SAF: leer `docs/architecture/GOOGLE_DRIVE_ACCESS.md` antes de modificar almacenamiento o sincronización. Preservar la selección de árbol y la búsqueda de proveedor por documento como ruta no destructiva de navegación; jamás equiparar un URI de documento con un grant de carpeta ni crear ZIP por dispositivo. Mantener pruebas de intents, permisos, cancelación, acceso real a originales/metadatos, migración y reconciliación; distinguir CI sintética de Drive físico.
+
 - Antes de cambiar una funcionalidad, consulta `docs/qa/REGRESSION_REGISTER.md` y las incidencias relacionadas. Toda corrección significativa debe enlazar una prueba permanente, o declarar de forma explícita por qué requiere validación física.
 - No fusionar/publicar con controles relevantes fallidos o pendientes. El gate de arranque y el gate JVM obligatorios para publicación deben conservar las regresiones críticas de almacenamiento. Actualiza el registro con commit, pruebas realmente ejecutadas y versión comprobada; emulador no equivale a Drive real.
 

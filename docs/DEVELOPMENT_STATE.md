@@ -8,6 +8,12 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — Regresión de acceso a Drive (26/11/2026)
+
+- Base main ac0e9418, release v0.1.179 con importación sin backup obligatorio. Auditoría #95/#103: #96 (9019da52, v0.1.127) recuperó acceso a un documento ZIP; 8e5993e (#119, presente en v0.1.175) eliminó intencionalmente esa ruta y sus pruebas al pasar a árbol único. No hay evidencia de permiso de carpeta Drive real en ese historial.
+- Rama fix/drive-provider-selection-20261126: buscar proveedor mediante ACTION_OPEN_DOCUMENT sin abrir ni persistir el archivo; reintentar árbol con URI inicial; comprobar permiso persistente R/W exacto y no activar documento individual; conservar conexión previa si falla. Sin OAuth, ZIP, gateway ni cambios en datos reales.
+- Contrato y validación en docs/architecture/GOOGLE_DRIVE_ACCESS.md; nuevas pruebas de intents/cancelación/navegación en SharedSettingsJourneyDeviceTest, gate startup existente. CI y Drive físico pendientes. Si el proveedor no ofrece árbol, no se puede declarar biblioteca conectada ni recuperar el acceso completo por esta vía.
+
 ## P0 — Importación directa sin copia obligatoria (26/11/2026)
 
 - Base main b148a660, #119 y #120 fusionadas. Rama fix/shared-import-no-backup-20261126: se confirman tres dependencias heredadas del backup en MainActivity (selector, recepción y publicación). Se elimina el requisito de ZIP y se comparte el criterio de permisos/identidad entre Ajustes, asistente e importación; la última sincronización comprobada se distingue del permiso de escritura persistente para permitir staging offline.
