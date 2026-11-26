@@ -11,7 +11,7 @@
 ## #131 — selección múltiple (26/11/2026)
 - Rama feat/library-multi-select-20261126, base 5dad7975. Incremento independiente de #128/#129: UI, sombreado sin checks, operaciones seguras por lote, selección filtrada y cancelación entre libros. Reutiliza BackupRoutine/SharedLibrary, sin cambios a sincronización. Guardar publica el catálogo normal completo y verifica los hashes seleccionados. 
 - B15 pendiente: BookDeletion.apply borra notas/posiciones y deleteEverywhere no retira el original remoto; no activar su uso masivo. Pendientes CI, integración, APK y prueba física; no cerrar #131.
-- Pruebas LibrarySelectionTest y LibraryHomeUxDeviceTest ampliada; ver resultados del HEAD exacto. 
+- Pruebas LibrarySelectionTest y LibraryHomeUxDeviceTest ampliada; CI inicial 2f75d05: 2/4 gates verdes, 39/40 startup y 93/94 lector/OCR; mismo fallo de preparación del RecyclerView sin LayoutManager. Fixture corregida con gestor de diseño por modo y reset de selección; nueva CI pendiente. Ver #132 y registro de regresiones. 
 
 ## P0 — #126 catálogo rápido y carátulas compartidas (26/11/2026)
 

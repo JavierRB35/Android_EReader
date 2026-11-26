@@ -46,6 +46,11 @@ class LibraryHomeUxDeviceTest {
                 val parent = androidx.recyclerview.widget.RecyclerView(activity)
                 adapter.submit(listOf(book, other))
                 for (grid in listOf(true, false)) {
+                    adapter.showSelection(emptySet())
+                    longPressed = ""
+                    parent.layoutManager = if (grid)
+                        androidx.recyclerview.widget.GridLayoutManager(activity, 2)
+                    else androidx.recyclerview.widget.LinearLayoutManager(activity)
                     adapter.grid = grid
                     val holder = adapter.onCreateViewHolder(parent, adapter.getItemViewType(0))
                     adapter.onBindViewHolder(holder, 0)
