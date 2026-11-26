@@ -8,6 +8,8 @@ import com.javierrb35.bibliotecaia.backup.*
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
+import com.javierrb35.bibliotecaia.data.BookFormat
+import com.javierrb35.bibliotecaia.ui.BookCoverLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +38,42 @@ object SharedLibrary {
     private val objectName = Regex("bia-book-([a-f0-9]{64})-[a-f0-9-]{36}\\.bin")
     private val stateName = Regex("bia-state-([a-f0-9]{32})-([0-9]{1,19})-([a-f0-9]{64})-[a-f0-9-]{36}\\.json")
     val changes = MutableStateFlow(0L)
+    val coverChanges = MutableStateFlow(0L)
+    private data class CoverIndex(val tree: Uri, val items: List<SharedDocumentStore.Item>, val checkedAt: Long)
+    @Volatile private var coverIndex: CoverIndex? = null
+    private val coverIndexMutex = Mutex()
+
+    private fun rememberCovers(tree: Uri, items: List<SharedDocumentStore.Item>) {
+        val covers = items.filter { SharedCoverArt.isName(it.name) }
+        val previous = coverIndex
+        coverIndex = CoverIndex(tree, covers, android.os.SystemClock.elapsedRealtime())
+        if (previous == null || previous.tree != tree || previous.items.toSet() != covers.toSet())
+            coverChanges.value += 1
+    }
+
+    /** Fetch only derived thumbnails, independent of the original-audit mutex. */
+    suspend fun readCover(context: Context, hash: String): ByteArray? = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext null
+        val tree = uri(context) ?: return@withContext null
+        folderStore(context, tree, named = true).use { source ->
+            val index = coverIndexMutex.withLock {
+                val cached = coverIndex
+                if (cached != null && cached.tree == tree &&
+                    android.os.SystemClock.elapsedRealtime() - cached.checkedAt < 30_000L) cached
+                else {
+                    rememberCovers(tree, source.list())
+                    coverIndex?.takeIf { it.tree == tree }
+                }
+            }
+            if (uri(context) != tree) return@withContext null
+            SharedCoverArt.read(source, index?.items.orEmpty(), hash)
+        }
+    }
+
+    /** Separate browse-only index; listed receipts are not verified originals. */
+    fun catalogueHashes(context: Context): Set<String> =
+        prefs(context).getStringSet("catalogue_hashes", null)?.toSet() ?: hashes(context)
+
     data class Receipt(val hash: String, val name: String, val bytes: Long)
     data class Result(val verified: Int, val errors: List<String>)
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -116,7 +154,7 @@ object SharedLibrary {
             .putStringSet("file_peers", connection.peers)
             .putStringSet("previous_connections", history.map { it.encode() }.toSet())
             .remove("owner_mismatch")
-        if (old?.uri != connection.uri || old?.named != connection.named) edit.remove("hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
+        if (old?.uri != connection.uri || old?.named != connection.named) edit.remove("hashes").remove("catalogue_hashes").remove("last_success").remove("last_publication").putString("status", "Pendiente de sincronizar.")
         check(edit.commit()) { "No se pudo guardar la nueva conexión." }
         changes.value += 1
     }
@@ -211,7 +249,7 @@ object SharedLibrary {
         val message = if (errors.isEmpty()) "Biblioteca comprobada: " + hashes.size + " originales."
             else "Sincronización parcial: " + errors.joinToString(" · ").take(1200)
         val edit = prefs(context).edit().putStringSet("hashes", hashes).putString("status", message)
-        if (errors.isEmpty()) edit.putLong("last_success", System.currentTimeMillis()).remove("owner_mismatch")
+        if (errors.isEmpty()) edit.putStringSet("catalogue_hashes", hashes).putLong("last_success", System.currentTimeMillis()).remove("owner_mismatch")
         edit.apply()
         changes.value += 1
     }
@@ -386,6 +424,11 @@ object SharedLibrary {
             resolve(it) != null
         }
         fun availableHashes(): Set<String> = receipts.keys.filter(::available).toSet()
+        fun listedHashes(): Set<String> = receipts.filterValues { candidates ->
+            candidates.any { receipt -> items[receipt.name].orEmpty().any {
+                !it.directory && (it.size < 0 || it.size == receipt.bytes)
+            } }
+        }.keys
     }
     private fun inventory(store: SharedStore): Inventory {
         val files = store.list()
@@ -598,7 +641,8 @@ object SharedLibrary {
             val removed = com.javierrb35.bibliotecaia.data.BookDeletion.remove(db, id) ?: return@withLock
             // The logical deletion is committed before cleanup; stale remote copies cannot resurrect it.
             if (CentralCatalogue.local(removed)) runCatching { LocalBookCopyRemover.delete(context.filesDir, removed) }
-            prefs(context).edit().putStringSet("hashes", hashes(context) - removed.contentHash).apply()
+            prefs(context).edit().putStringSet("hashes", hashes(context) - removed.contentHash)
+                .putStringSet("catalogue_hashes", catalogueHashes(context) - removed.contentHash).apply()
             changes.value += 1
         }
         schedule(context, immediate = true)
@@ -617,6 +661,7 @@ object SharedLibrary {
                     item != null && receipt.bytes == book.sizeBytes &&
                         runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
                 }) { "No se pudo comprobar el original central. Se conserva el archivo local." }
+                publishLocalCover(store, book)
                 LocalBookCopyRemover.delete(context.filesDir, book)
                 check(db.bookDao().clearLocalPath(id, book.localPath) == 1)
                 }
@@ -652,6 +697,7 @@ object SharedLibrary {
             book
         }
         for (book in latest) {
+            publishLocalCover(store, book)
             LocalBookCopyRemover.delete(filesDir, book)
             check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
         }
@@ -684,7 +730,11 @@ object SharedLibrary {
                 }
             }
         }
-    internal suspend fun pullStore(store: SharedStore, db: AppDatabase, filesDir: File? = null): StoreResult {
+    internal suspend fun pullStore(store: SharedStore, db: AppDatabase, filesDir: File? = null): StoreResult =
+        readCatalogueStore(store, db, filesDir, verifyOriginals = true)
+
+    internal suspend fun readCatalogueStore(store: SharedStore, db: AppDatabase,
+                                           filesDir: File? = null, verifyOriginals: Boolean = false): StoreResult {
         val inv = inventory(store)
         val errors = inv.errors.toMutableList()
         val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
@@ -694,8 +744,93 @@ object SharedLibrary {
             catch (e: Exception) { errors.add(e.message ?: "Catálogo incompatible.") }
         }
         val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
-        return StoreResult(inv.availableHashes().intersect(activeHashes), errors)
+        val found = if (verifyOriginals) inv.availableHashes() else inv.listedHashes()
+        return StoreResult(found.intersect(activeHashes), errors)
     }
+
+    /** Merge metadata without opening original streams or updating verified hashes. */
+    suspend fun refreshCatalogue(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val tree = uri(context) ?: error("Conecta una biblioteca central.")
+            val result = store(context).use { source ->
+                val result = readCatalogueStore(source, db, context.filesDir)
+                if (source.namedOriginals && result.errors.isEmpty()) rememberCovers(tree, source.list())
+                result
+            }
+            if (result.errors.isEmpty()) {
+                prefs(context).edit().putStringSet("catalogue_hashes", result.hashes).apply()
+                changes.value += 1
+            }
+            Result(result.hashes.size, result.errors)
+        }
+    }
+
+    private fun publishLocalCover(store: SharedStore, book: BookEntity) {
+        if (!store.namedOriginals || book.format == BookFormat.MOBI || !CentralCatalogue.local(book)) return
+        try {
+            val listing = store.list()
+            if (SharedCoverArt.read(store, listing, book.contentHash) != null) return
+            val file = File(book.localPath)
+            if (file.length() != book.sizeBytes ||
+                OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) != book.contentHash) return
+            val bitmap = BookCoverLoader.extract(book.format, file) ?: return
+            val bytes = try { BookCoverLoader.jpeg(bitmap) } finally { bitmap.recycle() }
+            if (bytes != null) SharedCoverArt.publish(store, book.contentHash, bytes, listing)
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* Derived covers must not block verified originals. */ }
+    }
+
+    /** Progressive historical backfill outside the UI. Never download a book
+     * merely because a grid cell is visible. Keep batches bounded. */
+    internal suspend fun maintainCovers(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext
+        val tree = uri(context) ?: return@withContext
+        try {
+            folderStore(context, tree, named = true).use { source ->
+                val inv = inventory(source)
+                if (inv.errors.isNotEmpty()) return@withContext
+                val listed = inv.listedHashes()
+                val already = inv.items.keys.mapNotNull(SharedCoverArt::bookHash).toHashSet()
+                val absence = context.getSharedPreferences("cover_absence_v1", Context.MODE_PRIVATE)
+                val books = db.backupDao().booksAll().filter {
+                    it.format != BookFormat.MOBI && it.contentHash !in already &&
+                        (CentralCatalogue.local(it) || it.contentHash in listed) &&
+                        System.currentTimeMillis() - absence.getLong(it.contentHash, 0) > 7L * 24 * 60 * 60 * 1000
+                }.sortedByDescending(CentralCatalogue::local)
+                val deadline = android.os.SystemClock.elapsedRealtime() + 60_000L
+                for (book in books.take(16)) {
+                    if (uri(context) != tree || android.os.SystemClock.elapsedRealtime() >= deadline) break
+                    var temp: File? = null
+                    try {
+                        val original = if (CentralCatalogue.local(book)) {
+                            File(book.localPath).also {
+                                require(it.length() == book.sizeBytes &&
+                                    OriginalLinker(it.parentFile ?: File(".")).sha256Hex(it) == book.contentHash)
+                            }
+                        } else {
+                            File.createTempFile("cover-original-", ".tmp", context.cacheDir).also {
+                                temp = it
+                                verifiedCopy(source, inv, book, it)
+                            }
+                        }
+                        val bitmap = BookCoverLoader.extract(book.format, original)
+                        if (bitmap == null) {
+                            absence.edit().putLong(book.contentHash, System.currentTimeMillis()).apply()
+                            continue
+                        }
+                        val bytes = try { BookCoverLoader.jpeg(bitmap) } finally { bitmap.recycle() }
+                        if (bytes != null && uri(context) == tree)
+                            SharedCoverArt.publish(source, book.contentHash, bytes)
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* Retry later, independently of original sync. */ }
+                    finally { temp?.delete() }
+                }
+                if (uri(context) == tree) rememberCovers(tree, source.list())
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { /* No cover failure changes original integrity. */ }
+    }
+
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             val result = store(context).use { pullStore(it, db, context.filesDir) }
@@ -754,7 +889,9 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
         if (!SharedLibrary.configured(applicationContext)) return Result.success()
         return try {
             val revision = SharedLibrary.revision(applicationContext)
-            val result = SharedLibrary.sync(applicationContext, AppDatabase.get(applicationContext))
+            val db = AppDatabase.get(applicationContext)
+            val result = SharedLibrary.sync(applicationContext, db)
+            SharedLibrary.maintainCovers(applicationContext, db)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 Result.success()

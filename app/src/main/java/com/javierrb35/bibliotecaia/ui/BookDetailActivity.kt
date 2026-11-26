@@ -492,7 +492,7 @@ class BookDetailActivity : AppCompatActivity() {
             getString(R.string.detail_status_content, status)
 
         val fileAvailable = b.localPath.isNotBlank() && java.io.File(b.localPath).isFile
-        val centralHashes = BackupRoutine.centralHashes(applicationContext)
+        val centralHashes = BackupRoutine.browseHashes(applicationContext)
         val inCentral = centralHashes?.contains(b.contentHash) == true
         val centralUnknown = centralHashes == null && BackupRoutine.centralUri(applicationContext) != null
         findViewById<TextView>(R.id.txtDetailFile).apply {

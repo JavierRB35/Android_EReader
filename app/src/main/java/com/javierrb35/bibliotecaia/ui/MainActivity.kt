@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setCentralMode(central: Boolean) {
-        centralFlow.value = central to BackupRoutine.centralHashes(applicationContext)
+        centralFlow.value = central to BackupRoutine.browseHashes(applicationContext)
         findViewById<TextView>(R.id.btnCentralLibrary).setText(
             if (central) R.string.central_device else R.string.central_complete)
         findViewById<TextView>(R.id.txtTitle).text =
@@ -103,18 +103,23 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton(android.R.string.cancel, null).show()
             return
         }
-        lifecycleScope.launch {
-            val button = findViewById<View>(R.id.btnCentralLibrary)
-            button.isEnabled = false
+        setCentralMode(true)
+        refreshCentralCatalogue()
+    }
+
+    private var catalogueRefresh: kotlinx.coroutines.Job? = null
+    private fun refreshCentralCatalogue() {
+        if (catalogueRefresh?.isActive == true) return
+        catalogueRefresh = lifecycleScope.launch {
             try {
                 BackupRoutine.refreshCentral(applicationContext, db, BuildConfig.VERSION_NAME)
-                setCentralMode(true)
+                if (centralFlow.value.first) setCentralMode(true)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                Toast.makeText(this@MainActivity, e.message ?: "Biblioteca central no disponible.", Toast.LENGTH_LONG).show()
-                // Cached metadata remains searchable offline; download still requires access.
-                setCentralMode(true)
-            } finally { button.isEnabled = true }
+                if (centralFlow.value.first) Toast.makeText(this@MainActivity,
+                    "Catálogo guardado. " + (e.message ?: "Actualización no disponible."),
+                    Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -188,6 +193,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                SharedLibrary.coverChanges.collect { adapter.notifyDataSetChanged() }
+            }
+        }
         consumeImportIntent(intent)
     }
 
@@ -222,13 +232,8 @@ class MainActivity : AppCompatActivity() {
             if (StorageSetupWizard.pending(applicationContext)) View.VISIBLE else View.GONE
         setCentralMode(centralFlow.value.first)
         lifecycleScope.launch {
-            if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null) {
-                try {
-                    BackupRoutine.refreshCentral(applicationContext, db, BuildConfig.VERSION_NAME)
-                    if (centralFlow.value.first) setCentralMode(true)
-                } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Keep the last verified catalogue offline. */ }
-            }
+            if (centralFlow.value.first && BackupRoutine.centralUri(applicationContext) != null &&
+                !SharedLibrary.namedFolderMode(applicationContext)) refreshCentralCatalogue()
             refreshMissingOriginals()
         }
         lifecycleScope.launch {
@@ -344,7 +349,7 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun refreshMissingOriginals() {
         val missing = CentralCatalogue.missing(db.backupDao().booksAll(),
-            BackupRoutine.centralHashes(applicationContext))
+            BackupRoutine.browseHashes(applicationContext))
         findViewById<View>(R.id.btnMissingOriginals).visibility =
             if (missing.isEmpty()) View.GONE else View.VISIBLE
     }
@@ -352,7 +357,7 @@ class MainActivity : AppCompatActivity() {
     private fun showMissingOriginals() {
         lifecycleScope.launch {
             val missing = CentralCatalogue.missing(db.backupDao().booksAll(),
-                BackupRoutine.centralHashes(applicationContext))
+                BackupRoutine.browseHashes(applicationContext))
             if (missing.isEmpty()) { refreshMissingOriginals(); return@launch }
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(R.string.central_missing_title)
