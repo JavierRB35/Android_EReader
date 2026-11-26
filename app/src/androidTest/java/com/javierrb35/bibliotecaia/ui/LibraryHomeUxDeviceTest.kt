@@ -34,6 +34,45 @@ class LibraryHomeUxDeviceTest {
     }
 
     @Test
+    fun selectionUsesCardShadingAndRecycledCardsResetInBothLayouts() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val book = com.javierrb35.bibliotecaia.data.BookEntity("select-a", "Libro A", null,
+                    com.javierrb35.bibliotecaia.data.BookFormat.EPUB, "a.epub", "", "a".repeat(64), 1, 1)
+                val other = book.copy(id = "select-b", title = "Libro B")
+                var longPressed = ""
+                val adapter = BookAdapter(onLongClick = { longPressed = it.id }) {}
+                val parent = androidx.recyclerview.widget.RecyclerView(activity)
+                adapter.submit(listOf(book, other))
+                for (grid in listOf(true, false)) {
+                    adapter.showSelection(emptySet())
+                    longPressed = ""
+                    parent.layoutManager = if (grid)
+                        androidx.recyclerview.widget.GridLayoutManager(activity, 2)
+                    else androidx.recyclerview.widget.LinearLayoutManager(activity)
+                    adapter.grid = grid
+                    val holder = adapter.onCreateViewHolder(parent, adapter.getItemViewType(0))
+                    adapter.onBindViewHolder(holder, 0)
+                    val card = holder.itemView as com.google.android.material.card.MaterialCardView
+                    val normal = card.cardBackgroundColor.defaultColor
+                    card.performLongClick()
+                    assertEquals(book.id, longPressed)
+                    adapter.showSelection(setOf(book.id))
+                    adapter.onBindViewHolder(holder, 0)
+                    org.junit.Assert.assertTrue(card.isSelected)
+                    org.junit.Assert.assertFalse(card.isCheckable)
+                    assertNotEquals(normal, card.cardBackgroundColor.defaultColor)
+                    adapter.onBindViewHolder(holder, 1)
+                    org.junit.Assert.assertFalse(card.isSelected)
+                    assertEquals(normal, card.cardBackgroundColor.defaultColor)
+                    adapter.onViewRecycled(holder)
+                }
+            }
+        } finally { scenario.close() }
+    }
+
+    @Test
     fun compactHeaderKeepsImportAndViewSwitcherAccessible() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {

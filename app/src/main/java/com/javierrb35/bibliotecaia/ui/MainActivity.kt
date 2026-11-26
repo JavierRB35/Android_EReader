@@ -48,6 +48,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: BookAdapter
     private lateinit var recycler: RecyclerView
     private lateinit var emptyState: View
+    private val selection = LibrarySelection()
+    private var visibleBooks = emptyList<com.javierrb35.bibliotecaia.data.BookEntity>()
+    private var selectionBack: androidx.activity.OnBackPressedCallback? = null
+    private var batchRunning = false
+    private var cancelBatch = false
     private var importing = false
     private var pendingImportCentral = false
     private var pickerOpen = false
@@ -78,6 +83,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setCentralMode(central: Boolean) {
+        if (central != centralFlow.value.first) {
+            selection.clear()
+            visibleBooks = emptyList()
+            if (::adapter.isInitialized) {
+                adapter.submit(emptyList())
+                renderSelection()
+            }
+        }
         centralFlow.value = central to BackupRoutine.browseHashes(applicationContext)
         findViewById<TextView>(R.id.btnCentralLibrary).setText(
             if (central) R.string.central_device else R.string.central_complete)
@@ -144,14 +157,50 @@ class MainActivity : AppCompatActivity() {
 
         recycler = findViewById(R.id.recyclerBooks)
         emptyState = findViewById(R.id.txtEmpty)
-        adapter = BookAdapter { book -> openDetail(book.id) }
+        adapter = BookAdapter(onLongClick = { book ->
+            if (!batchRunning && !importing && visibleBooks.any { it.id == book.id }) {
+                selection.toggle(book.id)
+                renderSelection()
+            }
+        }) { book ->
+            if (selection.active) {
+                selection.toggle(book.id)
+                renderSelection()
+            } else openDetail(book.id)
+        }
         applyViewMode(loadViewMode())
         recycler.adapter = adapter
+        findViewById<View>(R.id.btnSelectAllBooks).setOnClickListener {
+            selection.toggleAll(visibleBooks.map { it.id })
+            renderSelection()
+        }
+        findViewById<View>(R.id.btnClearBookSelection).setOnClickListener {
+            selection.clear()
+            renderSelection()
+        }
+        findViewById<View>(R.id.btnBatchPrimary).setOnClickListener {
+            startBookBatch(if (centralFlow.value.first) LibraryBatchAction.DOWNLOAD else LibraryBatchAction.SAVE)
+        }
+        findViewById<View>(R.id.btnBatchSecondary).setOnClickListener {
+            if (!centralFlow.value.first) confirmBatchRemoval()
+        }
+        findViewById<View>(R.id.btnCancelBookBatch).setOnClickListener {
+            cancelBatch = true
+            findViewById<View>(R.id.btnCancelBookBatch).isEnabled = false
+        }
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                selection.clear()
+                renderSelection()
+            }
+        }.also { selectionBack = it })
 
         val search = findViewById<EditText>(R.id.txtSearch)
         search.setText(savedInstanceState?.getString(STATE_QUERY).orEmpty())
         queryFlow.value = search.text?.toString()?.trim().orEmpty()
         search.doOnTextChanged { text, _, _, _ ->
+            selection.clear()
+            renderSelection()
             queryFlow.value = text?.toString()?.trim().orEmpty()
         }
 
@@ -160,6 +209,8 @@ class MainActivity : AppCompatActivity() {
         shelves.check(restoredShelf)
         updateShelfFilter(shelves.checkedChipId)
         shelves.setOnCheckedStateChangeListener { group, _ ->
+            selection.clear()
+            renderSelection()
             updateShelfFilter(group.checkedChipId)
         }
 
@@ -215,7 +266,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openImportPicker() {
-        if (importing || pickerOpen) return
+        if (importing || pickerOpen || batchRunning) return
         pendingImportCentral = centralFlow.value.first
         if (pendingImportCentral && !checkSharedImportAccess()) return
         pickerOpen = true
@@ -319,7 +370,10 @@ class MainActivity : AppCompatActivity() {
                 }.flatMapLatest { (flow, mode) ->
                     flow.map { all -> CentralCatalogue.visible(all, mode.first, mode.second) }
                 }.collect { books ->
+                    visibleBooks = books
+                    selection.retain(books.map { it.id })
                     adapter.submit(books)
+                    renderSelection()
                     refreshMissingOriginals()
                     findViewById<TextView>(R.id.txtBookCount).text =
                         resources.getQuantityString(R.plurals.bia_ux_book_count, books.size, books.size)
@@ -343,6 +397,111 @@ class MainActivity : AppCompatActivity() {
                     emptyState.visibility = if (books.isEmpty()) View.VISIBLE else View.GONE
                     recycler.visibility = if (books.isEmpty()) View.GONE else View.VISIBLE
                 }
+            }
+        }
+    }
+
+    private fun renderSelection() {
+        adapter.showSelection(selection.ids)
+        selectionBack?.isEnabled = selection.active
+        findViewById<View>(R.id.bookSelectionBar).visibility =
+            if (selection.active && !batchRunning) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.txtSelectedBooks).text = "${selection.ids.size} seleccionados"
+        findViewById<TextView>(R.id.btnSelectAllBooks).text =
+            if (visibleBooks.isNotEmpty() && selection.ids.size == visibleBooks.size)
+                "Deseleccionar todos" else "Seleccionar todos"
+        findViewById<TextView>(R.id.btnBatchPrimary).text =
+            if (centralFlow.value.first) "Descargar al dispositivo" else "Guardar en biblioteca"
+        // Global deletion currently destroys reading metadata. Do not expose it as
+        // a batch action until the recoverable deletion contract is implemented.
+        findViewById<View>(R.id.btnBatchSecondary).visibility =
+            if (centralFlow.value.first) View.GONE else View.VISIBLE
+    }
+
+    private fun selectedBooks() = visibleBooks.filter { it.id in selection.ids }
+
+    private fun confirmBatchRemoval() {
+        val books = selectedBooks()
+        if (books.isEmpty() || batchRunning) return
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Retirar ${books.size} libros del dispositivo")
+            .setMessage("Se conservarán las notas y posiciones. Si un libro aún no está guardado en la biblioteca, se intentará guardarlo y verificarlo antes de retirar la copia local. Si falla, se conservará el original.")
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton("Guardar y retirar") { _, _ -> startBookBatch(LibraryBatchAction.REMOVE, books) }
+            .show()
+    }
+
+    private fun startBookBatch(action: LibraryBatchAction,
+        books: List<com.javierrb35.bibliotecaia.data.BookEntity> = selectedBooks()) {
+        if (books.isEmpty() || batchRunning || importing || pickerOpen) return
+        val app = applicationContext
+        if (action != LibraryBatchAction.DOWNLOAD && !checkSharedImportAccess()) return
+        val destination = SharedLibrary.uri(app)
+        val centralUri = BackupRoutine.centralUri(app)
+        batchRunning = true
+        cancelBatch = false
+        selection.clear()
+        renderSelection()
+        val status = findViewById<TextView>(R.id.txtBookBatchProgress)
+        val progress = findViewById<View>(R.id.bookBatchProgress)
+        val cancel = findViewById<View>(R.id.btnCancelBookBatch)
+        val importButton = findViewById<View>(R.id.btnImport)
+        val centralButton = findViewById<View>(R.id.btnCentralLibrary)
+        progress.visibility = View.VISIBLE
+        cancel.isEnabled = true
+        importButton.isEnabled = false
+        centralButton.isEnabled = false
+        status.text = "${action.label}: 0/${books.size}"
+        lifecycleScope.launch {
+            try {
+                // A save publishes the normal shared catalogue just once. Report
+                // only the requested books, and never claim success on a failed sync.
+                var savedHashes: Set<String>? = null
+                var saveError: Exception? = null
+                val result = LibraryBatch.run(books, { cancelBatch }, { done, total ->
+                    status.text = "${action.label}: $done/$total"
+                }, describe = { it.title }) { book ->
+                    require(SharedLibrary.uri(app) == destination &&
+                        BackupRoutine.centralUri(app) == centralUri) { "La biblioteca ha cambiado." }
+                    val latest = db.bookDao().findById(book.id)
+                    require(latest != null && latest.contentHash == book.contentHash) { "El libro ha cambiado." }
+                    when (action) {
+                        LibraryBatchAction.DOWNLOAD -> BackupRoutine.downloadBook(app, db, BuildConfig.VERSION_NAME, book.contentHash)
+                        LibraryBatchAction.SAVE -> {
+                            if (savedHashes == null && saveError == null) {
+                                try {
+                                    val sync = SharedLibrary.sync(app, db, expectedUri = requireNotNull(destination))
+                                    require(sync.errors.isEmpty()) { sync.errors.joinToString(" · ") }
+                                    savedHashes = SharedLibrary.hashes(app)
+                                } catch (e: CancellationException) { throw e }
+                                catch (e: Exception) { saveError = e }
+                            }
+                            saveError?.let { throw it }
+                            require(book.contentHash in savedHashes.orEmpty()) { "Original compartido no verificado." }
+                        }
+                        LibraryBatchAction.REMOVE -> BackupRoutine.evictBook(app, db, BuildConfig.VERSION_NAME, book.id)
+                    }
+                }
+                setCentralMode(centralFlow.value.first)
+                if (action == LibraryBatchAction.REMOVE) {
+                    findViewById<View>(R.id.recentBookCard).visibility = View.GONE
+                }
+                val summary = buildString {
+                    append(result.completed).append(" de ").append(books.size).append(" libros completados.")
+                    if (result.pending > 0) append("\n").append(result.pending).append(" pendientes; puedes reintentarlos.")
+                    for (failure in result.failures.take(8)) append("\n").append(failure)
+                    if (result.failures.size > 8) append("\n… y ").append(result.failures.size - 8).append(" errores más.")
+                }
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(action.label).setMessage(summary)
+                    .setPositiveButton("Aceptar", null).show()
+            } catch (e: CancellationException) { throw e }
+            finally {
+                batchRunning = false
+                progress.visibility = View.GONE
+                importButton.isEnabled = true
+                centralButton.isEnabled = true
+                renderSelection()
             }
         }
     }

@@ -17,8 +17,39 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** Real covers loaded off-thread; view recycling cancels pending updates. */
-class BookAdapter(private val onClick: (BookEntity) -> Unit) : RecyclerView.Adapter<BookAdapter.Holder>() {
+class BookAdapter(
+    private val onLongClick: ((BookEntity) -> Unit)? = null,
+    private val onClick: (BookEntity) -> Unit
+) : RecyclerView.Adapter<BookAdapter.Holder>() {
     private val items = mutableListOf<BookEntity>()
+    private var selectedIds: Set<String> = emptySet()
+    fun showSelection(ids: Set<String>) {
+        val changed = (selectedIds - ids) + (ids - selectedIds)
+        selectedIds = ids.toSet()
+        items.forEachIndexed { index, book ->
+            if (book.id in changed) notifyItemChanged(index, SELECTION_PAYLOAD)
+        }
+    }
+
+    private fun bindSelection(holder: Holder, book: BookEntity) {
+        val card = holder.itemView as com.google.android.material.card.MaterialCardView
+        val context = card.context
+        val selected = book.id in selectedIds
+        card.isSelected = selected
+        val surface = context.getColor(R.color.bia_surface)
+        val accent = context.getColor(R.color.bia_accent)
+        card.setCardBackgroundColor(if (selected)
+            androidx.core.graphics.ColorUtils.blendARGB(surface, accent, .30f) else surface)
+    }
+
+    override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it == SELECTION_PAYLOAD })
+            bindSelection(holder, items[position])
+        else super.onBindViewHolder(holder, position, payloads)
+    }
+
+    private companion object { const val SELECTION_PAYLOAD = "book_selection" }
+
     var grid: Boolean = true
         set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
 
@@ -66,7 +97,12 @@ class BookAdapter(private val onClick: (BookEntity) -> Unit) : RecyclerView.Adap
         holder.fallback.visibility = View.VISIBLE
         holder.itemView.contentDescription = context.getString(R.string.bia_missing_cover_description, book.title) +
             ", ${book.authors.orEmpty()}, ${holder.format.text}, ${holder.progressText.text}"
+        bindSelection(holder, book)
         holder.itemView.setOnClickListener { onClick(book) }
+        holder.itemView.setOnLongClickListener(if (onLongClick == null) null else View.OnLongClickListener {
+            onLongClick.invoke(book)
+            true
+        })
         holder.job = holder.scope?.launch {
             val bitmap = BookCoverLoader.load(context, book)
             if (holder.boundId == book.id && bitmap != null) {
