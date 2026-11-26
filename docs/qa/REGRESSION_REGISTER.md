@@ -28,3 +28,6 @@ Selección de documento Drive lograda; selección/comprobación posterior falla 
 
 ## #126 — carátulas y navegación (26/11)
 No registrar ausencia de portada por original remoto no descargado. Miniaturas JPEG acotadas, verificadas por hash y separadas de originales, caché local persistente y recuperación A/B. Navegar desde índice listado/Room sin leer originales; hash real obligatorio antes de aceptar descargas, publicación, migración y evicción. SharedLibraryJourneyTest: localCoverCanBeLoadedAfterRemoteOnlyBookWithoutRestart, sharedThumbnailIsReusableWithoutOpeningOriginalAndRejectsCorruption, browseCatalogueDoesNotOpenOriginalStreams. CI y mediciones físicas pendientes. MOBI sin extractor; generación progresiva de carátulas históricas.
+
+## #131 — selección múltiple de libros
+B12 descarga, B13 guardado, B14 retirada, B16 cancelación/fallos parciales: LibrarySelectionTest (identidad/filtrado, cancelación y errores), LibraryHomeUxDeviceTest (sombreado y reciclaje sin casillas en ambas vistas), controles de SharedLibraryJourneyTest existentes. Pruebas físicas A/B y lotes reales pendientes. B15 eliminación global recuperable pendiente: no activar uso masivo de BookDeletion.apply, que borra conocimiento. No cerrar #131 ni declarar validado hasta acreditar pruebas.

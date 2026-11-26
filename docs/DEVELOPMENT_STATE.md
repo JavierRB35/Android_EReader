@@ -8,6 +8,11 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## #131 — selección múltiple (26/11/2026)
+- Rama feat/library-multi-select-20261126, base 5dad7975. Incremento independiente de #128/#129: UI, sombreado sin checks, operaciones seguras por lote, selección filtrada y cancelación entre libros. Reutiliza BackupRoutine/SharedLibrary, sin cambios a sincronización. Guardar publica el catálogo normal completo y verifica los hashes seleccionados. 
+- B15 pendiente: BookDeletion.apply borra notas/posiciones y deleteEverywhere no retira el original remoto; no activar su uso masivo. Pendientes CI, integración, APK y prueba física; no cerrar #131.
+- Pruebas LibrarySelectionTest y LibraryHomeUxDeviceTest ampliada; ver resultados del HEAD exacto. 
+
 ## P0 — #126 catálogo rápido y carátulas compartidas (26/11/2026)
 
 - Base main 018aec36 (#125 integrada tras 4/4 controles). Propietario autoriza resolver tres síntomas conjuntamente; compatibilidad tablet antigua despriorizada.

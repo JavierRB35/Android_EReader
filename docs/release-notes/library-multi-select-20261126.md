@@ -1,0 +1,2 @@
+- Selecciona varios libros manteniendo pulsado uno: sombreado sin casillas en lista y cuadrícula.
+- Descarga, guarda o retira libros en lote, con progreso y resumen de resultados. La retirada conserva los datos de lectura.
