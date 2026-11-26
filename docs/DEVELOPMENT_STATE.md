@@ -8,6 +8,21 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## Colisiones SAF — rama derivada de #119
+
+- Base 5c8ab9f, rama fix/saf-hash-collisions-20261125 aislada mientras CI de #119 activo. c3acc49 conserva todos los candidatos por nombre y verifica hash/tamaño al resolver recibos; d22928e reutiliza originales homónimos; 751dd18 prueba dos bases Room con archivos homónimos del mismo tamaño y distinto contenido, sin escrituras de originales. CI y Drive físico pendientes. No se elimina ningún original. PDF instrumental aislado despriorizado por propietario; conservar prueba. Integrar con #119 cuando finalice su CI, sin fusionar WIP.
+
+## Corrección SAF e instrumentación — 25/11/2026
+
+- #120 integrada en main 4ae9d425 con 4/4 gates. #119: logs confirman selector antiguo en SettingsBackupJourneyDeviceTest y fallo independiente de hint PDF. Corregido selector e5ff677; identidad SAF por authority/documentId y enrutado exclusivo JSON b568c92; tamaño desconocido y nombre seguro 92ce93f. CI nuevo pendiente. Colisiones de nombres ya existentes siguen fail-closed por recibos basados en nombre; no afirmar resueltas. Pendiente prueba PDF, cobertura DocumentsProvider, migración y Drive A/B. No activar ni fusionar WIP.
+
+## Continuidad activa — agente único ChatGPT (25/11/2026)
+
+- Codex agotó sus tokens según propietario; ChatGPT retoma el desarrollo y la automatización horaria activa. #120 aporta conservación de conflictos de notas, HEAD fbb152f, CI pendiente de completar; revisar antes de fusionar.
+- PR #119: cuatro checks verdes en HEAD anterior e2afdeb (no extrapolar al HEAD nuevo). Nuevo incremento: conexión de carpeta legible persistida, migración aditiva con verificación de originales antes de cambiar conexión, asistente de una sola selección de árbol y metadatos en _Sincronizacion. Sin crear ZIP de biblioteca, backup ni JSON de avances durante la configuración nueva. Canal JSON histórico preservado, se lee antes de migrar y se suspende en modalidad nueva. Pruebas de selector y dos bases Room actualizadas, no ejecutadas aún en el HEAD nuevo.
+- Restricciones pendientes: prueba física SAF A/B, originales existentes sin catálogo (importación controlada), concurrencia real del proveedor. No fusionar antes de validar; no eliminar archivos históricos. Si la carpeta antigua contiene .bin, elegir otra carpeta para migrar, sin borrarlos. Publicación automática por eventos de main, pendiente acreditación.
+- Próxima acción: revisar CI del último HEAD #119, completar importación controlada de originales preexistentes y pruebas de migración/recuperación; cerrar solo incrementos verificables. No reactivar OAuth ni gateway.
+
 ## PRIORIDAD ACTUAL — P0 #103, biblioteca única Drive sin OAuth propio
 
 - Estado: #106/#108/#110/#111/#109/#114 fusionadas históricamente; #115/#116 suspendidas y conservadas. No activar gateway ni usar contenedores por dispositivo. No confundir código disponible con función terminada.

@@ -32,12 +32,8 @@ internal class StorageSetupWizard(
         const val EXTRA_OPEN = "storage_setup_wizard_open"
         fun pending(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val shared = SharedLibrary.configured(context)
-            val several = prefs.getBoolean("several", shared && (SharedLibrary.peerCount(context) > 0 || !SharedLibrary.fileMode(context)))
-            val backup = BackupRoutine.status(context)
-            return !prefs.getBoolean("dismissed", false) && (!shared || !SharedLibrary.hasAccess(context) ||
-                backup.uri == null || backup.recoveryPending || !ReadingPositionSafSync.hasOwn(context) ||
-                (several && SharedLibrary.fileMode(context) && !ReadingPositionSafSync.fastReady(context)))
+            return !prefs.getBoolean("dismissed", false) &&
+                (!SharedLibrary.namedFolderMode(context) || !SharedLibrary.hasAccess(context))
         }
     }
     private val app get() = activity.applicationContext
@@ -159,13 +155,13 @@ internal class StorageSetupWizard(
     fun restore(state: Bundle?) {
         choosingLocation = state?.getBoolean("wizard_choosing_location") == true
         active = state?.getBoolean("wizard_active") == true
-        unified = state?.getBoolean("wizard_unified") == true
+        unified = true
         waiting = state?.getBoolean("wizard_waiting") == true
         several = state?.getBoolean("wizard_several", true) ?: true
         skipBackup = state?.getBoolean("wizard_skip_backup") == true
         seekingPeer = state?.getBoolean("wizard_seeking_peer") == true
         targetPeers = state?.getInt("wizard_target_peers", 1) ?: 1
-        folder = state?.getString("wizard_folder")?.let(Uri::parse) ?: ReadingPositionSafSync.folder(app)
+        folder = state?.getString("wizard_folder")?.let(Uri::parse) ?: SharedLibrary.uri(app)?.takeIf { SharedLibrary.namedFolderMode(app) }
         if (active && !waiting) activity.window.decorView.post {
             if (choosingLocation) showLocationChoice() else advance()
         }
@@ -195,16 +191,8 @@ internal class StorageSetupWizard(
             !SharedLibrary.fileMode(app) && StorageGrants.allows(app, it, true)
         }
         folder = current
-        if (SharedLibrary.fileMode(app) && SharedLibrary.configured(app) && SharedLibrary.hasAccess(app) &&
-            !SharedLibrary.needsRepair(app)) {
-            show("Tu biblioteca", "Vamos a comprobar lo que ya tienes configurado. Si falta algo, te indicaremos cómo resolverlo.",
-                "Comprobar" to {
-                    unified = false
-                    targetPeers = maxOf(1, SharedLibrary.peerCount(app))
-                    advance()
-                }, "Cambiar ubicación" to { showLocationChoice() })
-        } else if (current != null) {
-            show("Tu biblioteca", "La copia y la lectura se configuran juntas en esta ubicación. Si has vaciado la carpeta, volveremos a preparar todo con tus libros locales.",
+        if (current != null && SharedLibrary.namedFolderMode(app)) {
+            show("Tu biblioteca única", "La carpeta compartida guarda tus libros y datos de lectura. La copia de seguridad es independiente y opcional.",
                 "Comprobar" to { runStep { prepareAll(current) } },
                 "Cambiar ubicación" to { showLocationChoice() })
         } else showLocationChoice()
@@ -212,82 +200,29 @@ internal class StorageSetupWizard(
 
     private fun showLocationChoice() {
         choosingLocation = true
-        // A file provider (Drive) need not advertise any document-tree roots.
-        // Never force users through ACTION_OPEN_DOCUMENT_TREE to find Drive.
-        show("Configura tu biblioteca",
-            "Para Google Drive u otra nube, elige Guardar en Drive y confirma la carpeta dentro del selector de archivos. " +
-                "Para almacenamiento que admite permisos de carpeta, elige Otra carpeta. " +
-                "Cambiar la ubicación conserva tus libros y notas; no equivale a empezar desde cero. " +
-                "No borraremos la ubicación anterior.",
-            "Guardar en Drive" to { chooseCloudLocation() },
-            "Otra carpeta" to {
+        show("Configura tu biblioteca única",
+            "Selecciona la misma carpeta de Google Drive en todos tus dispositivos. Debe permitir lectura y escritura. " +
+                "Si Drive no aparece en el selector de carpetas, no crees un ZIP alternativo: el proveedor no ha ofrecido acceso a la carpeta. " +
+                "Puedes recuperar una copia anterior desde Ajustes. Tus archivos y datos existentes no se borrarán.",
+            "Seleccionar carpeta" to {
                 unified = true
                 folder = null
                 launchPicker { pickFolder.launch(null) }
             })
     }
 
-    private fun chooseCloudLocation() {
-        if (busy) return
-        busy = true
-        activity.lifecycleScope.launch {
-            try {
-                // An explicit location change must not skip the library just
-                // because the previous connection is marked ready. Nor may it
-                // abandon originals which exist only in that connection.
-                val missing = withContext(Dispatchers.IO) {
-                    db.backupDao().booksAll().filterNot(CentralCatalogue::local)
-                }
-                if (SharedLibrary.configured(app) && !SharedLibrary.needsRepair(app) && missing.isNotEmpty()) {
-                    busy = false
-                    show("Conserva tus originales",
-                        "Antes de cambiar a otro archivo de biblioteca, descarga los libros que solo están en la ubicación anterior. " +
-                            "No se perderá ni se eliminará ninguno.",
-                        "Volver" to { showLocationChoice() })
-                    return@launch
-                }
-                unified = false
-                several = true
-                folder = null
-                targetPeers = 1
-                busy = false
-                val newFile = "BibliotecaIA-" + ReadingPositionSafSync.deviceId(app).take(8) + "-" +
-                    java.util.UUID.randomUUID().toString().take(8) + ".zip"
-                launchPicker { libraryFile.launch(newFile) }
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) {
-                busy = false
-                show("No se pudo preparar la ubicación", "No hemos cambiado tu biblioteca. Vuelve a intentarlo.",
-                    "Volver" to { showLocationChoice() })
-            }
-        }
-    }
-
     private suspend fun prepareAll(tree: Uri) {
         unified = true
         currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
-        val lib = SharedLibrary.relocateFolder(app, db, tree)
+        val lib = SharedLibrary.connectNamedFolder(app, db, tree)
         require(lib.errors.isEmpty()) { lib.errors.joinToString(" · ") }
-        currentPhase = StorageSetupOutcome.Issue.PROGRESS_WRITE
-        ReadingPositionSafSync.prepareFolder(app, db, tree, unified = true)
-        require(ReadingPositionSafSync.inFolder(app, tree)) { "No se pudo preparar el guardado de avances." }
-        currentPhase = StorageSetupOutcome.Issue.PROGRESS_READ
-        require(ReadingPositionSafSync.refresh(app, db) && ReadingPositionSafSync.publish(app, db)) {
-            "No se pudieron comprobar los avances."
-        }
-        currentPhase = StorageSetupOutcome.Issue.BACKUP_WRITE
-        val result = BackupRoutine.prepareFolder(app, db, BuildConfig.VERSION_NAME, tree)
-        currentPhase = StorageSetupOutcome.Issue.BACKUP_MISSING
-        require(result != BackupRoutine.Result.PARTIAL) { "Faltan originales en la copia." }
         prefs.edit().putBoolean("several", true).putString("unified_location", tree.toString()).apply()
     }
 
     private fun showUnifiedResult() {
-        val peers = ReadingPositionSafSync.status(app).peerCount
-        show(if (peers > 0) "Todo preparado" else "Todo preparado en este dispositivo",
-            "Biblioteca, copia de seguridad y guardado de avances comprobados." +
-            if (peers > 0) "\n\nOtros dispositivos detectados: $peers. Ya puedes continuar leyendo."
-            else "\n\nEn tu otro dispositivo, elige esta misma ubicación. Se reconocerá automáticamente, sin vincular archivos a mano.",
+        show("Biblioteca preparada en este dispositivo",
+            "Originales y datos de lectura comprobados. En el otro dispositivo, selecciona esta misma carpeta. " +
+                "No es necesario crear archivos de progreso ni copias por dispositivo. La comprobación de acceso desde el otro equipo sigue pendiente.",
             "Terminar" to { pause() }, closeLabel = null)
     }
 

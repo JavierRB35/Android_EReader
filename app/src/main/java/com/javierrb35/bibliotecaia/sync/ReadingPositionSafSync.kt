@@ -94,6 +94,7 @@ object ReadingPositionSafSync {
      * files are never replaced or relocated merely by running setup. */
     suspend fun prepareFolder(context: Context, database: AppDatabase, tree: Uri, unified: Boolean = false) = withContext(Dispatchers.IO) {
         val app = context.applicationContext
+        require(!SharedLibrary.namedFolderMode(app)) { "La biblioteca única ya sincroniza los avances." }
         require(StorageGrants.allows(app, tree, true)) { "No hay permiso para esta carpeta." }
         mutex.withLock {
             val id = deviceId(app)
@@ -164,7 +165,7 @@ object ReadingPositionSafSync {
     /** No dialog or picker is necessary when a shared folder is already granted. */
     suspend fun ensureAutomaticFolder(context: Context, database: AppDatabase) {
         val app = context.applicationContext
-        if (!SharedLibrary.configured(app) || SharedLibrary.fileMode(app) ||
+        if (!SharedLibrary.configured(app) || SharedLibrary.fileMode(app) || SharedLibrary.namedFolderMode(app) ||
             !SharedLibrary.hasAccess(app)) return
         val tree = SharedLibrary.uri(app) ?: return
         if (hasOwn(app) && folder(app) != null) return
@@ -185,6 +186,7 @@ object ReadingPositionSafSync {
     /** File-only grants cannot create sibling files in Drive. Keep the existing
      * library path as fallback until every linked device has a JSON channel. */
     fun fastReady(context: Context): Boolean {
+        if (SharedLibrary.namedFolderMode(context)) return false
         val status = status(context)
         val expected = if (SharedLibrary.fileMode(context)) SharedLibrary.peerCount(context) else 1
         return status.ownConfigured && status.peerCount >= maxOf(1, expected)
@@ -201,6 +203,10 @@ object ReadingPositionSafSync {
     suspend fun refreshForRead(context: Context, database: AppDatabase): Boolean {
         val app = context.applicationContext
         if (!SharedLibrary.configured(app)) return refresh(app, database)
+        if (SharedLibrary.namedFolderMode(app)) return try {
+            SharedLibrary.pull(app, database).errors.isEmpty()
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { SharedLibrary.recordFailure(app, e); false }
         val ready = fastReady(app)
         val key = connectionKey(app)
         val bootstrapped = prefs(app).getString(BOOTSTRAP, null) == key
@@ -311,6 +317,7 @@ object ReadingPositionSafSync {
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val app = context.applicationContext
+                if (SharedLibrary.namedFolderMode(app)) return@withLock true
                 if (own(app) == null) {
                     if (peers(app).isEmpty()) return@withLock true
                     error(app, IllegalStateException("Falta crear el archivo propio de este dispositivo."))
@@ -399,6 +406,10 @@ object ReadingPositionSafSync {
     /** Immediate in-process send, plus durable retry when offline or killed. */
     fun requestPublish(context: Context) {
         val app = context.applicationContext
+        if (SharedLibrary.namedFolderMode(app)) {
+            SharedLibrary.publishReadingExit(app)
+            return
+        }
         if (own(app) == null) return
         synchronized(requestLock) {
             prefs(app).edit().putLong(REVISION, revision(app) + 1L).apply()
@@ -415,6 +426,7 @@ object ReadingPositionSafSync {
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 val app = context.applicationContext
+                if (SharedLibrary.namedFolderMode(app)) return@withLock true
                 try {
                     val uri = own(app) ?: return@withLock true
                     requireGrant(app, uri, write = true)
@@ -585,7 +597,7 @@ object ReadingPositionSafSync {
 class ReadingPositionWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext
-        if (!ReadingPositionSafSync.hasOwn(app)) return Result.success()
+        if (SharedLibrary.namedFolderMode(app) || !ReadingPositionSafSync.hasOwn(app)) return Result.success()
         val revision = ReadingPositionSafSync.revision(app)
         val ok = ReadingPositionSafSync.publish(app, AppDatabase.get(app))
         return if (ok && revision == ReadingPositionSafSync.revision(app)) Result.success() else Result.retry()

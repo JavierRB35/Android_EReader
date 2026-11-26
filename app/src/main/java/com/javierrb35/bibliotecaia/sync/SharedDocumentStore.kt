@@ -12,8 +12,12 @@ import java.util.UUID
 
 /** No shared mutable file. Each publication has a new name; incomplete files
  * are never advertised by a verified receipt. No remote delete or overwrite. */
+internal class DocumentTooLargeException : IllegalArgumentException("Documento mayor que el tamaño esperado.")
+
 internal interface SharedStore : java.io.Closeable {
     val readErrors: List<String> get() = emptyList()
+    // Opt-in for the new folder layout; legacy ZIP and existing folders remain readable.
+    val namedOriginals: Boolean get() = false
     fun commit() {}
     override fun close() {}
     fun list(): List<SharedDocumentStore.Item>
@@ -39,15 +43,20 @@ internal interface SharedStore : java.io.Closeable {
     }
 }
 
-internal class SharedDocumentStore(context: Context, private val tree: Uri) : SharedStore {
+internal class SharedDocumentStore(context: Context, private val tree: Uri,
+    override val namedOriginals: Boolean = false) : SharedStore {
     private val resolver = context.contentResolver
     private val root = DocumentsContract.buildDocumentUriUsingTree(tree,
         DocumentsContract.getTreeDocumentId(tree))
-    data class Item(val name: String, val uri: Uri, val size: Long)
-    override fun list(): List<Item> {
+    data class Item(val name: String, val uri: Uri, val size: Long, val directory: Boolean = false)
+    private fun sameDocument(a: Uri, b: Uri): Boolean =
+        a.authority == b.authority && DocumentsContract.getDocumentId(a) == DocumentsContract.getDocumentId(b)
+    private val technicalName = "_Sincronizacion"
+    private fun childrenOf(parent: Uri): List<Item> {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,
-            DocumentsContract.getTreeDocumentId(tree))
-        val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE)
+            DocumentsContract.getDocumentId(parent))
+        val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_SIZE,
+            Document.COLUMN_MIME_TYPE)
         return resolver.query(children, columns, null, null, null)?.use { c ->
             // A cloud provider may return an empty placeholder while loading.
             // Never treat this as proof that a previously saved file was deleted.
@@ -57,23 +66,60 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
             buildList {
                 while (c.moveToNext()) add(Item(c.getString(1),
                     DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)),
-                    if (c.isNull(2)) -1L else c.getLong(2)))
+                    if (c.isNull(2)) -1L else c.getLong(2), c.getString(3) == Document.MIME_TYPE_DIR))
             }
         } ?: throw IOException("El proveedor no permite listar esta carpeta.")
+    }
+    private fun technicalFolder(create: Boolean): Uri? {
+        val before = childrenOf(root)
+        val candidates = before.filter { it.name.equals(technicalName, ignoreCase = true) }
+        require(candidates.size <= 1 && candidates.all { it.directory && it.name == technicalName }) {
+            "La carpeta técnica es ambigua; no se modificará."
+        }
+        candidates.singleOrNull()?.let { return it.uri }
+        if (!create) return null
+        val created = DocumentsContract.createDocument(resolver, root, Document.MIME_TYPE_DIR, technicalName)
+            ?: throw IOException("El proveedor no permite crear la carpeta técnica.")
+        require(before.none { sameDocument(it.uri, created) }) { "El proveedor devolvió una carpeta existente." }
+        val matching = childrenOf(root).filter { it.name.equals(technicalName, ignoreCase = true) }
+        require(matching.size == 1 && matching.single().directory &&
+            matching.single().name == technicalName && sameDocument(matching.single().uri, created)) {
+            "No se pudo verificar una única carpeta técnica; no se escribirán metadatos."
+        }
+        return created
+    }
+    override fun list(): List<Item> {
+        val files = childrenOf(root).filterNot { it.directory }
+        // Preserve the legacy catalogue at root; never move or delete it.
+        // New metadata is isolated; unrelated nested files are not scanned.
+        val metadata = if (namedOriginals) technicalFolder(false)?.let { folder ->
+            childrenOf(folder).filter { !it.directory && it.name.startsWith("bia-state-") && it.name.endsWith(".json") }
+        }.orEmpty() else emptyList()
+        return files + metadata
     }
     override fun open(item: Item): InputStream = resolver.openInputStream(item.uri)
         ?: throw IOException("No se puede leer " + item.name)
     override fun create(name: String, mime: String, source: InputStream, hash: String, size: Long): Item {
-        val uri = DocumentsContract.createDocument(resolver, root, mime, name)
+        val parent = if (namedOriginals && name.startsWith("bia-state-") && name.endsWith(".json"))
+            requireNotNull(technicalFolder(true)) else root
+        val before = childrenOf(parent)
+        require(before.none { it.name.equals(name, ignoreCase = true) }) {
+            "Ya existe un documento con ese nombre; no se sobrescribirá."
+        }
+        val uri = DocumentsContract.createDocument(resolver, parent, mime, name)
             ?: throw IOException("El proveedor no permite crear documentos.")
-        // Never truncate any existing document. This URI is newly created.
+        // Check the returned identity BEFORE opening a writable stream.
+        require(before.none { sameDocument(it.uri, uri) }) {
+            "El proveedor devolvió un documento existente; no se sobrescribirá."
+        }
+        // Do not assume provider create/list is an atomic distributed reservation.
         resolver.openOutputStream(uri, "wt")?.use { out ->
             source.use { it.copyTo(out, 64 * 1024) }
         } ?: throw IOException("No se puede escribir el documento nuevo.")
         val actual = resolver.openInputStream(uri)?.use { digest(it, size) }
             ?: throw IOException("No se puede verificar el documento nuevo.")
         require(actual == (hash to size)) { "El proveedor no devolvió los bytes guardados." }
-        val item = list().singleOrNull { it.uri == uri && it.name == name }
+        val item = childrenOf(parent).singleOrNull { sameDocument(it.uri, uri) && it.name == name && !it.directory }
             ?: throw IOException("El documento escrito no aparece todavía en la carpeta.")
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
@@ -108,12 +154,12 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
             ?: throw IOException("El proveedor no permite crear archivos en esta carpeta.")
         // A provider must not return an existing document. Never write to or
         // delete a known pre-existing URI, even if the requested name is new.
-        require(before.none { it.uri == created }) { "El proveedor devolvió un archivo existente. No se ha modificado." }
+        require(before.none { sameDocument(it.uri, created) }) { "El proveedor devolvió un archivo existente. No se ha modificado." }
         var verified = false
         try {
             resolver.openOutputStream(created, "wt")?.use { it.write(bytes) }
                 ?: throw IOException("No se puede escribir en esta carpeta.")
-            val item = list().singleOrNull { it.uri == created && it.name == name }
+            val item = list().singleOrNull { sameDocument(it.uri, created) && it.name == name }
                 ?: throw IOException("El archivo de prueba no aparece con su identidad y nombre originales.")
             require(verify(item, hash(bytes), bytes.size.toLong())) { "No coinciden los bytes leídos y escritos." }
             verified = true
@@ -136,7 +182,7 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri) : Sh
                 if (n < 0) break
                 if (n == 0) continue
                 count += n
-                require(count <= limit) { "Documento mayor que el tamaño esperado." }
+                if (count > limit) throw DocumentTooLargeException()
                 md.update(buf, 0, n)
             }
             return hex(md.digest()) to count
