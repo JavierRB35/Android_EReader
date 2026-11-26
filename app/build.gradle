@@ -4,22 +4,6 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
-// Only public client configuration belongs in an APK. Never accept server secrets.
-def authProperties = new Properties()
-def localAuthFile = rootProject.file('local.properties')
-if (localAuthFile.exists()) localAuthFile.withInputStream { authProperties.load(it) }
-def publicAuthValue = { name -> (authProperties.getProperty(name) ?: System.getenv(name) ?: '').trim() }
-def publicSupabaseKey = publicAuthValue('BIBLIOTECA_SUPABASE_KEY')
-if (publicSupabaseKey && !publicSupabaseKey.startsWith('sb_publishable_')) {
-    try {
-        def payload = new groovy.json.JsonSlurper().parseText(new String(Base64.urlDecoder.decode(publicSupabaseKey.split('\\.')[1]), 'UTF-8'))
-        if (payload.role != 'anon') throw new IllegalArgumentException()
-    } catch (Exception ignored) {
-        throw new GradleException('BIBLIOTECA_SUPABASE_KEY must be a publishable key or legacy anon key; server secrets are forbidden.')
-    }
-}
-def javaString = { value -> groovy.json.JsonOutput.toJson(value) }
-
 // Version overrides are allowed only when BOTH values are supplied by the
 // protected GitHub auto-release job. Local AndroidIDE builds keep their stable
 // version and signing configuration; never store release secrets in Gradle.
@@ -52,8 +36,6 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [appLabel: '@string/app_name']
         buildConfigField 'boolean', 'QA_BUILD', 'false'
-        buildConfigField 'String', 'SUPABASE_URL', javaString(publicAuthValue('BIBLIOTECA_SUPABASE_URL'))
-        buildConfigField 'String', 'SUPABASE_PUBLIC_KEY', javaString(publicSupabaseKey)
     }
 
     buildFeatures { buildConfig true }

@@ -1,6 +1,6 @@
 # Requisitos funcionales — Biblioteca IA (condensado)
 
-Fuente completa: `docs/product/master-prompt.md`, **con la directriz vinculante del 20/11/2026 añadida al inicio**. La [ADR-008 revisada](../architecture/adr-008-saf-drive-byok-v1.md) prevalece sobre pasajes históricos contradictorios.
+Fuente completa: `docs/product/master-prompt.md`. La directriz vigente de [#103](https://github.com/JavierRB35/Android_EReader/issues/103) y la decisión del propietario del 26/11/2026 prevalecen sobre pasajes históricos contradictorios. Supabase y OAuth propio quedan descartados definitivamente.
 
 ## 1. Formatos y lectura (V1)
 
@@ -34,18 +34,16 @@ Fuente completa: `docs/product/master-prompt.md`, **con la directriz vinculante 
 - Credenciales: aportadas por el usuario, cifradas, nunca en APK/repo/logs/backups. Historial persistente de conversaciones con proveedor/modelo/referencias/tokens.
 - Blindar el sistema frente a prompt injection desde el contenido de libros.
 
-## 6. Sin cuentas y elección de destino para copias (directriz vinculante del propietario)
+## 6. Biblioteca única sin cuentas propias y respaldo independiente
 
-- **No se permite OAuth ni cuentas Google/Gmail/Supabase en la app.** No hay pantalla de registro, cuenta activa ni autorización Drive por API. Toda la biblioteca y sus funciones principales permanecen locales y offline.
-- Se conserva en el dispositivo una copia privada de los originales EPUB, PDF y MOBI importados.
-- **Copia completa obligatoria** en archivo ZIP exportado con Storage Access Framework: el usuario elige Drive, almacenamiento local, USB u otro proveedor ofrecido por Android. Una cuenta que pida el proveedor externo no se gestiona dentro de Biblioteca IA.
-- Cada ZIP contiene **todos los libros físicos importados** y catálogo, colecciones, categorías, etiquetas, relaciones, notas, historial de versiones, marcadores, subrayados y posiciones. Se verifica SHA-256 de cada original, rechazando backups incompletos.
-- **Restaurar ZIP** en otro dispositivo reconstruye originales legibles offline y datos con transacción local y deduplicación por hash, sin sobrescribir datos existentes. Archivo JSON antiguo solo como importación heredada de metadatos, con advertencia de que faltan libros.
-- No incluir en backups API keys BYOK, sesiones, secretos ni tokens; los ZIP contienen libros y anotaciones en claro y deben guardarse de forma privada. Sin sincronización automática entre dispositivos.
+- Una carpeta compartida seleccionada mediante SAF, sin OAuth propio, registro, gateway, código de vinculación ni Supabase. Vincular seleccionando la misma carpeta; comprobar permisos e identidad.
+- Originales con nombre y extensión reales, deduplicación SHA-256, datos de sincronización separados. Catálogo completo y disponibilidad local diferenciados; lectura offline y reconciliación de cambios sin pérdida.
+- Copia ZIP completa opcional e independiente de la vinculación/importación; preservar originales y datos, verificar hashes y restaurar sin sobrescrituras destructivas. No incluir credenciales ni secretos.
+- No presuponer soporte de árboles o atomicidad de Drive; acreditar acceso y sincronización física A/B. No introducir otra arquitectura por incompatibilidades antiguas.
 
 ## 7. Datos y protección local
 
-- Room/SQLite como fuente de verdad de la instalación. El código heredado Supabase y SyncEngine no se invoca desde la app ni constituye un requisito de V1.
+- Room/SQLite como persistencia de la instalación; la biblioteca compartida se reconcilia mediante SAF. Las tablas históricas se conservan para compatibilidad de actualización; no existe transporte Supabase.
 - Importación por hash, notas versionadas, papelera, operaciones de respaldo/restauración reintentables y sin pérdida. Comprobar borrado y recuperación, interrupción, corrupción, reinstalación, pruebas con proveedor SAF y espacio insuficiente.
 - Las copias las inicia el usuario. No afirmar una sincronización inexistente ni pedir credenciales para proteger su biblioteca.
 
@@ -55,7 +53,7 @@ Fuente completa: `docs/product/master-prompt.md`, **con la directriz vinculante 
 
 ## 9. Seguridad transversal
 
-TLS, mínimo privilegio, RLS, validación de entradas, límites de tamaño, protección ZIP bombs/traversal/SQL injection/prompt injection, logs sin secretos, no enviar libros completos a servicios externos por defecto, informar cuando se envíen fragmentos/imágenes a IA, no eludir DRM.
+TLS, mínimo privilegio, validación de entradas, límites de tamaño, protección ZIP bombs/traversal/SQL injection/prompt injection, logs sin secretos, no enviar libros completos a servicios externos por defecto, informar cuando se envíen fragmentos/imágenes a IA, no eludir DRM.
 
 ## 10. Entorno y calidad
 
