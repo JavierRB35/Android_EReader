@@ -1,1 +1,2 @@
 - BibliotecaAI se centra en libros electrónicos EPUB y MOBI. Se retiran el lector PDF y OCR; los datos históricos se conservan.
+- El migrador de Calibre excluye PDF y los identifica en el informe, sin modificar la biblioteca de origen.

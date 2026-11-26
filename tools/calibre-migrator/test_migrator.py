@@ -41,10 +41,10 @@ class MigratorTest(unittest.TestCase):
             root=Path(d)/"Calibre"; root.mkdir()
             folder=root/"A/Title (1)"; folder.mkdir(parents=True)
             (folder/"Book.epub").write_bytes(b"bad")
-            (folder/"Book.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+            (folder/"Book.mobi").write_bytes(b"0"*60+b"BOOKMOBI"+b"0"*60)
             (folder/"Orphan.pdf").write_bytes(b"%PDF-1.5\n%%EOF")
             db=sqlite3.connect(root/"metadata.db")
-            db.executescript("create table books(id integer,path text,title text,author_sort text); create table data(book integer,format text,name text); insert into books values(1,'A/Title (1)','Title','Author'); insert into data values(1,'EPUB','Book'),(1,'PDF','Book');")
+            db.executescript("create table books(id integer,path text,title text,author_sort text); create table data(book integer,format text,name text); insert into books values(1,'A/Title (1)','Title','Author'); insert into data values(1,'EPUB','Book'),(1,'MOBI','Book');")
             db.commit(); db.close()
             before=(root/"metadata.db").read_bytes()
             records,warnings=scan(root)
@@ -52,7 +52,7 @@ class MigratorTest(unittest.TestCase):
             out,n,count=migrate(root,Path(d)/"out")
             self.assertEqual((n,count),(1,1))
             with zipfile.ZipFile(out/"Migracion-001.zip") as z:
-                self.assertEqual(json.loads(z.read("biblioteca.json"))["books"][0]["format"],"PDF")
+                self.assertEqual(json.loads(z.read("biblioteca.json"))["books"][0]["format"],"MOBI")
             self.assertEqual((root/"metadata.db").read_bytes(),before)
             self.assertIn("Error:",(out/"Informe.csv").read_text(encoding="utf-8-sig"))
             self.assertEqual(summarize_report(out)["error"],1)
@@ -62,6 +62,8 @@ class MigratorTest(unittest.TestCase):
             root=Path(d)/"Calibre"; folder=root/"Autor/Libro (1)"
             folder.mkdir(parents=True)
             (folder/"Libro.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+            with zipfile.ZipFile(folder/"Libro.epub","w") as z:
+                z.writestr("mimetype",b"application/epub+zip")
             (folder/"Libro.mobi").write_bytes(b"0"*60+b"BOOKMOBI"+b"0"*60)
             db=sqlite3.connect(root/"metadata.db")
             db.executescript("""
@@ -76,7 +78,7 @@ class MigratorTest(unittest.TestCase):
                 insert into books_authors_link values(1,1,1);
                 insert into tags values(1,'Historia');
                 insert into books_tags_link values(1,1,1);
-                insert into data values(1,'PDF','Libro'),(1,'MOBI','Libro'),(1,'AZW3','Libro');
+                insert into data values(1,'EPUB','Libro'),(1,'PDF','Libro'),(1,'MOBI','Libro'),(1,'AZW3','Libro');
             """)
             db.commit(); db.close()
             before=(root/"metadata.db").read_bytes()
@@ -84,19 +86,19 @@ class MigratorTest(unittest.TestCase):
             self.assertEqual((n,count),(1,2))
             with zipfile.ZipFile(out/"Migracion-001.zip") as z:
                 j=json.loads(z.read("biblioteca.json"))
-                self.assertEqual({x["format"] for x in j["books"]},{"PDF","MOBI"})
+                self.assertEqual({x["format"] for x in j["books"]},{"EPUB","MOBI"})
                 self.assertEqual({x["authors"] for x in j["books"]},{"Nombre Apellido"})
                 self.assertEqual(j["tags"][0]["name"],"Historia")
                 self.assertEqual(len(j["bookTags"]),2)
-            self.assertEqual(summarize_report(out),dict(prepared=2,duplicate=0,error=0,unsupported=0,warning=1,pending=0))
+            self.assertEqual(summarize_report(out),dict(prepared=2,duplicate=0,error=0,unsupported=0,warning=2,pending=0))
             self.assertEqual((root/"metadata.db").read_bytes(),before)
 
     def test_interrupted_batch_is_not_reported_as_prepared(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/"Calibre"; folder=root/"Autor/Libro (1)"
             folder.mkdir(parents=True)
-            original=folder/"Libro.pdf"
-            data=b"%PDF-1.4\n%%EOF"
+            original=folder/"Libro.mobi"
+            data=b"0"*60+b"BOOKMOBI"+b"0"*60
             original.write_bytes(data)
             output=Path(d)/"out"
             cancel=[False]
@@ -114,6 +116,17 @@ class MigratorTest(unittest.TestCase):
             retry,n,count=migrate(root,output,True)
             self.assertEqual((n,count),(1,1))
             self.assertEqual(summarize_report(retry)["prepared"],1)
+
+    def test_pdf_only_is_reported_without_a_package(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/"Calibre"; folder=root/"Autor/Libro (1)"
+            folder.mkdir(parents=True)
+            original=folder/"Libro.pdf"
+            original.write_bytes(b"%PDF-1.4\n%%EOF")
+            out,n,count=migrate(root,Path(d)/"out",True)
+            self.assertEqual((n,count),(0,0))
+            self.assertIn("Formato no compatible: PDF",(out/"Informe.csv").read_text(encoding="utf-8-sig"))
+            self.assertEqual(original.read_bytes(),b"%PDF-1.4\n%%EOF")
 
 if __name__=="__main__":
     unittest.main()
