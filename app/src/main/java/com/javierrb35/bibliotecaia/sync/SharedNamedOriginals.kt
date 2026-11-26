@@ -32,9 +32,11 @@ internal object SharedNamedOriginals {
      */
     fun find(store: SharedStore, book: BookEntity): SharedDocumentStore.Item? = find(store, book, store.list())
 
-    internal fun find(store: SharedStore, book: BookEntity, listing: List<SharedDocumentStore.Item>): SharedDocumentStore.Item? {
+    internal fun find(store: SharedStore, book: BookEntity, listing: List<SharedDocumentStore.Item>,
+                      excludedNames: Set<String> = emptySet()): SharedDocumentStore.Item? {
+        val counts = listing.groupingBy { it.name }.eachCount()
         val files = listing.filter {
-            validName(it.name) && extension(it.name) == book.format.name.lowercase(Locale.ROOT) &&
+            !(it.name in excludedNames && counts[it.name] == 1) && validName(it.name) && extension(it.name) == book.format.name.lowercase(Locale.ROOT) &&
                 (it.size == -1L || it.size == book.sizeBytes)
         }
         val match = files.sortedBy { it.name }.firstOrNull {
@@ -44,7 +46,8 @@ internal object SharedNamedOriginals {
         return match
     }
 
-    fun ensure(store: SharedStore, book: BookEntity, source: File): SharedDocumentStore.Item {
+    fun ensure(store: SharedStore, book: BookEntity, source: File,
+               excludedNames: Set<String> = emptySet()): SharedDocumentStore.Item {
         val ext = book.format.name.lowercase(Locale.ROOT)
         val original = if (validName(book.fileName) && extension(book.fileName) == ext) book.fileName else {
             val stem = book.fileName.substringBeforeLast('.', book.fileName)
@@ -56,7 +59,7 @@ internal object SharedNamedOriginals {
             source.inputStream().use { SharedDocumentStore.digest(it, book.sizeBytes) } ==
                 (book.contentHash to book.sizeBytes)) { "Original local no íntegro." }
         val listing = store.list()
-        find(store, book, listing)?.let { return it }
+        find(store, book, listing, excludedNames)?.let { return it }
 
         // Preserve original name exactly except where an existing distinct
         // book already occupies it. Never overwrite that file.

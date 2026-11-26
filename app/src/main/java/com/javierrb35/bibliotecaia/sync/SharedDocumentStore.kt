@@ -28,20 +28,23 @@ internal interface SharedStore : java.io.Closeable {
     fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean =
         open(item).use { SharedDocumentStore.digest(it, size) } == (hash to size)
     fun extract(item: SharedDocumentStore.Item, file: File, hash: String, size: Long) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var total = 0L
         open(item).use { source ->
             file.outputStream().use { sink ->
                 val buffer = ByteArray(64 * 1024)
-                var total = 0L
                 while (true) {
+                    if (Thread.currentThread().isInterrupted) throw InterruptedException("Descarga cancelada")
                     val count = source.read(buffer)
                     if (count < 0) break
                     total += count
                     require(total <= size)
+                    digest.update(buffer, 0, count)
                     sink.write(buffer, 0, count)
                 }
             }
         }
-        require(file.inputStream().use { SharedDocumentStore.digest(it, size) } == (hash to size))
+        require(total == size && digest.digest().joinToString("") { "%02x".format(it) } == hash)
     }
 }
 

@@ -19,11 +19,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 import org.json.JSONObject
 
 /**
@@ -110,6 +113,8 @@ object SharedLibrary {
     fun lastSuccess(context: Context): Long = prefs(context).getLong("last_success", 0L)
     fun healthy(context: Context): Boolean = hasAccess(context) &&
         prefs(context).getString("status", "").orEmpty().startsWith("Biblioteca comprobada:")
+    fun catalogueReady(context: Context): Boolean = hasAccess(context) &&
+        (healthy(context) || prefs(context).getString("status", "").orEmpty().startsWith("Catálogo sincronizado:"))
     fun lastPublication(context: Context): Long = prefs(context).getLong("last_publication", 0L)
     fun isLibraryDocument(context: Context, candidate: Uri): Boolean =
         (listOfNotNull(currentConnection(context)) + previousConnections(context)).any {
@@ -365,7 +370,7 @@ object SharedLibrary {
                         }
                     }
                     stage = NamedFolderSetupFailure.Stage.SYNC
-                    val moved = syncStore(target, db, owner, context.filesDir, onProgress)
+                    val moved = syncStore(target, db, owner, context.filesDir, onProgress = onProgress)
                     require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
                     // Fresh post-publication inventory and full SHA-256 verification.
                     stage = NamedFolderSetupFailure.Stage.VERIFY
@@ -479,13 +484,14 @@ object SharedLibrary {
         }?.let { Receipt(book.contentHash, it.name, book.sizeBytes) }
     }
 
-    private fun upload(store: SharedStore, book: BookEntity, file: File): Receipt {
+    private fun upload(store: SharedStore, book: BookEntity, file: File,
+                       excludedNames: Set<String> = emptySet()): Receipt {
         require(file.isFile && file.length() == book.sizeBytes &&
             OriginalLinker(file.parentFile ?: File(".")).sha256Hex(file) == book.contentHash) {
             "Original local no válido: " + book.title.take(80)
         }
         if (store.namedOriginals) {
-            val item = SharedNamedOriginals.ensure(store, book, file)
+            val item = SharedNamedOriginals.ensure(store, book, file, excludedNames)
             return Receipt(book.contentHash, item.name, book.sizeBytes)
         }
         val name = "bia-book-" + book.contentHash + "-" + UUID.randomUUID() + ".bin"
@@ -577,7 +583,8 @@ object SharedLibrary {
         }
     }
 
-    internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
+    internal data class StoreResult(val hashes: Set<String>, val errors: List<String>,
+                                    val verifiedNow: Set<String> = emptySet())
     suspend fun sync(context: Context, db: AppDatabase, expectedUri: Uri? = null): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             if (expectedUri != null) require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
@@ -588,8 +595,57 @@ object SharedLibrary {
             Result(result.hashes.size, result.errors)
         }
     }
+    /** Routine named-folder publication is a metadata operation, not an integrity audit.
+     * A listed receipt is only a candidate; explicit download, eviction, migration and
+     * full sync still verify original bytes. Repair unlisted originals using the old path. */
+    suspend fun syncMetadata(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext sync(context, db)
+        mutex.withLock {
+            val result = store(context).use {
+                syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
+                    verifyOriginals = false)
+            }
+            val previouslyVerified = hashes(context).intersect(result.hashes) + result.verifiedNow
+            val edit = prefs(context).edit().putStringSet("hashes", previouslyVerified)
+            if (result.errors.isEmpty()) {
+                edit.putStringSet("catalogue_hashes", result.hashes)
+                    .putLong("last_publication", System.currentTimeMillis())
+                if (previouslyVerified != result.hashes || !healthy(context))
+                    edit.putString("status", "Catálogo sincronizado: ${result.hashes.size} originales listados; auditoría de bytes independiente.")
+            } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
+            edit.apply()
+            changes.value += 1
+            Result(previouslyVerified.size, result.errors)
+        }
+    }
+    /** Publish only the selected new originals; unrelated listed receipts remain
+     * metadata, never a new verification of their bytes. */
+    suspend fun publishImports(context: Context, db: AppDatabase, expectedUri: Uri,
+                               selected: Set<String>): Result = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext sync(context, db, expectedUri)
+        mutex.withLock {
+            require(uri(context) == expectedUri && namedFolderMode(context)) { "La biblioteca ha cambiado." }
+            val result = store(context).use {
+                syncStore(it, db, ReadingPositionSafSync.deviceId(context), context.filesDir,
+                    verifyOriginals = false, requiredHashes = selected)
+            }
+            val confirmed = result.verifiedNow.intersect(selected)
+            val verified = (hashes(context).intersect(result.hashes) - selected) + result.verifiedNow
+            val edit = prefs(context).edit().putStringSet("hashes", verified)
+            if (result.errors.isEmpty()) {
+                edit.putStringSet("catalogue_hashes", result.hashes)
+                    .putLong("last_publication", System.currentTimeMillis())
+                    .putString("status", "Catálogo sincronizado: ${result.hashes.size} originales listados; nuevos originales comprobados.")
+            } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
+            edit.apply()
+            changes.value += 1
+            Result(confirmed.size, result.errors)
+        }
+    }
     internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
-                                   filesDir: File? = null, onProgress: (String) -> Unit = {}): StoreResult {
+                                   filesDir: File? = null, verifyOriginals: Boolean = true,
+                                   requiredHashes: Set<String>? = null,
+                                   onProgress: (String) -> Unit = {}): StoreResult {
             onProgress("Leyendo e integrando el catálogo compartido…")
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
@@ -601,6 +657,8 @@ object SharedLibrary {
             }
             val known = inv.receipts.toMutableMap()
             val available = if (store.namedOriginals) mutableSetOf<String>() else inv.availableHashes().toMutableSet()
+            val verifiedNow = available.toMutableSet()
+            val listed = if (store.namedOriginals && !verifyOriginals) inv.listedHashes() else emptySet()
             // Existing candidates come from this inventory only. Creation still uses a
             // fresh listing and identity checks; a final independent audit catches changes.
             val candidates = inv.items.values.flatten()
@@ -608,19 +666,41 @@ object SharedLibrary {
             onProgress("Originales procesados: 0/${books.size} · 0 confirmados")
             for ((index, book) in books.withIndex()) {
                 try {
-                    if (store.namedOriginals && inv.available(book.contentHash)) available.add(book.contentHash)
+                    val required = requiredHashes?.contains(book.contentHash) == true
+                    if (store.namedOriginals) {
+                        if (verifyOriginals || required) {
+                            if (inv.available(book.contentHash)) {
+                                available.add(book.contentHash)
+                                verifiedNow.add(book.contentHash)
+                            }
+                        } else if (book.contentHash in listed) available.add(book.contentHash)
+                    }
                     if (book.contentHash in available) continue
+                    if (store.namedOriginals && requiredHashes != null && !required) continue
                     if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
-                    val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book, candidates) else null
+                    if (store.namedOriginals && !verifyOriginals && !required && !CentralCatalogue.local(book)) {
+                        errors.add(book.title.take(80) + ": original no listado; comprobación pendiente.")
+                        continue
+                    }
+                    // A uniquely named original already registered to a different
+                    // hash cannot be a candidate for deduplication of a new hash.
+                    // Ambiguous names and unregistered orphan files remain candidates.
+                    val excluded = if (store.namedOriginals && !verifyOriginals)
+                        known.filterKeys { it != book.contentHash }.values.flatten().map { it.name }.toSet() -
+                            known[book.contentHash].orEmpty().map { it.name }.toSet()
+                    else emptySet()
+                    val existing = if (store.namedOriginals)
+                        SharedNamedOriginals.find(store, book, candidates, excluded) else null
                     val receipt = if (existing != null) Receipt(book.contentHash, existing.name, book.sizeBytes)
                         else if (!CentralCatalogue.local(book)) {
                             if (store.namedOriginals) errors.add(book.title.take(80) + ": original no disponible.")
                             continue
-                        } else if (store.namedOriginals) upload(store, book, File(book.localPath))
+                        } else if (store.namedOriginals) upload(store, book, File(book.localPath), excluded)
                         else findVerifiedUnpublishedOriginal(store, inv, book)
                             ?: upload(store, book, File(book.localPath))
                     known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
                     available.add(book.contentHash)
+                    verifiedNow.add(book.contentHash)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { errors.add(book.title.take(80) + ": " + (e.message ?: "no se pudo subir")) }
                 finally {
@@ -638,7 +718,7 @@ object SharedLibrary {
                 catch (e: Exception) { errors.add("Compactación pendiente: " + (e.message ?: "error")) }
             }
             val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
-            return StoreResult(available.intersect(activeHashes), errors)
+            return StoreResult(available.intersect(activeHashes), errors, verifiedNow.intersect(activeHashes))
     }
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri,
                            onProgress: (String) -> Unit = {}): Result = withContext(Dispatchers.IO) {
@@ -660,7 +740,7 @@ object SharedLibrary {
                     Result(result.hashes.size, result.errors)
                 } finally { stage.deleteRecursively() }
             }
-        }
+        }.also { schedule(context, immediate = true) }
     }
 
     /** Publish verified originals to the shared folder; never install ZIP
@@ -714,39 +794,86 @@ object SharedLibrary {
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {
-            val item = inv.resolve(receipt) ?: continue
-            try {
-                require(receipt.bytes == book.sizeBytes)
-                store.extract(item, target, book.contentHash, book.sizeBytes)
-                return
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { target.delete() }
+            if (receipt.bytes != book.sizeBytes) continue
+            for (item in inv.items[receipt.name].orEmpty()) {
+                if (item.directory || (item.size >= 0 && item.size != receipt.bytes)) continue
+                try {
+                    // extract independently checks SHA-256 and length while copying.
+                    // Do not open the entire remote original a second time to resolve it.
+                    store.extract(item, target, book.contentHash, book.sizeBytes)
+                    return
+                } catch (e: CancellationException) { target.delete(); throw e }
+                catch (e: InterruptedException) { target.delete(); throw e }
+                catch (_: Exception) { target.delete() }
+            }
         }
         throw IOException("No se encuentra un original central íntegro de " + book.title.take(80))
     }
-    suspend fun download(context: Context, db: AppDatabase, hash: String) = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            store(context).use { store ->
-            val inv = inventory(store)
-            val manager = BackupManager(db, BuildConfig.VERSION_NAME, context.filesDir)
-            for (json in inv.states) {
-                try { manager.restoreJson(json, synchronize = true) }
-                catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* Isolate invalid peer metadata. */ }
-            }
-            val book = db.bookDao().findByHash(hash) ?: error("Libro no encontrado.")
-            require(book.format != BookFormat.PDF) { "PDF histórico; no se descarga desde el lector." }
-            if (CentralCatalogue.local(book) &&
-                OriginalLinker(context.filesDir).sha256Hex(File(book.localPath)) == hash) return@withLock
-            val file = File.createTempFile("shared-download-", ".tmp", context.cacheDir)
-            try {
-                verifiedCopy(store, inv, book, file)
-                val linked = OriginalLinker(context.filesDir).link(file, listOf(book))
-                    ?: error("No se puede colocar el original en el dispositivo.")
-                db.bookDao().update(linked)
-            } finally { file.delete() }
-            }
+    internal data class DownloadResult(val completed: Int, val failures: List<String>)
+
+    suspend fun download(context: Context, db: AppDatabase, hash: String) {
+        val result = downloadBatch(context, db, listOf(hash))
+        require(result.completed == 1) { result.failures.firstOrNull() ?: "No se ha confirmado la descarga." }
+    }
+
+    internal suspend fun downloadBatch(context: Context, db: AppDatabase, hashes: List<String>,
+                                      onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }): DownloadResult =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val result = store(context).use {
+                    downloadBatchStore(it, db, hashes, context.filesDir, context.cacheDir, onProgress)
+                }
+                changes.value += 1
+                result
+            }.also { scheduleCovers(context) }
         }
+
+    /** One inventory and merge for the whole selection, one verified read per
+     * missing local original. Never persist an unverified or partial file. */
+    internal suspend fun downloadBatchStore(store: SharedStore, db: AppDatabase, hashes: List<String>,
+                                           filesDir: File, cacheDir: File,
+                                           onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }): DownloadResult {
+        val inv = runInterruptible { inventory(store) }
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
+        for (json in inv.states) {
+            try { manager.restoreJson(json, synchronize = true) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Isolate invalid peer metadata. */ }
+        }
+        var completed = 0
+        val failures = mutableListOf<String>()
+        val unique = hashes.distinct()
+        for ((index, hash) in unique.withIndex()) {
+            coroutineContext.ensureActive()
+            val book = db.bookDao().findByHash(hash)
+            val title = book?.title ?: "Libro no encontrado"
+            onProgress(index, unique.size, title)
+            try {
+                requireNotNull(book) { "Libro no encontrado." }
+                require(book.format != BookFormat.PDF) { "PDF histórico; no se descarga desde el lector." }
+                if (!CentralCatalogue.local(book) ||
+                    OriginalLinker(filesDir).sha256Hex(File(book.localPath)) != hash) {
+                    val file = File.createTempFile("shared-download-", ".tmp", cacheDir)
+                    try {
+                        runInterruptible { verifiedCopy(store, inv, book, file) }
+                        coroutineContext.ensureActive()
+                        // This local copy/Room update is an atomic, verified per-book operation.
+                        // Finish its short commit if cancellation arrives after the remote read.
+                        withContext(kotlinx.coroutines.NonCancellable) {
+                            val current = db.bookDao().findByHash(hash)
+                                ?: error("El libro ya no pertenece a la biblioteca.")
+                            val linked = OriginalLinker(filesDir).link(file, listOf(current))
+                                ?: error("No se puede colocar el original en el dispositivo.")
+                            db.bookDao().update(linked)
+                        }
+                    } finally { file.delete() }
+                }
+                completed++
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { failures.add(title.take(80) + ": " + (e.message ?: "No se pudo descargar.")) }
+            onProgress(index + 1, unique.size, "")
+        }
+        return DownloadResult(completed, failures)
     }
     suspend fun deleteEverywhere(context: Context, db: AppDatabase, id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -761,6 +888,11 @@ object SharedLibrary {
     }
 
     suspend fun evict(context: Context, db: AppDatabase, id: String) {
+        if (namedFolderMode(context)) {
+            val book = db.bookDao().findById(id) ?: error("Libro no encontrado.")
+            evictSelection(context, db, requireNotNull(uri(context)), listOf(book))
+            return
+        }
         val result = sync(context, db)
         require(result.errors.isEmpty()) { "Sincronización incompleta; no se retirará el original." }
         withContext(Dispatchers.IO) {
@@ -780,6 +912,27 @@ object SharedLibrary {
             }
         }
     }
+    /** One directed publication and one independent verification pass for a selection.
+     * No unrelated original needs to be opened. */
+    internal suspend fun evictSelection(context: Context, db: AppDatabase, expectedUri: Uri,
+                                        books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
+        require(books.isNotEmpty() && namedFolderMode(context))
+        if (cancelled()) return 0
+        val requested = books.map { it.contentHash }.toSet()
+        val result = publishImports(context, db, expectedUri, requested)
+        require(result.errors.isEmpty() && result.verified == requested.size) {
+            "No se han comprobado todos los originales seleccionados. Se conservan las copias locales."
+        }
+        if (cancelled()) return 0
+        return withContext(Dispatchers.IO) {
+            mutex.withLock {
+                require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
+                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, cancelled) }
+                changes.value += 1
+                removed
+            }.also { scheduleCovers(context) }
+        }
+    }
     /** Caller has just published the shared catalogue. Validate every remote
      * original again before removing any of this batch's temporary local files.
      * A separate backup is optional and is never a publication prerequisite.
@@ -790,29 +943,36 @@ object SharedLibrary {
             require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
             store(context).use { store -> evictVerifiedBatch(store, db, context.filesDir, books) }
             changes.value += 1
-        }
+        }.also { scheduleCovers(context) }
     }
 
     internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
-                                            books: List<BookEntity>) {
+                                            books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
+        if (cancelled()) return 0
         val inv = inventory(store)
         require(inv.errors.isEmpty()) { "No se ha podido verificar la biblioteca." }
         val latest = books.map { imported ->
+            if (cancelled()) return 0
             val book = db.bookDao().findById(imported.id) ?: error("No se encuentra el libro importado.")
             require(book.localPath == imported.localPath && book.contentHash == imported.contentHash &&
                 book.sizeBytes == imported.sizeBytes && CentralCatalogue.local(book)) { "El original local ha cambiado." }
             require(inv.receipts[book.contentHash].orEmpty().any { receipt ->
-                val item = inv.resolve(receipt)
-                item != null && receipt.bytes == book.sizeBytes &&
-                    runCatching { store.verify(item, book.contentHash, book.sizeBytes) }.getOrDefault(false)
+                receipt.bytes == book.sizeBytes && inv.resolve(receipt) != null
             }) { "No se pudo comprobar el original central de " + book.title }
             book
         }
+        var removed = 0
         for (book in latest) {
-            publishLocalCover(store, book)
-            LocalBookCopyRemover.delete(filesDir, book)
-            check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
+            if (cancelled()) break
+            // The verified remote original remains available to the independent
+            // thumbnail worker; do not delay safe local removal on cover I/O.
+            withContext(kotlinx.coroutines.NonCancellable) {
+                LocalBookCopyRemover.delete(filesDir, book)
+                check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
+            }
+            removed++
         }
+        return removed
     }
 
     /** Independent portable ZIP export can recover non-downloaded originals
@@ -878,7 +1038,7 @@ object SharedLibrary {
     }
 
     private fun publishLocalCover(store: SharedStore, book: BookEntity) {
-        if (!store.namedOriginals || book.format != BookFormat.EPUB || !CentralCatalogue.local(book)) return
+        if (!store.namedOriginals || book.format == BookFormat.PDF || !CentralCatalogue.local(book)) return
         try {
             val listing = store.list()
             if (SharedCoverArt.read(store, listing, book.contentHash) != null) return
@@ -894,24 +1054,29 @@ object SharedLibrary {
 
     /** Progressive historical backfill outside the UI. Never download a book
      * merely because a grid cell is visible. Keep batches bounded. */
-    internal suspend fun maintainCovers(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
-        if (!namedFolderMode(context)) return@withContext
-        val tree = uri(context) ?: return@withContext
+    internal suspend fun maintainCovers(context: Context, db: AppDatabase): Boolean = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext false
+        val tree = uri(context) ?: return@withContext false
         try {
             folderStore(context, tree, named = true).use { source ->
                 val inv = inventory(source)
-                if (inv.errors.isNotEmpty()) return@withContext
+                if (inv.errors.isNotEmpty()) return@withContext true
                 val listed = inv.listedHashes()
                 val already = inv.items.keys.mapNotNull(SharedCoverArt::bookHash).toHashSet()
-                val absence = context.getSharedPreferences("cover_absence_v1", Context.MODE_PRIVATE)
+                val absence = context.getSharedPreferences("cover_absence_v2", Context.MODE_PRIVATE)
+                val retry = context.getSharedPreferences("cover_retry_v2", Context.MODE_PRIVATE)
                 val books = db.backupDao().booksAll().filter {
-                    it.format == BookFormat.EPUB && it.contentHash !in already &&
+                    it.format != BookFormat.PDF && it.contentHash !in already &&
+                        System.currentTimeMillis() >= retry.getLong(it.contentHash, 0) &&
                         (CentralCatalogue.local(it) || it.contentHash in listed) &&
                         System.currentTimeMillis() - absence.getLong(it.contentHash, 0) > 7L * 24 * 60 * 60 * 1000
                 }.sortedByDescending(CentralCatalogue::local)
                 val deadline = android.os.SystemClock.elapsedRealtime() + 60_000L
+                var attempted = 0
                 for (book in books.take(16)) {
+                    coroutineContext.ensureActive()
                     if (uri(context) != tree || android.os.SystemClock.elapsedRealtime() >= deadline) break
+                    attempted++
                     var temp: File? = null
                     try {
                         val original = if (CentralCatalogue.local(book)) {
@@ -931,16 +1096,22 @@ object SharedLibrary {
                             continue
                         }
                         val bytes = try { BookCoverLoader.jpeg(bitmap) } finally { bitmap.recycle() }
-                        if (bytes != null && uri(context) == tree)
+                        if (bytes != null && uri(context) == tree) {
                             SharedCoverArt.publish(source, book.contentHash, bytes)
+                            retry.edit().remove(book.contentHash).apply()
+                        } else retry.edit().putLong(book.contentHash, System.currentTimeMillis() + 300_000L).apply()
                     } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { /* Retry later, independently of original sync. */ }
+                    catch (_: Exception) {
+                        // A failed book must not starve all later books in the queue.
+                        retry.edit().putLong(book.contentHash, System.currentTimeMillis() + 300_000L).apply()
+                    }
                     finally { temp?.delete() }
                 }
                 if (uri(context) == tree) rememberCovers(tree, source.list())
+                uri(context) == tree && attempted < books.size
             }
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { /* No cover failure changes original integrity. */ }
+        catch (_: Exception) { true /* Retry independently; no cover failure changes original integrity. */ }
     }
 
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
@@ -961,7 +1132,7 @@ object SharedLibrary {
         exitPublisher.launch {
             for (app in exitRequests) {
                 if (!configured(app)) continue
-                try { sync(app, AppDatabase.get(app)) }
+                try { syncMetadata(app, AppDatabase.get(app)) }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { recordFailure(app, e) }
             }
@@ -993,6 +1164,14 @@ object SharedLibrary {
             OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(if (immediate) 0L else delaySeconds, TimeUnit.SECONDS).build())
         work.enqueueUniquePeriodicWork("shared-library-periodic", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<SharedLibraryWorker>(15, TimeUnit.MINUTES).build())
+        scheduleCovers(context)
+    }
+    internal fun scheduleCovers(context: Context) {
+        if (!namedFolderMode(context)) return
+        val work = WorkManager.getInstance(context.applicationContext)
+        work.enqueueUniqueWork("shared-library-covers", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SharedCoverWorker>()
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS).build())
     }
 }
 
@@ -1002,8 +1181,8 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
         return try {
             val revision = SharedLibrary.revision(applicationContext)
             val db = AppDatabase.get(applicationContext)
-            val result = SharedLibrary.sync(applicationContext, db)
-            SharedLibrary.maintainCovers(applicationContext, db)
+            val result = SharedLibrary.syncMetadata(applicationContext, db)
+            SharedLibrary.scheduleCovers(applicationContext)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 Result.success()
@@ -1014,4 +1193,11 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
             Result.retry()
         }
     }
+}
+
+/** Thumbnail work never holds the catalogue/download mutex and cannot delay metadata publication. */
+class SharedCoverWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result =
+        if (SharedLibrary.maintainCovers(applicationContext, AppDatabase.get(applicationContext)))
+            Result.retry() else Result.success()
 }

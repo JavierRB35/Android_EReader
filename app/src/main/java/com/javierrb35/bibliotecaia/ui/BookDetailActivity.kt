@@ -440,19 +440,48 @@ class BookDetailActivity : AppCompatActivity() {
 
     private fun downloadCentral() {
         val current = book ?: return
-        val button = findViewById<View>(R.id.btnDownloadCentral)
+        val button = findViewById<TextView>(R.id.btnDownloadCentral)
+        if (!button.isEnabled) return
         button.isEnabled = false
-        lifecycleScope.launch {
+        val previous = button.text
+        button.text = "Descargando…"
+        var job: kotlinx.coroutines.Job? = null
+        val progress = AlertDialog.Builder(this)
+            .setTitle("Descargando libro")
+            .setMessage("Conectando con la biblioteca y verificando el original…")
+            .setNegativeButton("Cancelar") { _, _ ->
+                button.text = "Cancelando…"
+                job?.cancel()
+            }
+            .setCancelable(false).create()
+        progress.show()
+        job = lifecycleScope.launch {
             try {
                 BackupRoutine.downloadBook(applicationContext, db, BuildConfig.VERSION_NAME, current.contentHash)
+                val downloaded = requireNotNull(db.bookDao().findById(current.id))
+                check(com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(downloaded)) {
+                    "No se ha confirmado la copia local. Puedes volver a intentarlo."
+                }
+                progress.dismiss()
                 load(current.id)
-                Toast.makeText(this@BookDetailActivity, R.string.central_downloaded, Toast.LENGTH_SHORT).show()
+                AlertDialog.Builder(this@BookDetailActivity)
+                    .setTitle("Libro descargado")
+                    .setMessage("El original está disponible en este dispositivo, también sin conexión.")
+                    .setPositiveButton(android.R.string.ok, null).show()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
+                progress.dismiss()
                 findViewById<View>(R.id.btnLink).visibility = View.VISIBLE
-                Toast.makeText(this@BookDetailActivity, e.message ?: "No se pudo descargar.", Toast.LENGTH_LONG).show()
-            } finally { button.isEnabled = true }
+                AlertDialog.Builder(this@BookDetailActivity)
+                    .setTitle("No se pudo descargar")
+                    .setMessage(e.message ?: "Comprueba la conexión y vuelve a intentarlo.")
+                    .setPositiveButton(android.R.string.ok, null).show()
+            } finally {
+                progress.dismiss()
+                button.text = previous
+                button.isEnabled = true
+            }
         }
     }
 

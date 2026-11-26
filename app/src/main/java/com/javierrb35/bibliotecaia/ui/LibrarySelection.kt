@@ -22,7 +22,7 @@ internal enum class LibraryBatchAction(val label: String) {
 
 internal object LibraryBatch {
     data class Result(val completed: Int, val failures: List<String>, val pending: Int)
-    /** Cancel between books, not during an integrity-sensitive file operation. */
+    /** Cooperative stop between books; download callers may cancel their job while waiting or reading. */
     suspend fun <T> run(items: List<T>, cancelled: () -> Boolean,
                         progress: (Int, Int) -> Unit, describe: (T) -> String = { "" },
                         action: suspend (T) -> Unit): Result {
