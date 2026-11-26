@@ -169,7 +169,7 @@ class SettingsActivity : AppCompatActivity() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(if (recovery) "Recuperar una copia en Drive" else "Importar biblioteca de Calibre")
             .setMessage(if (recovery) "Selecciona la copia ZIP de BibliotecaAI. Los originales se restaurarán en la biblioteca de Drive, sin descargar nuevas copias permanentes al dispositivo. Se conservan las descargas previas."
-                else "Selecciona un ZIP generado por el migrador de Calibre (no el ZIP del programa para Windows). Se incorporará a la biblioteca compartida verificando cada original y evitando duplicados exactos. No se borrará la copia.")
+                else "Selecciona un ZIP generado por el migrador de Calibre (no el ZIP del programa para Windows). Se incorporará a la biblioteca compartida comprobando el ZIP, verificando los originales nuevos o no localizados y evitando duplicados exactos. No se borrará la copia.")
             .setPositiveButton("Seleccionar ZIP") { _, _ ->
                 sharedMigration.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
             }
@@ -199,7 +199,7 @@ class SettingsActivity : AppCompatActivity() {
                 progress.dismiss()
                 androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
                     .setTitle(if (result.errors.isEmpty()) "Importación finalizada" else "Importación con avisos")
-                    .setMessage("Originales activos verificados en la biblioteca: ${result.verified}. Este total incluye los libros que ya estaban disponibles.\n\nAbre Biblioteca completa para consultar el catálogo." +
+                    .setMessage("Originales activos localizados en la biblioteca: ${result.listed}. Originales comprobados en esta importación: ${result.newlyVerified}. La auditoría completa de integridad es independiente.\n\nAbre Biblioteca completa para consultar el catálogo." +
                         if (result.errors.isEmpty()) "" else "\n\nAvisos:\n" + result.errors.joinToString("\n").take(1800))
                     .setPositiveButton("Entendido", null).show()
             } catch (e: kotlinx.coroutines.CancellationException) {

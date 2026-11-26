@@ -233,7 +233,14 @@ class SharedLibraryJourneyTest {
         val folder = File(root, "cloud").apply { mkdirs() }
         val stage = File(root, "stage").apply { mkdirs() }
         val files = File(root, "private").apply { mkdirs() }
-        val store = TestStore(folder, namedOriginals = true)
+        val base = TestStore(folder, namedOriginals = true)
+        val reads = mutableListOf<String>()
+        val store = object : SharedStore by base {
+            override fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+                if (item.name.endsWith(".epub")) reads.add(item.name)
+                return base.verify(item, hash, size)
+            }
+        }
         val source = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
@@ -263,8 +270,25 @@ class SharedLibraryJourneyTest {
             assertEquals(local.absolutePath, a.bookDao().findById(first.id)?.localPath)
             assertTrue(local.isFile)
             assertEquals(15, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+            assertEquals(result.hashes, result.verifiedNow)
+            reads.clear()
             val retry = SharedLibrary.migrateZipStore(store, a, "a".repeat(32), content, files)
             assertEquals(result.hashes, retry.hashes)
+            assertTrue(retry.errors.toString(), retry.errors.isEmpty())
+            assertTrue("Previously listed originals are not freshly verified", retry.verifiedNow.isEmpty())
+            assertTrue("Repeated ZIP must not read remote originals", reads.isEmpty())
+            assertEquals(15, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+            // Missing registered original is restored from the verified ZIP,
+            // without opening any other registered original, even same-size.
+            val missing = originals.last()
+            assertTrue(File(folder, missing.fileName).delete())
+            reads.clear()
+            val repaired = SharedLibrary.migrateZipStore(store, a, "a".repeat(32), content, files)
+            assertTrue(repaired.errors.toString(), repaired.errors.isEmpty())
+            assertEquals(result.hashes, repaired.hashes)
+            assertEquals(setOf(missing.contentHash), repaired.verifiedNow)
+            assertTrue(reads.isEmpty())
+            assertEquals(missing.contentHash, SharedDocumentStore.hash(File(folder, missing.fileName).readBytes()))
             assertEquals(15, folder.listFiles()!!.count { it.name.endsWith(".epub") })
             val remote = SharedLibrary.readCatalogueStore(store, b)
             assertEquals(result.hashes, remote.hashes)

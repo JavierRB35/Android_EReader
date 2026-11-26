@@ -596,8 +596,8 @@ object SharedLibrary {
         }
     }
     /** Routine named-folder publication is a metadata operation, not an integrity audit.
-     * A listed receipt is only a candidate; explicit download, eviction, migration and
-     * full sync still verify original bytes. Repair unlisted originals using the old path. */
+     * A listed receipt is only a candidate; explicit download, eviction and full
+     * sync still verify original bytes. ZIP migration verifies new or unlisted originals. */
     suspend fun syncMetadata(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         if (!namedFolderMode(context)) return@withContext sync(context, db)
         mutex.withLock {
@@ -720,8 +720,9 @@ object SharedLibrary {
             val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
             return StoreResult(available.intersect(activeHashes), errors, verifiedNow.intersect(activeHashes))
     }
+    data class MigrationResult(val listed: Int, val newlyVerified: Int, val errors: List<String>)
     suspend fun migrateZip(context: Context, db: AppDatabase, zip: Uri,
-                           onProgress: (String) -> Unit = {}): Result = withContext(Dispatchers.IO) {
+                           onProgress: (String) -> Unit = {}): MigrationResult = withContext(Dispatchers.IO) {
         mutex.withLock {
             require(namedFolderMode(context) && hasAccess(context)) {
                 "Conecta primero la carpeta compartida de la biblioteca."
@@ -736,8 +737,17 @@ object SharedLibrary {
                     } ?: throw IOException("No se puede leer el ZIP.")
                     val result = migrateZipStore(store, db, ReadingPositionSafSync.deviceId(context),
                         content, context.filesDir, onProgress)
-                    publishStatus(context, result.hashes, result.errors)
-                    Result(result.hashes.size, result.errors)
+                    // Do not promote a name/size match to a fresh byte verification.
+                    val verified = hashes(context).intersect(result.hashes) + result.verifiedNow
+                    val edit = prefs(context).edit().putStringSet("hashes", verified)
+                    if (result.errors.isEmpty()) {
+                        edit.putStringSet("catalogue_hashes", result.hashes)
+                            .putLong("last_publication", System.currentTimeMillis())
+                            .putString("status", "Catálogo sincronizado: ${result.hashes.size} originales listados; auditoría de bytes independiente.")
+                    } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
+                    edit.apply()
+                    changes.value += 1
+                    MigrationResult(result.hashes.size, result.verifiedNow.size, result.errors)
                 } finally { stage.deleteRecursively() }
             }
         }.also { schedule(context, immediate = true) }
@@ -756,17 +766,36 @@ object SharedLibrary {
         for (json in inv.states) manager.restoreJson(json, synchronize = true)
         val snapshot = BackupCodec.fromJson(content.json)
         val known = inv.receipts.toMutableMap()
-        val available = inv.availableHashes().toMutableSet()
+        val available = inv.listedHashes().toMutableSet()
+        val verifiedNow = mutableSetOf<String>()
         val errors = mutableListOf<String>()
         val candidates = inv.items.values.flatten()
+        // Fast path only for an unambiguous registered hash/name with exact known size.
+        // A ZIP has already been validated locally by CompleteBackupArchive.read.
+        // Never confuse catalogue membership with a new audit of remote bytes.
+        val nameOwners = known.values.flatten().groupBy { it.name }
+        val registered = known.filterValues { receipts ->
+            receipts.any { receipt ->
+                val item = inv.items[receipt.name].orEmpty().singleOrNull()
+                item != null && !item.directory && item.size == receipt.bytes &&
+                    nameOwners[receipt.name].orEmpty().all { it.hash == receipt.hash }
+            }
+        }.keys.toSet()
+        onProgress("Originales de la copia procesados: 0/${snapshot.books.size}")
         for ((index, book) in snapshot.books.withIndex()) {
-            if (book.contentHash !in available) {
-                val existing = SharedNamedOriginals.find(store, book, candidates)
+            coroutineContext.ensureActive()
+            if (book.contentHash !in registered && book.contentHash !in verifiedNow) {
+                available.remove(book.contentHash)
+                // Repair absent/ambiguous receipts. Exclude uniquely named files
+                // already registered to different hashes; verify orphan candidates.
+                val excluded = known.filterKeys { it != book.contentHash }.values.flatten().map { it.name }.toSet() -
+                    known[book.contentHash].orEmpty().map { it.name }.toSet()
+                val existing = SharedNamedOriginals.find(store, book, candidates, excluded)
                 val receipt = when {
                     existing != null -> Receipt(book.contentHash, existing.name, book.sizeBytes)
                     book.contentHash !in content.missingHashes -> {
                         val file = content.staged.getValue(CompleteBackupArchive.entryName(book.id))
-                        upload(store, book, file)
+                        upload(store, book, file, excluded)
                     }
                     else -> null
                 }
@@ -774,6 +803,7 @@ object SharedLibrary {
                 else {
                     known[book.contentHash] = (known[book.contentHash].orEmpty() + receipt).distinct()
                     available.add(book.contentHash)
+                    verifiedNow.add(book.contentHash)
                 }
             }
             onProgress("Originales de la copia procesados: ${index + 1}/${snapshot.books.size}")
@@ -790,7 +820,7 @@ object SharedLibrary {
         require(published.listedHashes().containsAll(confirmed)) {
             "El catálogo o los originales aún no aparecen en la carpeta. Conserva el ZIP y reintenta."
         }
-        return StoreResult(confirmed, errors)
+        return StoreResult(confirmed, errors, verifiedNow.intersect(active))
     }
     private fun verifiedCopy(store: SharedStore, inv: Inventory, book: BookEntity, target: File) {
         for (receipt in inv.receipts[book.contentHash].orEmpty()) {

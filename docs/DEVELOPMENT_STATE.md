@@ -8,6 +8,11 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 #138 — repetición de ZIP lenta en v0.1.200 (26/11/2026)
+- La PR #139 se fusionó en 76bebec9 y v0.1.200 se publicó con cinco gates verdes y 19/19 pruebas locales. El propietario comunica que la repetición de ZIP se demora en «Integrando el catálogo compartido».
+- Causa de código: migrateZipStore llamaba availableHashes() y reabría todos los originales remotos. Nueva ruta: ZIP validado localmente, recibos inequívocos con tamaño exacto se reutilizan sin relectura; originales nuevos/ausentes/ambiguos comprobados por SHA-256. No se promueve un listado a auditoría de bytes. Se conserva auditoría explícita, no se borra ningún original ni se altera el formato de catálogo.
+- Regresión instrumentada: repetir ZIP sin lecturas remotas de originales ni duplicados; recuperar uno ausente sin leer los demás, preservar descargas y posición. Pendiente CI y prueba física. No reiniciar biblioteca ni repetir importaciones en producción mientras se valida.
+
 ## P0 #138 — recuperación de operatividad tras prueba v0.1.198 (26/11/2026)
 - PR #139: descargas individuales y múltiples con una sesión verificada, cancelación y navegación no bloqueada, importación/guardado/retirada dirigida a los originales seleccionados; sincronización ordinaria basada en metadatos, sin auditoría de originales ya listados.
 - Carátulas EPUB/MOBI EXTH 201/202, worker independiente, caché derivada; agrupación visual reversible de par EPUB/MOBI de título/autor no ambiguos. Selector de alternativas y datos por original intactos. Búsqueda excluida por el propietario.
