@@ -22,6 +22,7 @@ class BookAdapter(
     private val onClick: (BookEntity) -> Unit
 ) : RecyclerView.Adapter<BookAdapter.Holder>() {
     private val items = mutableListOf<BookEntity>()
+    private var editions: Map<String, List<BookEntity>> = emptyMap()
     private var selectedIds: Set<String> = emptySet()
     fun showSelection(ids: Set<String>) {
         val changed = (selectedIds - ids) + (ids - selectedIds)
@@ -53,7 +54,8 @@ class BookAdapter(
     var grid: Boolean = true
         set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
 
-    fun submit(books: List<BookEntity>) {
+    fun submit(books: List<BookEntity>, alternatives: Map<String, List<BookEntity>> = emptyMap()) {
+        editions = alternatives
         items.clear()
         items.addAll(books)
         notifyDataSetChanged()
@@ -86,8 +88,11 @@ class BookAdapter(
         holder.boundId = book.id
         holder.title.text = book.title
         holder.authors.text = book.authors ?: ""
-        holder.format.text = (if (book.favorite) "${book.format.name}  ★" else book.format.name) +
-            if (book.localPath.isBlank() || !java.io.File(book.localPath).isFile) " · " + context.getString(R.string.central_not_downloaded) else ""
+        val variants = editions[book.id].orEmpty().ifEmpty { listOf(book) }
+        val formats = variants.joinToString(" / ") { it.format.name }
+        holder.format.text = (if (book.favorite) "$formats  ★" else formats) +
+            if (variants.none { com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(it) })
+                " · " + context.getString(R.string.central_not_downloaded) else ""
         val percent = (book.progress.coerceIn(0f, 1f) * 100).roundToInt()
         holder.progress.setProgressCompat(percent, false)
         holder.progress.visibility = if (percent > 0) View.VISIBLE else View.GONE
@@ -104,7 +109,11 @@ class BookAdapter(
             true
         })
         holder.job = holder.scope?.launch {
-            val bitmap = BookCoverLoader.load(context, book)
+            var bitmap = BookCoverLoader.load(context, book)
+            for (alternative in variants.drop(1)) {
+                if (bitmap != null) break
+                bitmap = BookCoverLoader.load(context, alternative)
+            }
             if (holder.boundId == book.id && bitmap != null) {
                 holder.cover.setImageBitmap(bitmap)
                 holder.fallback.visibility = View.GONE

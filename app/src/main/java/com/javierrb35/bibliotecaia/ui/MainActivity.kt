@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private val selection = LibrarySelection()
     private var visibleBooks = emptyList<com.javierrb35.bibliotecaia.data.BookEntity>()
+    private var editions = emptyMap<String, List<com.javierrb35.bibliotecaia.data.BookEntity>>()
     private var selectionBack: androidx.activity.OnBackPressedCallback? = null
     private var batchRunning = false
     private var cancelBatch = false
@@ -73,6 +74,19 @@ class MainActivity : AppCompatActivity() {
     }
     private fun openDetail(id: String) = detailLauncher.launch(
         Intent(this, BookDetailActivity::class.java).putExtra("book_id", id))
+    private fun openEdition(id: String) {
+        val alternatives = editions[id].orEmpty()
+        if (alternatives.size < 2) { openDetail(id); return }
+        val labels = alternatives.map { book ->
+            book.format.name + " · " +
+                (if (CentralCatalogue.local(book)) "En dispositivo" else "En biblioteca") +
+                " · " + android.text.format.Formatter.formatShortFileSize(this, book.sizeBytes)
+        }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(alternatives.first().title)
+            .setItems(labels) { _, index -> openDetail(alternatives[index].id) }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
     private val centralPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) lifecycleScope.launch {
             try {
@@ -88,6 +102,7 @@ class MainActivity : AppCompatActivity() {
         if (central != centralFlow.value.first) {
             selection.clear()
             visibleBooks = emptyList()
+            editions = emptyMap()
             if (::adapter.isInitialized) {
                 adapter.submit(emptyList())
                 renderSelection()
@@ -168,7 +183,7 @@ class MainActivity : AppCompatActivity() {
             if (selection.active) {
                 selection.toggle(book.id)
                 renderSelection()
-            } else openDetail(book.id)
+            } else openEdition(book.id)
         }
         applyViewMode(loadViewMode())
         recycler.adapter = adapter
@@ -377,13 +392,16 @@ class MainActivity : AppCompatActivity() {
                 }.flatMapLatest { (flow, mode) ->
                     flow.map { all -> CentralCatalogue.visible(all, mode.first, mode.second) }
                 }.collect { books ->
-                    visibleBooks = books
-                    selection.retain(books.map { it.id })
-                    adapter.submit(books)
+                    val groups = if (centralFlow.value.first) BibliographicEditions.group(books)
+                        else books.map { listOf(it) }
+                    visibleBooks = groups.map { it.first() }
+                    editions = groups.associateBy { it.first().id }
+                    selection.retain(visibleBooks.map { it.id })
+                    adapter.submit(visibleBooks, editions)
                     renderSelection()
                     refreshMissingOriginals()
                     findViewById<TextView>(R.id.txtBookCount).text =
-                        resources.getQuantityString(R.plurals.bia_ux_book_count, books.size, books.size)
+                        resources.getQuantityString(R.plurals.bia_ux_book_count, visibleBooks.size, visibleBooks.size)
                     val filters = queryFlow.value.isNotEmpty() ||
                         statusFlow.value != "ALL" || favoriteOnlyFlow.value
                     val collection = collectionFlow.value.isNotEmpty()
@@ -418,7 +436,9 @@ class MainActivity : AppCompatActivity() {
             if (visibleBooks.isNotEmpty() && selection.ids.size == visibleBooks.size)
                 "Deseleccionar todos" else "Seleccionar todos"
         findViewById<TextView>(R.id.btnBatchPrimary).text =
-            if (centralFlow.value.first) "Descargar al dispositivo" else "Guardar en biblioteca"
+            if (centralFlow.value.first && selection.ids.any { editions[it].orEmpty().size > 1 })
+                "Descargar formato preferido"
+            else if (centralFlow.value.first) "Descargar al dispositivo" else "Guardar en biblioteca"
         // Global deletion currently destroys reading metadata. Do not expose it as
         // a batch action until the recoverable deletion contract is implemented.
         findViewById<View>(R.id.btnBatchSecondary).visibility =
