@@ -1,0 +1,2 @@
+- Añade «Buscar Drive» cuando el proveedor no aparece en el selector de carpetas, sin crear archivos ZIP ni cambiar la biblioteca actual.
+- Comprueba permisos persistentes de carpeta y explica cuándo no se ha autorizado acceso completo. La disponibilidad de carpetas depende del proveedor y del dispositivo.

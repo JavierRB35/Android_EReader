@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -51,19 +52,67 @@ internal class StorageSetupWizard(
     private var currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
     private var seekingPeer = false
     private var choosingLocation = false
+    private var locatingDrive = false
+
+    // A document picker can expose a provider that is absent from the tree
+    // picker. Its result is a navigation hint ONLY, never a library grant.
+    private val locateDrive = activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        waiting = false
+        if (uri == null || uri.scheme != "content") {
+            locatingDrive = false
+            showLocationChoice()
+        } else {
+            locatingDrive = true
+            show("Autorizar la carpeta completa",
+                "El selector de archivos está disponible. Ahora selecciona la carpeta completa en el selector de carpetas. " +
+                    "El archivo elegido no se ha abierto ni se ha guardado como biblioteca.",
+                "Seleccionar carpeta" to { launchPicker { pickFolder.launch(uri) } },
+                "Volver" to { locatingDrive = false; showLocationChoice() })
+        }
+    }
 
     private val pickFolder = activity.registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         waiting = false
         if (uri == null) {
-            if (choosingLocation || unified) showLocationChoice() else advance()
+            if (locatingDrive) {
+                locatingDrive = false
+                showLocationChoice("No se ha autorizado una carpeta. Si Drive aparece al buscar archivos pero no al seleccionar carpetas, " +
+                    "puede que su proveedor no admita el acceso completo. Puedes volver a intentarlo o elegir otra carpeta compartida compatible.")
+            } else if (choosingLocation || unified) showLocationChoice() else advance()
             return@registerForActivityResult
         }
+        locatingDrive = false
         runStep {
             currentPhase = StorageSetupOutcome.Issue.LIBRARY_ACCESS
-            activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            folder = uri
-            prepareAll(uri)
-            choosingLocation = false
+            require(uri.scheme == "content" && DocumentsContract.isTreeUri(uri)) {
+                "La ubicación devuelta no es un permiso de carpeta."
+            }
+            val resolver = activity.contentResolver
+            val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            val prior = resolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+            val oldFlags = (if (prior?.isReadPermission == true) read else 0) or
+                (if (prior?.isWritePermission == true) write else 0)
+            val newFlags = (read or write) and oldFlags.inv()
+            var activated = false
+            try {
+                resolver.takePersistableUriPermission(uri, read or write)
+                require(resolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isReadPermission && it.isWritePermission
+                }) { "Faltan permisos persistentes de lectura y escritura sobre la carpeta." }
+                folder = uri
+                prepareAll(uri)
+                activated = true
+                choosingLocation = false
+            } finally {
+                // Failed selection must not revoke a previously granted permission
+                // or replace the last valid library. Retry asks for a fresh tree.
+                if (!activated) {
+                    folder = null
+                    if (newFlags != 0 && SharedLibrary.uri(app) != uri)
+                        runCatching { resolver.releasePersistableUriPermission(uri, newFlags) }
+                }
+            }
         }
     }
     private val libraryFile = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -155,6 +204,7 @@ internal class StorageSetupWizard(
     }
     fun restore(state: Bundle?) {
         choosingLocation = state?.getBoolean("wizard_choosing_location") == true
+        locatingDrive = state?.getBoolean("wizard_locating_drive") == true
         active = state?.getBoolean("wizard_active") == true
         unified = true
         waiting = state?.getBoolean("wizard_waiting") == true
@@ -169,6 +219,7 @@ internal class StorageSetupWizard(
     }
     fun save(state: Bundle) {
         state.putBoolean("wizard_choosing_location", choosingLocation)
+        state.putBoolean("wizard_locating_drive", locatingDrive)
         state.putBoolean("wizard_active", active)
         state.putBoolean("wizard_unified", unified)
         state.putBoolean("wizard_waiting", waiting)
@@ -187,6 +238,7 @@ internal class StorageSetupWizard(
         skipBackup = false
         seekingPeer = false
         choosingLocation = false
+        locatingDrive = false
         prefs.edit().putBoolean("dismissed", false).apply()
         val current = SharedLibrary.uri(app)?.takeIf {
             !SharedLibrary.fileMode(app) && StorageGrants.allows(app, it, true)
@@ -199,16 +251,23 @@ internal class StorageSetupWizard(
         } else showLocationChoice()
     }
 
-    private fun showLocationChoice() {
+    private fun showLocationChoice(detail: String? = null) {
         choosingLocation = true
+        locatingDrive = false
         show("Configura tu biblioteca única",
-            "Selecciona la misma carpeta de Google Drive en todos tus dispositivos. Debe permitir lectura y escritura. " +
-                "Si Drive no aparece en el selector de carpetas, no crees un ZIP alternativo: el proveedor no ha ofrecido acceso a la carpeta. " +
-                "Puedes recuperar una copia anterior desde Ajustes. Tus archivos y datos existentes no se borrarán.",
+            (detail?.let { "$it\n\n" } ?: "") +
+                "Selecciona la misma carpeta compartida en todos tus dispositivos. Debe permitir lectura y escritura. " +
+                "Si Google Drive no aparece, pulsa Buscar Drive y elige cualquier archivo de la carpeta deseada para intentar abrirla en el selector de carpetas. " +
+                "No se creará ningún ZIP ni se cambiará tu conexión hasta comprobar la carpeta.",
             "Seleccionar carpeta" to {
                 unified = true
                 folder = null
                 launchPicker { pickFolder.launch(null) }
+            },
+            "Buscar Drive" to {
+                unified = true
+                folder = null
+                launchPicker { locateDrive.launch(arrayOf("*/*")) }
             })
     }
 
@@ -234,6 +293,7 @@ internal class StorageSetupWizard(
     }
     private fun pause() {
         choosingLocation = false
+        locatingDrive = false
         active = false
         prefs.edit().putBoolean("dismissed", true).apply()
         changed()

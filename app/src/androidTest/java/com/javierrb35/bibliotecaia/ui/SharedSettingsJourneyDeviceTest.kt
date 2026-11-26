@@ -2,6 +2,8 @@ package com.javierrb35.bibliotecaia.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.app.Activity
 import android.app.Instrumentation
 import android.os.SystemClock
@@ -33,6 +35,7 @@ class SharedSettingsJourneyDeviceTest {
         try {
             onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
             onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Buscar Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
             onView(withText("Guardar en Drive")).check(doesNotExist())
             onView(withText("Otra carpeta")).check(doesNotExist())
             onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
@@ -44,6 +47,50 @@ class SharedSettingsJourneyDeviceTest {
     }
     @Test fun folderOnlyAndCancelReturnsToChoice() =
         verifyPicker("Seleccionar carpeta", Intent.ACTION_OPEN_DOCUMENT_TREE, null)
+
+    @Test fun driveSearchUsesOpenDocumentAndCancelReturnsToChoice() =
+        verifyPicker("Buscar Drive", Intent.ACTION_OPEN_DOCUMENT, "*/*")
+
+    @Test fun driveDocumentIsOnlyNavigationHintAndNeverActivatesLibrary() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val file = Uri.parse("content://synthetic.provider/document/example")
+        val captured = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? = when (intent.action) {
+                Intent.ACTION_OPEN_DOCUMENT -> Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(file))
+                Intent.ACTION_OPEN_DOCUMENT_TREE -> {
+                    captured.set(Intent(intent))
+                    Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                }
+                else -> null
+            }
+        }
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Buscar Drive")).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            onView(withText("Autorizar la carpeta completa")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50L)
+            assertNotNull("Debe solicitar un árbol, no activar el documento", captured.get())
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, captured.get().action)
+            assertEquals(file, captured.get().getParcelableExtra<Uri>(DocumentsContract.EXTRA_INITIAL_URI))
+            instrumentation.waitForIdleSync()
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Buscar Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
 
     @Test fun sharedFolderCheckOpensTreeWithoutChangingExistingConnection() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -84,7 +131,7 @@ class SharedSettingsJourneyDeviceTest {
         // Observe the actual intent launched by the wizard, not its button label.
         val monitor = object : Instrumentation.ActivityMonitor() {
             override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
-                if (intent.action !in setOf(Intent.ACTION_CREATE_DOCUMENT, Intent.ACTION_OPEN_DOCUMENT_TREE))
+                if (intent.action !in setOf(Intent.ACTION_CREATE_DOCUMENT, Intent.ACTION_OPEN_DOCUMENT_TREE, Intent.ACTION_OPEN_DOCUMENT))
                     return null
                 captured.set(Intent(intent))
                 return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
