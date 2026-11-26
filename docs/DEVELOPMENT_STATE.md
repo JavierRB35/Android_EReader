@@ -8,6 +8,11 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — #103 preparación lenta de biblioteca (26/11/2026)
+- Reporte físico: 540 originales visibles en Drive, sin nueva instantánea de catálogo tras finalizar subida. Causa concreta en código: listados repetidos y doble lectura SHA-256 por original en auditoría final; no hay telemetría del proceso físico en curso.
+- Reutilizar listado del inventario para originales ya existentes, conservar consulta fresca antes de creación y comprobación de identidad/bytes, auditar catálogo recién publicado con una lectura completa por original y mostrar fases/contadores reales. Sin cambios de protocolo, permisos, datos reales ni publicación parcial por lotes; los originales quedan intactos.
+- Prueba instrumental permanente largeNamedCatalogueReusesInventoryAndAuditsEachOriginalOnce: 40 originales existentes, límite de listados, contador de lecturas, avance y corrupción del mismo tamaño. Gates pendientes y medición física A/B con biblioteca grande pendiente.
+
 ## #131 — selección múltiple (26/11/2026)
 - Rama feat/library-multi-select-20261126, base 5dad7975. Incremento independiente de #128/#129: UI, sombreado sin checks, operaciones seguras por lote, selección filtrada y cancelación entre libros. Reutiliza BackupRoutine/SharedLibrary, sin cambios a sincronización. Guardar publica el catálogo normal completo y verifica los hashes seleccionados. 
 - B15 pendiente: BookDeletion.apply borra notas/posiciones y deleteEverywhere no retira el original remoto; no activar su uso masivo. Pendientes CI, integración, APK y prueba física; no cerrar #131.

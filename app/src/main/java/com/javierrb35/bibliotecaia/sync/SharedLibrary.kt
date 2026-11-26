@@ -315,13 +315,16 @@ object SharedLibrary {
      * convert an existing legacy tree in place. The old connection remains
      * available until all active originals are independently verified.
      */
-    suspend fun connectNamedFolder(context: Context, db: AppDatabase, tree: Uri): Result =
+    suspend fun connectNamedFolder(context: Context, db: AppDatabase, tree: Uri,
+                                   onProgress: (String) -> Unit = {}): Result =
         withContext(Dispatchers.IO) {
             var stage = NamedFolderSetupFailure.Stage.FOLDER_ACCESS
             try {
             // Verify the selected destination independently of the previous
             // connection. A stale legacy URI must not masquerade as a Drive error.
+            onProgress("Comprobando permisos de lectura y escritura…")
             folderStore(context, tree, named = true).use { it.probe() }
+            onProgress("Integrando los datos de lectura anteriores…")
             stage = NamedFolderSetupFailure.Stage.LEGACY_PROGRESS
             // Preserve any newer positions from the previous standalone JSON channel.
             if (!namedFolderMode(context) && ReadingPositionSafSync.hasOwn(context)) {
@@ -334,15 +337,17 @@ object SharedLibrary {
                 val owner = ReadingPositionSafSync.deviceId(context)
                 val result = folderStore(context, tree, named = true).use { target ->
                     stage = NamedFolderSetupFailure.Stage.TARGET_CATALOGUE
+                    onProgress("Leyendo el catálogo compartido…")
                     val existing = inventory(target)
                     require(existing.errors.isEmpty()) { existing.errors.joinToString(" · ") }
-                    require(target.list().none { objectName.matches(it.name) }) {
+                    require(existing.items.keys.none { objectName.matches(it) }) {
                         "Esta carpeta contiene originales del formato anterior. Elige una carpeta distinta para la biblioteca legible; la anterior se conservará."
                     }
                     // Pull old metadata before staging missing originals. Never delete
                     // either source files or local copies. A failed migration can retry.
                     if (previous != null && previous.uri != tree) {
                         stage = NamedFolderSetupFailure.Stage.LEGACY_LIBRARY
+                        onProgress("Conservando originales de la ubicación anterior…")
                         store(context).use { source ->
                             val restored = pullStore(source, db, context.filesDir)
                             require(restored.errors.isEmpty()) { restored.errors.joinToString(" · ") }
@@ -360,21 +365,13 @@ object SharedLibrary {
                         }
                     }
                     stage = NamedFolderSetupFailure.Stage.SYNC
-                    val moved = syncStore(target, db, owner, context.filesDir)
+                    val moved = syncStore(target, db, owner, context.filesDir, onProgress)
                     require(moved.errors.isEmpty()) { moved.errors.joinToString(" · ") }
-                    // Verify all originals, not just receipt names or byte counts.
+                    // Fresh post-publication inventory and full SHA-256 verification.
                     stage = NamedFolderSetupFailure.Stage.VERIFY
-                    val published = inventory(target)
-                    require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
-                    require(db.backupDao().booksAll().all { book ->
-                        published.receipts[book.contentHash].orEmpty().any { receipt ->
-                            val item = published.resolve(receipt)
-                            SharedNamedOriginals.validName(receipt.name) && item != null &&
-                                receipt.bytes == book.sizeBytes &&
-                                target.verify(item, book.contentHash, book.sizeBytes)
-                        }
-                    }) { "No se han verificado todos los originales; se conserva la conexión anterior." }
+                    verifyNamedCatalogue(target, db.backupDao().booksAll(), onProgress)
                     stage = NamedFolderSetupFailure.Stage.SAVE
+                    onProgress("Guardando la configuración verificada…")
                     activate(context, SavedConnection(tree, false, emptySet(), named = true))
                     publishStatus(context, moved.hashes, moved.errors)
                     moved
@@ -563,6 +560,23 @@ object SharedLibrary {
         check(!pending) { "No se pudo retirar alguna instantánea técnica antigua." }
     }
 
+    /** Independent post-publication audit. Inventory.resolve already reads and hashes
+     * the entire original: do not immediately read those same bytes a second time. */
+    internal fun verifyNamedCatalogue(store: SharedStore, books: List<BookEntity>,
+                                      onProgress: (String) -> Unit = {}) {
+        onProgress("Comprobando el catálogo publicado…")
+        val published = inventory(store)
+        require(published.errors.isEmpty()) { published.errors.joinToString(" · ") }
+        onProgress("Originales verificados: 0/${books.size}")
+        for ((index, book) in books.withIndex()) {
+            require(published.receipts[book.contentHash].orEmpty().any { receipt ->
+                SharedNamedOriginals.validName(receipt.name) && receipt.bytes == book.sizeBytes &&
+                    published.resolve(receipt) != null
+            }) { "No se ha verificado el original de ${book.title.take(80)}; se conserva la conexión anterior." }
+            onProgress("Originales verificados: ${index + 1}/${books.size}")
+        }
+    }
+
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase, expectedUri: Uri? = null): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -575,7 +589,8 @@ object SharedLibrary {
         }
     }
     internal suspend fun syncStore(store: SharedStore, db: AppDatabase, owner: String,
-                                   filesDir: File? = null): StoreResult {
+                                   filesDir: File? = null, onProgress: (String) -> Unit = {}): StoreResult {
+            onProgress("Leyendo e integrando el catálogo compartido…")
             val inv = inventory(store)
             val errors = inv.errors.toMutableList()
             val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
@@ -585,12 +600,18 @@ object SharedLibrary {
                 catch (e: Exception) { errors.add("Catálogo no integrado: " + (e.message ?: "error")) }
             }
             val known = inv.receipts.toMutableMap()
-            val available = inv.availableHashes().toMutableSet()
-            for (book in db.backupDao().booksAll()) {
-                if (book.contentHash in available) continue
-                if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
+            val available = if (store.namedOriginals) mutableSetOf<String>() else inv.availableHashes().toMutableSet()
+            // Existing candidates come from this inventory only. Creation still uses a
+            // fresh listing and identity checks; a final independent audit catches changes.
+            val candidates = inv.items.values.flatten()
+            val books = db.backupDao().booksAll()
+            onProgress("Originales procesados: 0/${books.size} · 0 confirmados")
+            for ((index, book) in books.withIndex()) {
                 try {
-                    val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book) else null
+                    if (store.namedOriginals && inv.available(book.contentHash)) available.add(book.contentHash)
+                    if (book.contentHash in available) continue
+                    if (!store.namedOriginals && !CentralCatalogue.local(book)) continue
+                    val existing = if (store.namedOriginals) SharedNamedOriginals.find(store, book, candidates) else null
                     val receipt = if (existing != null) Receipt(book.contentHash, existing.name, book.sizeBytes)
                         else if (!CentralCatalogue.local(book)) {
                             if (store.namedOriginals) errors.add(book.title.take(80) + ": original no disponible.")
@@ -602,11 +623,16 @@ object SharedLibrary {
                     available.add(book.contentHash)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { errors.add(book.title.take(80) + ": " + (e.message ?: "no se pudo subir")) }
+                finally {
+                    onProgress("Originales procesados: ${index + 1}/${books.size} · ${available.size} confirmados")
+                }
             }
             // A failed upload does not block the other books or reading state.
+            onProgress("Publicando el catálogo de ${books.size} libros…")
             publish(owner, store, db, known.values.flatten())
             store.commit()
             if (errors.isEmpty()) {
+                onProgress("Comprobando las instantáneas de recuperación…")
                 try { compactManagedStates(store, owner) }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { errors.add("Compactación pendiente: " + (e.message ?: "error")) }

@@ -275,7 +275,11 @@ internal class StorageSetupWizard(
     private suspend fun prepareAll(tree: Uri) {
         unified = true
         currentPhase = StorageSetupOutcome.Issue.LIBRARY_SYNC
-        val lib = SharedLibrary.connectNamedFolder(app, db, tree)
+        val lib = SharedLibrary.connectNamedFolder(app, db, tree) { message ->
+            activity.runOnUiThread {
+                if (busy && !activity.isFinishing && !activity.isDestroyed) prompt?.setMessage(message)
+            }
+        }
         require(lib.errors.isEmpty()) { lib.errors.joinToString(" · ") }
         prefs.edit().putBoolean("several", true).putString("unified_location", tree.toString()).apply()
     }

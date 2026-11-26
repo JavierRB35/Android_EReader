@@ -48,6 +48,55 @@ class SharedLibraryJourneyTest {
             return item
         }
     }
+    @Test fun largeNamedCatalogueReusesInventoryAndAuditsEachOriginalOnce() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "setup-progress-" + UUID.randomUUID()).apply { mkdirs() }
+        val folder = File(root, "cloud").apply { mkdirs() }
+        val base = TestStore(folder, namedOriginals = true)
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        var lists = 0
+        var originalReads = 0
+        val store = object : SharedStore by base {
+            override fun list(): List<SharedDocumentStore.Item> {
+                lists++
+                return base.list()
+            }
+            override fun verify(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+                if (item.name.endsWith(".epub")) originalReads++
+                return base.verify(item, hash, size)
+            }
+        }
+        val progress = mutableListOf<String>()
+        try {
+            val books = (1..40).map { n ->
+                val bytes = "original $n ".repeat(n).toByteArray()
+                val file = File(folder, "original-$n.epub").apply { writeBytes(bytes) }
+                BookEntity("book-$n", "Libro $n", null, BookFormat.EPUB, file.name,
+                    "", SharedDocumentStore.hash(bytes), file.length(), n.toLong())
+            }
+            books.forEach { db.bookDao().insert(it) }
+            val result = SharedLibrary.syncStore(store, db, "a".repeat(32), onProgress = { progress.add(it) })
+            assertTrue(result.errors.toString(), result.errors.isEmpty())
+            assertEquals(40, result.hashes.size)
+            assertTrue("Repeated remote listings: $lists", lists <= 4)
+            assertEquals(40, originalReads)
+            assertTrue(progress.contains("Originales procesados: 40/40 · 40 confirmados"))
+            assertTrue(progress.contains("Publicando el catálogo de 40 libros…"))
+            val before = originalReads
+            SharedLibrary.verifyNamedCatalogue(store, books) { progress.add(it) }
+            assertEquals(40, originalReads - before)
+            assertEquals("Originales verificados: 40/40", progress.last())
+            // Never cache an earlier success across the independent final audit.
+            val broken = File(folder, books.last().fileName)
+            broken.writeBytes(ByteArray(broken.length().toInt()) { 0 })
+            var rejected = false
+            try { SharedLibrary.verifyNamedCatalogue(store, books) }
+            catch (_: IllegalArgumentException) { rejected = true }
+            assertTrue("Same-size corruption must block setup", rejected)
+            assertEquals(40, folder.listFiles()!!.count { it.name.endsWith(".epub") })
+        } finally { db.close(); root.deleteRecursively() }
+    }
+
     @Test fun sharedThumbnailIsReusableWithoutOpeningOriginalAndRejectsCorruption() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "cover-share-" + UUID.randomUUID()).apply { mkdirs() }
