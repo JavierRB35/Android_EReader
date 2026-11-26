@@ -31,7 +31,7 @@ class App(tk.Tk):
             ttk.Entry(panel,textvariable=var).grid(row=row+1,column=0,sticky="ew",pady=(3,12))
             ttk.Button(panel,text="Examinar…",command=lambda v=var:self.pick(v)).grid(row=row+1,column=1,padx=(8,0),pady=(3,12))
         ttk.Checkbutton(panel,text="Conservar todos los formatos compatibles (si no: EPUB > MOBI > PDF)",variable=self.all_formats).grid(row=5,column=0,columnspan=2,sticky="w")
-        ttk.Label(panel,text="1. Cierra Calibre y analiza. 2. Prepara los paquetes en una carpeta temporal.\n3. En BibliotecaAI Android, Ajustes → Incorporar libros de un respaldo, selecciona cada ZIP. No sustituir la copia de seguridad ni copiar los ZIP a _Sincronizacion.",wraplength=620).grid(row=6,column=0,columnspan=2,sticky="w",pady=12)
+        ttk.Label(panel,text="1. Cierra Calibre y analiza. 2. Prepara los paquetes en una carpeta temporal.\n3. En BibliotecaAI Android, Ajustes → Incorporar una copia de seguridad anterior, selecciona cada ZIP. No sustituir la copia de seguridad ni copiar los ZIP a _Sincronizacion.",wraplength=620).grid(row=6,column=0,columnspan=2,sticky="w",pady=12)
         buttons=ttk.Frame(panel)
         buttons.grid(row=7,column=0,columnspan=2,sticky="w")
         self.preview=ttk.Button(buttons,text="Analizar",command=lambda:self.start(False)); self.preview.pack(side="left")
@@ -89,7 +89,7 @@ class App(tk.Tk):
                     run,count,books,summary=value
                     result = f"{books} originales preparados en {count} ZIP; {summary['duplicate']} duplicados; {summary['error']} errores; {summary['unsupported']} fichas sin formato; {summary['warning']} avisos."
                     self.status.set(result + " Consulta Informe.csv. Falta incorporarlos desde Android.")
-                    if messagebox.askyesno("Paquetes preparados (no importados aún)", result + "\nEn Android, usa Incorporar libros de un respaldo.\n¿Abrir carpeta de salida?"):
+                    if messagebox.askyesno("Paquetes preparados (no importados aún)", result + "\nEn Android, usa Ajustes → Incorporar una copia de seguridad anterior.\n¿Abrir carpeta de salida?"):
                         os.startfile(str(run))
                 elif kind=="error":
                     self.status.set(value); messagebox.showwarning("Operación no completada",value+"\nConsulta la carpeta de destino si hay paquetes anteriores.")
