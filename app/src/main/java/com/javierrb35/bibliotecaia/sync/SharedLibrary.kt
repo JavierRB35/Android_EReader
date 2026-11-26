@@ -522,9 +522,47 @@ object SharedLibrary {
             runCatching { store.verify(own.second, hash, bytes.size.toLong()) }.getOrDefault(false)) return
         val seq = (own?.first?.groupValues?.get(2)?.toLong() ?: 0L) + 1L
         require(seq > 0L)
-        store.create("bia-state-" + owner + "-" + seq + "-" + hash + "-" + UUID.randomUUID() + ".json",
+        val nonce = if (store.namedOriginals) SharedStateRetention.nonce() else UUID.randomUUID().toString()
+        store.create("bia-state-" + owner + "-" + seq + "-" + hash + "-" + nonce + ".json",
             "application/json", bytes.inputStream(), hash, bytes.size.toLong())
     }
+    /** Keep three independently re-read generations from this installation.
+     * Never delete legacy publications, peers, originals or uncertain documents.
+     * Called only after successful full reconciliation and publication. */
+    private fun compactManagedStates(store: SharedStore, owner: String) {
+        if (!store.namedOriginals) return
+        val own = store.list().mapNotNull { item ->
+            val m = stateName.matchEntire(item.name) ?: return@mapNotNull null
+            if (m.groupValues[1] != owner) return@mapNotNull null
+            val seq = m.groupValues[2].toLongOrNull() ?: return@mapNotNull null
+            seq to item
+        }
+        // Duplicate sequences may indicate a concurrent writer or stale listing.
+        if (own.groupBy { it.first }.any { it.value.size != 1 }) return
+        val managed = own.filter { SharedStateRetention.parse(it.second.name) != null }
+            .sortedByDescending { it.first }
+        if (managed.size <= SharedStateRetention.KEEP) return
+        if (own.maxOf { it.first } != managed.first().first) return
+        for ((_, item) in managed.take(SharedStateRetention.KEEP)) {
+            val state = requireNotNull(SharedStateRetention.parse(item.name))
+            val bytes = readBounded(store, item)
+            require(SharedDocumentStore.hash(bytes) == state.hash) { "Estado de recuperación no verificado." }
+            val root = JSONObject(String(bytes, Charsets.UTF_8))
+            BackupCodec.fromJson(root.getString("snapshot"))
+            receipts(root)
+        }
+        var pending = false
+        for ((_, item) in managed.drop(SharedStateRetention.KEEP).asReversed()) {
+            // A single unreadable orphan must not prevent retirement of other
+            // verified superseded generations. Preserve that orphan and report it.
+            try {
+                if (!store.retireManagedState(item, owner)) pending = true
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { pending = true }
+        }
+        check(!pending) { "No se pudo retirar alguna instantánea técnica antigua." }
+    }
+
     internal data class StoreResult(val hashes: Set<String>, val errors: List<String>)
     suspend fun sync(context: Context, db: AppDatabase, expectedUri: Uri? = null): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -568,6 +606,11 @@ object SharedLibrary {
             // A failed upload does not block the other books or reading state.
             publish(owner, store, db, known.values.flatten())
             store.commit()
+            if (errors.isEmpty()) {
+                try { compactManagedStates(store, owner) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { errors.add("Compactación pendiente: " + (e.message ?: "error")) }
+            }
             val activeHashes = db.backupDao().booksAll().map { it.contentHash }.toSet()
             return StoreResult(available.intersect(activeHashes), errors)
     }
@@ -870,7 +913,7 @@ object SharedLibrary {
     }
     private val requestLock = Any()
     internal fun revision(context: Context): Long = prefs(context).getLong("requested_revision", 0L)
-    fun schedule(context: Context, immediate: Boolean = false) {
+    fun schedule(context: Context, immediate: Boolean = false, delaySeconds: Long = 3L) {
         if (!configured(context)) return
         synchronized(requestLock) {
             val next = revision(context) + 1L
@@ -878,7 +921,7 @@ object SharedLibrary {
         }
         val work = WorkManager.getInstance(context.applicationContext)
         work.enqueueUniqueWork("shared-library-now", ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(if (immediate) 0L else 3L, TimeUnit.SECONDS).build())
+            OneTimeWorkRequestBuilder<SharedLibraryWorker>().setInitialDelay(if (immediate) 0L else delaySeconds, TimeUnit.SECONDS).build())
         work.enqueueUniquePeriodicWork("shared-library-periodic", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<SharedLibraryWorker>(15, TimeUnit.MINUTES).build())
     }

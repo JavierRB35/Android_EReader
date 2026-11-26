@@ -157,9 +157,6 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           RELEASE_CODE: ${{ needs.preflight.outputs.version_code }}
-          # Public, client-side configuration only: never use service-role or private keys.
-          BIBLIOTECA_SUPABASE_URL: ${{ vars.BIBLIOTECA_SUPABASE_URL }}
-          BIBLIOTECA_SUPABASE_KEY: ${{ vars.BIBLIOTECA_SUPABASE_KEY }}
           BIBLIOTECA_GOOGLE_WEB_CLIENT_ID: ${{ vars.BIBLIOTECA_GOOGLE_WEB_CLIENT_ID }}
         run: |
           set -euo pipefail
