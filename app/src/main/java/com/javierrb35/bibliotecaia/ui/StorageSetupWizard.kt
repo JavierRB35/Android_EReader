@@ -33,7 +33,8 @@ internal class StorageSetupWizard(
         fun pending(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             return !prefs.getBoolean("dismissed", false) &&
-                (!SharedLibrary.namedFolderMode(context) || !SharedLibrary.hasAccess(context))
+                (!SharedLibrary.namedFolderMode(context) ||
+                    SharedLibrary.writeAccess(context) != com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY)
         }
     }
     private val app get() = activity.applicationContext
@@ -286,7 +287,7 @@ internal class StorageSetupWizard(
             return
         }
         if (!active || busy || waiting || activity.isFinishing || activity.isDestroyed) return
-        val libraryReady = SharedLibrary.configured(app) && SharedLibrary.hasAccess(app) && !SharedLibrary.needsRepair(app)
+        val libraryReady = SharedLibrary.writeAccess(app) == com.javierrb35.bibliotecaia.sync.SharedWriteAccess.READY
         val backup = BackupRoutine.status(app)
         val position = ReadingPositionSafSync.status(app)
         // Verify this installation before asking the reader to configure

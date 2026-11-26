@@ -8,6 +8,12 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/PDF/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, OCR, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+## P0 — Importación directa sin copia obligatoria (26/11/2026)
+
+- Base main b148a660, #119 y #120 fusionadas. Rama fix/shared-import-no-backup-20261126: se confirman tres dependencias heredadas del backup en MainActivity (selector, recepción y publicación). Se elimina el requisito de ZIP y se comparte el criterio de permisos/identidad entre Ajustes, asistente e importación; la última sincronización comprobada se distingue del permiso de escritura persistente para permitir staging offline.
+- Conservados BookImporter, SHA-256, publicación con verificación de originales, cola de sincronización, copia opcional y relectura antes de retirar staging. Se comprueba la URI esperada dentro del mutex de sincronización. Regresiones: SharedWriteAccessTest, BatchImportTest y SharedLibraryJourneyTest (dos Room y almacenamiento sintético sin ZIP, offline/reconciliación). CI y Drive físico pendientes. No fusionar hasta controles verdes; publicación automática monotónica por auto-publish-updates.yml.
+- Siguiente acción: verificar gates exactos de la PR, fusionar, verificar CI main y release firmada con checksum/aviso. Mantener #103 abierta hasta prueba física A/B.
+
 ## Colisiones SAF — rama derivada de #119
 
 - Base 5c8ab9f, rama fix/saf-hash-collisions-20261125 aislada mientras CI de #119 activo. c3acc49 conserva todos los candidatos por nombre y verifica hash/tamaño al resolver recibos; d22928e reutiliza originales homónimos; 751dd18 prueba dos bases Room con archivos homónimos del mismo tamaño y distinto contenido, sin escrituras de originales. CI y Drive físico pendientes. No se elimina ningún original. PDF instrumental aislado despriorizado por propietario; conservar prueba. Integrar con #119 cuando finalice su CI, sin fusionar WIP.
