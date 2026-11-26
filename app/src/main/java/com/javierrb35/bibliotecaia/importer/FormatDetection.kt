@@ -10,7 +10,10 @@ enum class DetectedFormat { EPUB, PDF, MOBI, UNKNOWN }
 /** Errores recuperables de importación con mensaje orientado al usuario (protocolo §17). */
 sealed class ImportError(message: String) : Exception(message) {
     class UnknownFormat(fileName: String) :
-        ImportError("«$fileName» no es un EPUB, PDF o MOBI válido. El archivo no se ha importado.")
+        ImportError("«$fileName» no es un EPUB o MOBI válido. El archivo no se ha importado.")
+
+    class UnsupportedPdf(fileName: String) :
+        ImportError("«$fileName» es PDF. BibliotecaAI solo importa libros EPUB y MOBI.")
 
     class Duplicate(existingTitle: String) :
         ImportError("Ya existe en la biblioteca un libro idéntico: «$existingTitle» (hash de contenido coincidente).")
@@ -27,6 +30,12 @@ sealed class ImportError(message: String) : Exception(message) {
  * La extensión solo se usa como pista cuando el contenido no permite decidir.
  */
 object BookFormatDetector {
+    fun importFormat(detected: DetectedFormat, fileName: String): com.javierrb35.bibliotecaia.data.BookFormat = when (detected) {
+        DetectedFormat.EPUB -> com.javierrb35.bibliotecaia.data.BookFormat.EPUB
+        DetectedFormat.MOBI -> com.javierrb35.bibliotecaia.data.BookFormat.MOBI
+        DetectedFormat.PDF -> throw ImportError.UnsupportedPdf(fileName)
+        DetectedFormat.UNKNOWN -> throw ImportError.UnknownFormat(fileName)
+    }
 
     private val ZIP_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04) // "PK\u0003\u0004"
     private val PDF_MAGIC = "%PDF-".toByteArray(Charsets.US_ASCII)

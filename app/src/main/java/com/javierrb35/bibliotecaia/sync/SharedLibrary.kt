@@ -735,6 +735,7 @@ object SharedLibrary {
                 catch (_: Exception) { /* Isolate invalid peer metadata. */ }
             }
             val book = db.bookDao().findByHash(hash) ?: error("Libro no encontrado.")
+            require(book.format != BookFormat.PDF) { "PDF histórico; no se descarga desde el lector." }
             if (CentralCatalogue.local(book) &&
                 OriginalLinker(context.filesDir).sha256Hex(File(book.localPath)) == hash) return@withLock
             val file = File.createTempFile("shared-download-", ".tmp", context.cacheDir)
@@ -877,7 +878,7 @@ object SharedLibrary {
     }
 
     private fun publishLocalCover(store: SharedStore, book: BookEntity) {
-        if (!store.namedOriginals || book.format == BookFormat.MOBI || !CentralCatalogue.local(book)) return
+        if (!store.namedOriginals || book.format != BookFormat.EPUB || !CentralCatalogue.local(book)) return
         try {
             val listing = store.list()
             if (SharedCoverArt.read(store, listing, book.contentHash) != null) return
@@ -904,7 +905,7 @@ object SharedLibrary {
                 val already = inv.items.keys.mapNotNull(SharedCoverArt::bookHash).toHashSet()
                 val absence = context.getSharedPreferences("cover_absence_v1", Context.MODE_PRIVATE)
                 val books = db.backupDao().booksAll().filter {
-                    it.format != BookFormat.MOBI && it.contentHash !in already &&
+                    it.format == BookFormat.EPUB && it.contentHash !in already &&
                         (CentralCatalogue.local(it) || it.contentHash in listed) &&
                         System.currentTimeMillis() - absence.getLong(it.contentHash, 0) > 7L * 24 * 60 * 60 * 1000
                 }.sortedByDescending(CentralCatalogue::local)

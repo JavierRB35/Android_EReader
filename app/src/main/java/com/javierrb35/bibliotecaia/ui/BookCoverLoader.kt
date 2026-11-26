@@ -84,7 +84,7 @@ object BookCoverLoader {
         if (!file.isFile) return null
         return when (format) {
             BookFormat.EPUB -> EpubCoverSource.read(file)?.let(::decode)
-            BookFormat.PDF -> PdfCoverSource.read(file)
+            BookFormat.PDF -> null // archival metadata, no PDF renderer
             BookFormat.MOBI -> null
         }
     }

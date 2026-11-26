@@ -10,8 +10,7 @@ import java.util.zip.ZipFile
  *
  * EPUB: capítulos en orden de spine (manifest→itemref), título de <title>/<h1..h3>.
  * MOBI: un único fragmento con el texto extraído (sin índice interno fiable).
- * PDF: sin extracción de texto en V1 — la IA sobre PDF usa el texto OCR almacenado
- * en filesDir/ocr/<bookId>/page-N.txt si existe (Incremento OCR).
+ * Los PDF históricos se conservan en el catálogo, sin extracción de texto.
  */
 object BookTextSource {
 
@@ -26,7 +25,7 @@ object BookTextSource {
     const val MAX_FRAGMENT_CHARS = 6_000
     const val MAX_TOTAL_CHARS = 40_000
 
-    fun chapters(file: File, format: String, ocrDir: File?): List<Fragment> = when (format) {
+    fun chapters(file: File, format: String, @Suppress("UNUSED_PARAMETER") ocrDir: File? = null): List<Fragment> = when (format) {
         "EPUB" -> epubChapters(file)
         "MOBI" -> try {
             // Use the same readable text the reader presents, not HTML markup.
@@ -57,7 +56,6 @@ object BookTextSource {
         } catch (_: Exception) {
             emptyList()
         }
-        "PDF" -> ocrPages(ocrDir).ifEmpty { emptyList() }
         else -> emptyList()
     }
 
@@ -161,23 +159,6 @@ object BookTextSource {
         .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'")
         .replace(Regex("""\s+"""), " ")
         .trim()
-
-    // ---------- OCR (PDF escaneados) ----------
-
-    private fun ocrPages(ocrDir: File?): List<Fragment> {
-        if (ocrDir == null || !ocrDir.isDirectory) return emptyList()
-        // Numerical page order is essential to the progress-based spoiler filter.
-        return ocrDir.listFiles()?.mapNotNull { page ->
-            if (!page.isFile || !Regex("""page-\d+\.txt""").matches(page.name) ||
-                page.length() !in 1L..64_000L) return@mapNotNull null
-            val number = page.name.removePrefix("page-").removeSuffix(".txt").toIntOrNull()
-                ?: return@mapNotNull null
-            val text = runCatching { page.readText(Charsets.UTF_8).trim() }.getOrNull()
-                ?: return@mapNotNull null
-            if (text.isBlank()) null else Fragment(number, "Página $number",
-                text.take(MAX_FRAGMENT_CHARS))
-        }?.sortedBy { it.index } ?: emptyList()
-    }
 
     // ---------- selección RAG ----------
 

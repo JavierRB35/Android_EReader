@@ -641,7 +641,6 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_COLLECTION_NAME = "collection_name"
         val IMPORT_MIME_TYPES = arrayOf(
             "application/epub+zip",
-            "application/pdf",
             "application/x-mobipocket-ebook",
             "application/vnd.amazon.ebook"
         )

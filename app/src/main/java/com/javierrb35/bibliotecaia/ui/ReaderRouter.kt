@@ -6,7 +6,6 @@ import androidx.lifecycle.lifecycleScope
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.reader.epub.EpubReaderActivity
-import com.javierrb35.bibliotecaia.reader.pdf.PdfReaderActivity
 import com.javierrb35.bibliotecaia.reader.mobi.MobiReaderActivity
 import kotlinx.coroutines.launch
 
@@ -33,13 +32,17 @@ object ReaderRouter {
                 Toast.makeText(activity, "No se encuentra el libro de origen", Toast.LENGTH_LONG).show()
                 return@launch
             }
+            if (book.format == BookFormat.PDF) {
+                Toast.makeText(activity, "PDF histórico: conservado para recuperación, sin lector compatible.", Toast.LENGTH_LONG).show()
+                return@launch
+            }
             if (!com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(book)) {
                 BookDetailActivity.start(activity, book.id)
                 return@launch
             }
             when (book.format) {
                 BookFormat.EPUB -> EpubReaderActivity.start(activity, bookId, locator)
-                BookFormat.PDF -> PdfReaderActivity.start(activity, bookId, locator)
+                BookFormat.PDF -> Unit // archival only
                 BookFormat.MOBI -> MobiReaderActivity.start(activity, bookId, locator)
             }
         }
