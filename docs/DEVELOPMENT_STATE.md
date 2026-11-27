@@ -4,10 +4,15 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-27 — #155 migración Calibre: metadatos por archivo, portadas y reparación automática.
+**Última actualización:** 2026-11-27 — Incremento 1 UI editorial: sistema visual común (PR #156, v0.1.217).
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+
+## Incremento 1 UI editorial — sistema visual común (27/11/2026)
+- PR #156 fusionada por squash (8b2829a) sobre la dirección visual aprobada de #154. Contenido: tokens DEC-002 (bia_outline_interactive #777168, bia_error, bia_success), TextAppearance.BibliotecaIA.* (DEC-003), dimens.xml + override sw320dp (DEC-004), Widget.BibliotecaIA.Button/.Outlined/DialogButton y ShapeAppearance de diálogo (CMP-003/010), overlays materialAlertDialogTheme + alertDialogTheme (UX-008), navegación flexible mínima 64 dp con iconos 24 y etiquetas 12sp (CMP-002/UX-006) y campo de búsqueda radio 12 con borde interactivo y foco dorado (CMP-004). Exclusivamente recursos visuales: sin lógica, dependencias ni cambios de comportamiento; motores EPUB/MOBI, Conocimiento (#152/#153), Room/SAF/backup intactos.
+- Aprendizajes registrados en la PR: outlinedButtonStyle y materialAlertDialogShapeAppearance son attrs de MaterialComponents inexistentes en el tema Material3; el estilo de materialAlertDialogTitleTextStyle debe heredar de MaterialAlertDialog.Material3.Title.Text porque el layout m3_alert_dialog_title toma de él los layout_width/height obligatorios (su ausencia rompía la inflación de todos los MaterialAlertDialog; detectado por gates de emulador y corregido en f96cc77).
+- Gates verdes en f96cc77 (quality, annotation, startup, EPUB/MOBI funcionales) y en main tras fusión; publicada v0.1.217 (versionCode 100217) con APK + checksum verificado localmente. Validación física pendiente del propietario. Próximo: Incremento 2 (biblioteca y cabecera) sobre esta base, coordinando capturas de evidencia con el experto UI/UX (#154).
 
 ## P0 #155 — migración Calibre: metadatos, portadas y reparación (27/11/2026)
 - Rama fix/metadata-migration-155. Causa raíz acreditada en migrador Windows: modo carpeta usaba nombre de carpeta/carpeta superior para todos los libros. Reescrito scan()/build_snapshot: jerarquía por campo (catálogo db / OPF externo inequívoco → interno EPUB/MOBI EXTH → nombre de archivo), portadas y sinopsis al ZIP (covers/<hash>.jpg, bookSynopses provider «calibre»), bookExtendedMetadata para campos no representables, informe ampliado, elección de formato por registro bibliográfico. 14 pruebas Python.
