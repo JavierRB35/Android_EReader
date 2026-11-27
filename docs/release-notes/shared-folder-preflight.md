@@ -1,3 +1,0 @@
-- Añadida una comprobación de acceso a la carpeta compartida desde Ajustes, sin cambiar la biblioteca ni subir libros.
-- Verifica permisos, escritura y lectura del mismo archivo temporal; no confunde archivos que tengan el mismo nombre.
-- Esta comprobación no implica que la sincronización definitiva de Drive esté disponible todavía.

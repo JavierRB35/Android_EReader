@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Incremento 1 — dimensiones editoriales (DEC-004): base 4/8/12/16/24/32 dp,
+         margen de pantalla 16 dp (12 dp a 320 dp), radios panel 12 / campo 12 / botón 10,
+         divisor 1 dp, área táctil mínima 48 dp. -->
+    <dimen name="bia_space_xs">4dp</dimen>
+    <dimen name="bia_space_sm">8dp</dimen>
+    <dimen name="bia_space_md">12dp</dimen>
+    <dimen name="bia_space_lg">16dp</dimen>
+    <dimen name="bia_space_xl">24dp</dimen>
+    <dimen name="bia_space_xxl">32dp</dimen>
+    <dimen name="bia_screen_margin">16dp</dimen>
+    <dimen name="bia_radius_panel">12dp</dimen>
+    <dimen name="bia_radius_field">12dp</dimen>
+    <dimen name="bia_radius_button">10dp</dimen>
+    <dimen name="bia_divider">1dp</dimen>
+    <dimen name="bia_touch_min">48dp</dimen>
+    <!-- CMP-002: barra de navegación, altura mínima 64 dp y flexible con fuente ampliada. -->
+    <dimen name="bia_nav_min_height">64dp</dimen>
+</resources>

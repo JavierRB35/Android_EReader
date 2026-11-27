@@ -1,2 +1,0 @@
-- Se agrupan los cambios de posición de lectura y se conserva la publicación inmediata al salir del lector.
-- Se limita a tres generaciones verificadas por dispositivo el nuevo historial de sincronización, manteniendo originales y publicaciones anteriores a esta actualización. La limpieza se detiene si no se puede verificar la recuperación.

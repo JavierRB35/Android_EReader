@@ -1,3 +1,0 @@
-- Ajustes vuelve a incluir la configuración de inteligencia artificial, con estado de Gemini y Groq.
-- Las claves se introducen, guardan, prueban y eliminan por separado; Gemini es el principal y Groq el respaldo automático predeterminado en configuraciones nuevas.
-- Se conservan claves cifradas y autorizaciones anteriores; puedes desactivar o activar el respaldo.

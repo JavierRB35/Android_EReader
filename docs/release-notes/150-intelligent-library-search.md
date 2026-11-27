@@ -1,3 +1,0 @@
-- Busca por título, autor, nombre de archivo, categorías, etiquetas, colecciones y argumento, sin tildes y en cualquier orden, con coincidencias aproximadas.
-- Resultados por relevancia y sugerencias al escribir; filtros combinables y opciones de ordenación.
-- Búsqueda local sin descargar originales ni contratar servicios adicionales.

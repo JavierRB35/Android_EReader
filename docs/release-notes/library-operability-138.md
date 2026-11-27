@@ -1,4 +1,0 @@
-- Descarga de uno o varios libros con progreso, resultado y cancelación; puedes seguir navegando.
-- Importación y guardado de nuevos originales sin volver a verificar toda la biblioteca; retirada segura por selección.
-- Generación progresiva de carátulas EPUB y MOBI compartidas, también para libros no descargados.
-- Agrupación visual de formatos EPUB/MOBI coincidentes, con acceso a cada original y sin eliminar datos de lectura.

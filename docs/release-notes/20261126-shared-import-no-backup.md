@@ -1,3 +1,0 @@
-- Importa libros directamente en la biblioteca compartida sin configurar una copia de seguridad independiente.
-- Si no se puede completar el envío, conserva los libros locales para sincronizarlos más adelante; informa si falta permiso de escritura.
-- La copia de seguridad sigue disponible como opción independiente.

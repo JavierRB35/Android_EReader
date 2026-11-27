@@ -1,2 +1,0 @@
-- Los libros descargados se abren sin esperar a Google Drive ni a otras operaciones de biblioteca.
-- Se evita abrir el lector dos veces al pulsar repetidamente y se reduce la recarga de tarjetas al actualizar las carátulas.

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="action_read_book">Abrir lector</string>
-    <string name="nav_library">Biblioteca</string>
-    <string name="nav_read">Leer</string>
-    <string name="nav_knowledge">Conocimiento</string>
-    <string name="no_recent_book">Abre un libro desde tu biblioteca para empezar a leer.</string>
-</resources>

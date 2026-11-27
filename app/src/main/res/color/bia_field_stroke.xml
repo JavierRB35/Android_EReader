@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- DEC-002: borde necesario #777168 en reposo; foco 2 dp dorado (accent). -->
+    <item android:color="@color/bia_accent" android:state_focused="true" />
+    <item android:color="@color/bia_outline_interactive" />
+</selector>

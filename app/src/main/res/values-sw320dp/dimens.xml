@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DEC-004: margen de pantalla 12 dp cuando la anchura mínima es 320 dp. -->
+    <dimen name="bia_screen_margin">12dp</dimen>
+</resources>

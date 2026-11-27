@@ -1,2 +1,0 @@
-- Recuperar una copia restaura los libros en la biblioteca compartida de Drive y conserva las descargas previas, sin descargar todos los libros al dispositivo.
-- Muestra el avance de restauración y conserva el ZIP fuente para reintentos seguros.

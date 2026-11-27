@@ -1,3 +1,0 @@
-- Preparación de bibliotecas grandes más eficiente: menos consultas repetidas a Drive y una sola lectura de cada original durante la verificación final.
-- El asistente muestra la fase de preparación y el número real de originales procesados, confirmados y verificados.
-- Se mantienen las comprobaciones SHA-256, las copias locales y la protección contra sobrescrituras.

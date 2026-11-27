@@ -1,3 +1,0 @@
-- Desde Biblioteca completa puedes seleccionar uno o varios libros y elegir Eliminar definitivamente; también desde la ficha individual.
-- Confirmación explícita de originales y datos de lectura afectados; la eliminación se ejecuta en segundo plano y no modifica copias históricas externas.
-- Se comprueba la identidad SHA-256 del original y se sincroniza su baja antes de retirarlo de Drive.
