@@ -75,3 +75,5 @@ ReaderRouter consultaba el catálogo remoto bajo el mutex de biblioteca antes de
 
 ## #152 — cuaderno de conocimiento
 - Pestañas de ancho natural desplazables, separación de notas vinculadas, fragmentos, marcadores e ideas independientes. Regresión JVM: KnowledgeBookIndexTest.distinguishesBookmarksFromNotesAndFragments. Implementado en rama WIP; CI, pruebas de UI y aceptación física pendientes. No alterar anotaciones almacenadas.
+
+- #152 incremento 3: KnowledgeBookIndexTest.ordersNotesDeterministicallyWithoutChangingIdentity; AnnotationEditorDeviceTest.newNotebookNoteSavesAndCanBeEdited verifica ficha con origen/reflexión antes de edición real Room. CI pendiente. Borrado de marcas independientes y posición al abrir origen siguen pendientes; no declarar corregidos.
