@@ -250,7 +250,7 @@ class KnowledgeActivity : AppCompatActivity() {
                         db.bookDao().observeAll()
                     ) { notes, books ->
                         val titles = books.associate { it.id to it.title }
-                        val authors = books.associate { it.id to it.author.orEmpty() }
+                        val authors = books.associate { it.id to it.authors.orEmpty() }
                         val matches = KnowledgeBookIndex.search(notes, state[0], titles, authors)
                         val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2])
                         val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
