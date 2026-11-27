@@ -94,6 +94,13 @@ class EpubReaderLaunchTest {
             }
             assertTrue("Actual EPUB text must be available during remote wait", rendered)
             assertTrue("Only one reader may open for a double tap", monitor.hits == 1)
+            val database = AppDatabase.get(context)
+            runBlocking {
+                assertTrue("An opening without movement must not manufacture a new position",
+                    database.readingDao().position(id) == null)
+                assertNotNull("Recency must still be tracked independently",
+                    database.bookDao().findById(id)?.lastOpenedAt)
+            }
         } finally {
             release.complete(Unit)
             instrumentation.removeMonitor(monitor)
