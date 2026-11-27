@@ -2,6 +2,9 @@ package com.javierrb35.bibliotecaia.sync
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
+import com.javierrb35.bibliotecaia.data.BookDeletion
+import com.javierrb35.bibliotecaia.data.DeletedBookEntity
 import androidx.work.*
 import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.*
@@ -498,8 +501,9 @@ object SharedLibrary {
         file.inputStream().use { store.create(name, "application/octet-stream", it, book.contentHash, book.sizeBytes) }
         return Receipt(book.contentHash, name, book.sizeBytes)
     }
-    private suspend fun publish(owner: String, store: SharedStore, db: AppDatabase, receipts: Collection<Receipt>) {
-        val raw = BackupCodec.fromJson(BackupManager(db, BuildConfig.VERSION_NAME).exportJson(0))
+    private suspend fun publish(owner: String, store: SharedStore, db: AppDatabase, receipts: Collection<Receipt>,
+                                snapshot: LibrarySnapshot? = null) {
+        val raw = snapshot ?: BackupCodec.fromJson(BackupManager(db, BuildConfig.VERSION_NAME).exportJson(0))
         val canonical = raw.copy(books = raw.books.sortedBy { it.id }, categories = raw.categories.sortedBy { it.id },
             tags = raw.tags.sortedBy { it.id }, collections = raw.collections.sortedBy { it.id },
             bookCategories = raw.bookCategories.sortedWith(compareBy({ it.bookId }, { it.categoryId })),
@@ -907,6 +911,121 @@ object SharedLibrary {
         }
         return DownloadResult(completed, failures)
     }
+    internal class StaleDeletionSelection(message: String) : IllegalStateException(message)
+
+    /**
+     * Explicit deletion in the single named library. A durable request supplies
+     * the original identity even after the Room row has disappeared. Publish and
+     * independently re-read the tombstone BEFORE removing any original bytes.
+     * A failed physical cleanup remains pending and can be retried by the worker.
+     */
+    internal suspend fun deletePermanent(context: Context, db: AppDatabase, expectedUri: Uri,
+                                         selected: BookEntity, started: () -> Unit) =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                require(namedFolderMode(context) && uri(context) == expectedUri) { "La biblioteca ha cambiado." }
+                store(context).use {
+                    deletePermanentStore(it, db, ReadingPositionSafSync.deviceId(context),
+                        context.filesDir, selected, started)
+                }
+                prefs(context).edit().putStringSet("hashes", hashes(context) - selected.contentHash)
+                    .putStringSet("catalogue_hashes", catalogueHashes(context) - selected.contentHash).apply()
+                changes.value += 1
+            }
+        }
+
+    internal suspend fun deletePermanentStore(store: SharedStore, db: AppDatabase, owner: String,
+                                              filesDir: File, selected: BookEntity,
+                                              started: () -> Unit = {}) {
+        require(store.namedOriginals && selected.contentHash.matches(Regex("[a-f0-9]{64}")))
+        val hash = selected.contentHash
+        val manager = BackupManager(db, BuildConfig.VERSION_NAME, filesDir)
+        val before = inventory(store)
+        require(before.errors.isEmpty()) { "No se ha podido comprobar el catálogo compartido." }
+        // Resolve peer tombstones and edits before deciding which generation is
+        // being deleted. Do not allow a queued request to remove a reimport.
+        for (json in before.states) manager.restoreJson(json, synchronize = true)
+        val localDeletion = db.backupDao().deletedBook(hash)
+        val current = db.bookDao().findByHash(hash)
+        if (current != null && current.addedAt != selected.addedAt)
+            throw StaleDeletionSelection("El libro se ha vuelto a importar o ha cambiado. Vuelve a seleccionarlo.")
+        if (current == null && (localDeletion?.deletedAt ?: Long.MIN_VALUE) < selected.addedAt)
+            throw StaleDeletionSelection("El libro seleccionado ya no existe.")
+        fun snapshots(inv: Inventory) = inv.states.map(BackupCodec::fromJson)
+        fun newestDeletion(states: List<LibrarySnapshot>) =
+            states.flatMap { it.deletedBooks }.filter { it.contentHash == hash }.maxOfOrNull { it.deletedAt }
+        fun rejectNewer(states: List<LibrarySnapshot>) {
+            val tombstone = newestDeletion(states) ?: Long.MIN_VALUE
+            if (states.any { state -> state.books.any {
+                it.contentHash == hash && it.addedAt > maxOf(selected.addedAt, tombstone)
+            } }) throw StaleDeletionSelection("Hay una importación posterior en otro dispositivo.")
+        }
+        rejectNewer(snapshots(before))
+
+        // Only exact byte identity authorizes a deletion. Check named candidates
+        // of the selected format and length, including duplicate names; legacy
+        // hash objects can only match their own hash prefix. Never delete metadata.
+        fun candidates(items: Collection<SharedDocumentStore.Item>): List<SharedDocumentStore.Item> =
+            items.filter { item ->
+                !item.directory && (item.size < 0 || item.size == selected.sizeBytes) &&
+                    ((SharedNamedOriginals.validName(item.name) &&
+                        item.name.substringAfterLast('.').equals(selected.format.name, ignoreCase = true)) ||
+                        objectName.matchEntire(item.name)?.groupValues?.get(1) == hash)
+            }.distinctBy { it.uri }.filter {
+                try { store.verify(it, hash, selected.sizeBytes) }
+                catch (_: DocumentTooLargeException) { false }
+            }
+        val originals = candidates(before.items.values.flatten())
+        require(originals.all(store::canDeleteOriginal)) {
+            "El proveedor no permite eliminar los originales seleccionados. No se ha solicitado la baja."
+        }
+
+        // Mark the irreversible phase durably, before the first remote write.
+        started()
+        val deletedAt = maxOf(System.currentTimeMillis(), selected.addedAt, localDeletion?.deletedAt ?: 0L)
+        val tombstone = DeletedBookEntity(hash, deletedAt)
+        val raw = BackupCodec.fromJson(manager.exportJson(0))
+        val snapshot = manager.withoutDeletedBooks(raw.copy(
+            deletedBooks = raw.deletedBooks.filterNot { it.contentHash == hash } + tombstone),
+            mapOf(hash to deletedAt))
+        publish(owner, store, db, before.receipts.values.flatten(), snapshot)
+        store.commit()
+        val confirmed = inventory(store)
+        require(confirmed.errors.isEmpty()) { "La baja aún no se ha podido releer." }
+        val confirmedStates = snapshots(confirmed)
+        require((newestDeletion(confirmedStates) ?: Long.MIN_VALUE) >= deletedAt) {
+            "La baja todavía no aparece en el catálogo compartido."
+        }
+        rejectNewer(confirmedStates)
+
+        // Remove metadata only after remote acknowledgement. The private copy
+        // is guarded by both its app-owned path and its SHA-256. On retry the
+        // captured path remains available even if the Room row is gone.
+        val removed = db.withTransaction {
+            val now = db.bookDao().findByHash(hash)
+            if (now != null && now.addedAt != selected.addedAt)
+                throw StaleDeletionSelection("El libro ha cambiado durante la eliminación.")
+            BookDeletion.apply(db, tombstone)
+        }
+        for (book in listOfNotNull(removed, selected).distinctBy { it.localPath }) {
+            val file = File(book.localPath)
+            if (book.localPath.isNotBlank() && file.isFile) {
+                require(OriginalLinker(filesDir).sha256Hex(file) == hash) {
+                    "La copia local ha cambiado; no se eliminará."
+                }
+                LocalBookCopyRemover.delete(filesDir, book)
+            }
+        }
+        // Re-read candidates after tombstone publication, and verify identity
+        // again inside the provider-specific deletion method before each delete.
+        for (item in candidates(confirmed.items.values.flatten())) {
+            require(store.deleteVerifiedOriginal(item, hash, selected.sizeBytes)) {
+                "La baja está publicada, pero queda un original pendiente de retirar de Drive."
+            }
+        }
+        require(candidates(store.list()).isEmpty()) { "Todavía quedan originales pendientes de retirar." }
+    }
+
     suspend fun deleteEverywhere(context: Context, db: AppDatabase, id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val removed = com.javierrb35.bibliotecaia.data.BookDeletion.remove(db, id) ?: return@withLock
