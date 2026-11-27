@@ -43,6 +43,17 @@ class KnowledgeBookIndexTest {
         assertEquals(all, KnowledgeBookIndex.byKind(all, "ALL"))
     }
 
+    @Test fun searchesAuthorTitleAndQuoteTogetherWithoutChangingNotes() {
+        val titles = mapOf("book-A" to "El árbol", "book-B" to "Otra obra")
+        val authors = mapOf("book-A" to "Pär Lagerkvist")
+        assertEquals(listOf("one"), KnowledgeBookIndex.search(entries,
+            "lagerkvist arbol texto", titles, authors).map { it.id })
+        assertEquals(listOf("one", "three"), KnowledgeBookIndex.search(entries,
+            "PÄR", titles, authors).map { it.id })
+        assertEquals(entries, KnowledgeBookIndex.search(entries, " ", titles, authors))
+        assertTrue(KnowledgeBookIndex.search(entries, "inexistente", titles, authors).isEmpty())
+    }
+
     @Test fun fragmentAndIdeaFiltersHaveNoFalseMatches() {
         assertEquals(3, KnowledgeBookIndex.byKind(entries, "QUOTE").size)
         assertEquals(listOf("idea"), KnowledgeBookIndex.byKind(entries, "IDEAS").map { it.id })
