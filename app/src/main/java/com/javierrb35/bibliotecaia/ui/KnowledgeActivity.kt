@@ -40,6 +40,7 @@ class KnowledgeActivity : AppCompatActivity() {
     private val trash = MutableStateFlow(false)
     private val kindFilter = MutableStateFlow("ALL")
     private val bookFilter = MutableStateFlow(KnowledgeBookIndex.ALL)
+    private val sortFilter = MutableStateFlow(KnowledgeBookIndex.Sort.MODIFIED)
     private var bookTitles = emptyMap<String, String>()
     private var bookAuthors = emptyMap<String, String>()
     private var availableBookChoices = emptyList<KnowledgeBookIndex.Choice>()
@@ -84,6 +85,8 @@ class KnowledgeActivity : AppCompatActivity() {
         trash.value = savedInstanceState?.getBoolean("premium_trash") ?: false
         kindFilter.value = savedInstanceState?.getString("selected_kind_filter") ?: "ALL"
         query.value = savedInstanceState?.getString("knowledge_query").orEmpty()
+        sortFilter.value = KnowledgeBookIndex.Sort.entries.firstOrNull { it.name == savedInstanceState?.getString("knowledge_sort") }
+            ?: KnowledgeBookIndex.Sort.MODIFIED
         val brand = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), 0, dp(12), 0)
@@ -168,13 +171,14 @@ class KnowledgeActivity : AppCompatActivity() {
                 dp(17).toFloat(), dp(17).toFloat())
             setStartIconDrawable(R.drawable.ic_premium_search)
         }
-        searchBox.addView(TextInputEditText(searchBox.context).apply {
+        val searchInput = TextInputEditText(searchBox.context).apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             isSingleLine = true
             textSize = 14f
             setText(query.value)
             doOnTextChanged { text, _, _, _ -> query.value = text.toString() }
-        })
+        }
+        searchBox.addView(searchInput)
         controls.addView(searchBox)
 
         val actionsRow = LinearLayout(this).apply {
@@ -216,7 +220,26 @@ class KnowledgeActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.bia_text_secondary))
             setPadding(0, dp(4), 0, dp(4))
         }
-        controls.addView(status)
+        val filterTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        filterTools.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
+        val sortButton = button("Ordenar") {
+            val options = KnowledgeBookIndex.Sort.entries
+            MaterialAlertDialogBuilder(this).setTitle("Ordenar anotaciones")
+                .setSingleChoiceItems(options.map { it.title }.toTypedArray(), options.indexOf(sortFilter.value)) { dialog, index ->
+                    sortFilter.value = options[index]
+                    dialog.dismiss()
+                }.setNegativeButton("Cerrar", null).show()
+        }.apply { textSize = 12f }
+        filterTools.addView(sortButton, LinearLayout.LayoutParams(-2, -2))
+        val clearButton = button("Limpiar", "Limpiar filtros de conocimiento") {
+            searchInput.setText("")
+            bookFilter.value = KnowledgeBookIndex.ALL
+            kindFilter.value = "ALL"
+            sortFilter.value = KnowledgeBookIndex.Sort.MODIFIED
+            updateTabs("ALL")
+        }.apply { textSize = 12f }
+        filterTools.addView(clearButton, LinearLayout.LayoutParams(-2, -2))
+        controls.addView(filterTools)
         root.addView(controls)
 
         val empty = TextView(this).apply {
@@ -243,8 +266,8 @@ class KnowledgeActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(query, trash, kindFilter, bookFilter) { q, t, kind, book ->
-                    arrayOf(q, if (t) "1" else "0", kind, book)
+                combine(query, trash, kindFilter, bookFilter, sortFilter) { q, t, kind, book, sort ->
+                    arrayOf(q, if (t) "1" else "0", kind, book, sort.name)
                 }.flatMapLatest { state ->
                     combine(
                         db.readingDao().notebook("", state[1] == "1"),
@@ -255,7 +278,8 @@ class KnowledgeActivity : AppCompatActivity() {
                         val matches = KnowledgeBookIndex.search(notes, state[0], titles, authors)
                         val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2])
                         val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
-                        val visible = KnowledgeBookIndex.byBook(kindFiltered, state[3])
+                        val visible = KnowledgeBookIndex.sorted(KnowledgeBookIndex.byBook(kindFiltered, state[3]),
+                            KnowledgeBookIndex.Sort.valueOf(state[4]), titles, state[0])
                         Pair(Triple(visible, titles, choices), authors)
                     }
                 }.collect { (result, authors) ->
@@ -267,6 +291,9 @@ class KnowledgeActivity : AppCompatActivity() {
                         it.id == bookFilter.value
                     }?.title ?: "Todas las obras")
                     status.text = (if (trash.value) "Papelera · " else "") + "${notes.size} apuntes"
+                    sortButton.contentDescription = "Ordenar: " + sortFilter.value.title
+                    clearButton.visibility = if (query.value.isNotBlank() || bookFilter.value != KnowledgeBookIndex.ALL ||
+                        kindFilter.value != "ALL" || sortFilter.value != KnowledgeBookIndex.Sort.MODIFIED) View.VISIBLE else View.GONE
                     adapter.submit(notes, titles)
                     empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
                     empty.text = when {
@@ -288,6 +315,7 @@ class KnowledgeActivity : AppCompatActivity() {
         outState.putString("selected_kind_filter", kindFilter.value)
         outState.putString("knowledge_query", query.value)
         outState.putBoolean("premium_trash", trash.value)
+        outState.putString("knowledge_sort", sortFilter.value.name)
         super.onSaveInstanceState(outState)
     }
 
