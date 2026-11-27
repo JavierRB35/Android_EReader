@@ -10,6 +10,7 @@
 
 
 ## #152 — cuaderno de conocimiento (27/11/2026)
+- Primer HEAD fe277346: cuatro gates verdes (46018070677, 46018070490, 46018071530, 46018070763). Segundo incremento: búsqueda local por autor, título, cuerpo y cita con normalización Unicode y términos combinados; prueba searchesAuthorTitleAndQuoteTogetherWithoutChangingNotes. CI nueva pendiente. Sin cambios en almacenamiento. Pendientes ficha, metadatos sincronizados, relaciones, selección, exportación y demás alcance.
 - Rama `feature/knowledge-ux-152`, primer incremento WIP: cabecera compacta, pestañas horizontales Todo/Notas/Fragmentos/Marcadores/Ideas, menú de exportación/papelera/ajustes, contador, tarjetas compactas y estado de filtros al recrear Activity. Sin cambios de persistencia ni Drive.
 - KnowledgeBookIndexTest.distinguishesBookmarksFromNotesAndFragments comprueba separación de tipos y conservación del listado; CI pendiente. Las notas independientes siguen siendo ideas en el modelo existente.
 - Siguiente: ficha individual, búsqueda y filtros combinables, selección múltiple, etiquetas/favoritos, exportación, relaciones manuales, IA bajo demanda compatible, navegación al origen sin pérdida de posición, pruebas instrumentadas y regresión de sincronización. Revisar alcance completo de #152; mantener PR draft hasta completar y validar. #138 sigue prioritario; coordinar publicación única con agente P0. No declarar APK ni aceptación física.
