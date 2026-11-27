@@ -1,0 +1,49 @@
+name: Windows Calibre migrator
+on:
+  pull_request:
+    paths:
+      - 'tools/calibre-migrator/**'
+      - '.github/workflows/windows-calibre-migrator.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/calibre-migrator/**'
+      - '.github/workflows/windows-calibre-migrator.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: tools/calibre-migrator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify migration contracts
+        run: python -m unittest -v test_migrator
+      - name: Build portable Windows executable
+        run: |
+          python -m pip install pyinstaller==6.12.0
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name BibliotecaAI-Migrador-Calibre app.py
+          if (!(Test-Path dist/BibliotecaAI-Migrador-Calibre.exe)) { throw "Missing executable" }
+          $hash = (Get-FileHash dist/BibliotecaAI-Migrador-Calibre.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  BibliotecaAI-Migrador-Calibre.exe" | Set-Content -Encoding ascii dist/BibliotecaAI-Migrador-Calibre.exe.sha256
+      - name: Run functional tests inside the portable executable
+        run: |
+          $exe = (Resolve-Path dist/BibliotecaAI-Migrador-Calibre.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Packaged migration self-test failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BibliotecaAI-Migrador-Calibre-Windows
+          path: |
+            tools/calibre-migrator/dist/BibliotecaAI-Migrador-Calibre.exe
+            tools/calibre-migrator/dist/BibliotecaAI-Migrador-Calibre.exe.sha256
+          if-no-files-found: error
+          retention-days: 30

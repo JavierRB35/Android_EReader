@@ -1,0 +1,12 @@
+<resources>
+    <item type="id" name="epub_navigator" />
+    <item type="id" name="epub_native_text" />
+    <string name="epub_opening">Preparando tu lectura…</string>
+    <string name="epub_contents">Índice</string>
+    <string name="epub_search">Buscar</string>
+    <string name="epub_settings">Aa</string>
+    <string name="epub_bookmark">Marcar</string>
+    <string name="epub_previous">Anterior</string>
+    <string name="epub_next">Siguiente</string>
+    <string name="epub_annotate">Anotar selección</string>
+</resources>

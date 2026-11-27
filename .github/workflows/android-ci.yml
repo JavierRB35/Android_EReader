@@ -1,0 +1,107 @@
+name: Android quality gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Never expose signing/API secrets to PR builds.
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: JVM tests, instrumented test APK, debug and unsigned release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out source without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate release notes and publication policies
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK 34
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Cache Gradle dependencies
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JVM tests and compile debug and unsigned release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Readium + Room/KSP need a larger heap on the hosted Linux runner.
+          # Override is CI-only: do NOT alter gradle.properties / AndroidIDE ARM64 limits.
+          sh ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease \
+            --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Dorg.gradle.vfs.watch=false
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          # Compile instrumented tests (including Room restore/EPUB reader),
+          # but do not claim they were run on a physical device or emulator.
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          # Unsigned release artifact is a prerequisite for the separate signing workflow.
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Archive JVM test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jvm-test-results
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Archive debug APK for internal device tests
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bibliotecaia-debug-not-for-distribution
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Assemble isolated QA app for two-device acceptance
+        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/shared-library-rebuild'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh ./gradlew :app:assembleDebug -PBIBLIOTECA_QA=true --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process -Dorg.gradle.vfs.watch=false
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | grep -F "package: name='com.javierrb35.bibliotecaia.qa'"
+          mkdir -p qa-dist
+          cp "$apk" qa-dist/BibliotecaAI-QA.apk
+
+      - name: Archive isolated QA APK (not a production update)
+        if: success() && github.event_name == 'pull_request' && github.head_ref == 'feat/shared-library-rebuild'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BibliotecaAI-QA
+          path: qa-dist/BibliotecaAI-QA.apk
+          if-no-files-found: error
+          retention-days: 14

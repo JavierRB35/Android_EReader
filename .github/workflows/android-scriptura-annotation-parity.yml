@@ -1,0 +1,124 @@
+name: Scriptura-style annotation interaction on Android
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/javierrb35/bibliotecaia/reader/**'
+      - 'app/src/main/java/com/javierrb35/bibliotecaia/study/DefinitionUi.java'
+      - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/study/DefinitionSelectionDeviceTest.java'
+      - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/reader/**'
+      - '.github/workflows/android-scriptura-annotation-parity.yml'
+      - 'scripts/android-reader-parity.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scriptura-marked-notes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scriptura-marked-notes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build QA APKs before starting emulator
+        run: sh scripts/android-reader-parity.sh --prepare
+      - name: Configure emulator acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          else
+            echo "No KVM present; CPU fallback is enabled"
+          fi
+      - name: Verify marked-text tap gesture and full-note dialogue in MOBI
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: 'yes'
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          profile: pixel_5
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          script: sh scripts/android-reader-parity.sh com.javierrb35.bibliotecaia.reader.annotations.ScripturaMarkTapDeviceTest,com.javierrb35.bibliotecaia.reader.annotations.SavedAnnotationModalDeviceTest,com.javierrb35.bibliotecaia.reader.annotations.SelectionEdgeScrollDeviceTest,com.javierrb35.bibliotecaia.study.DefinitionSelectionDeviceTest,com.javierrb35.bibliotecaia.study.DefinitionAnnotationDeviceTest,com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.EpubReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.ReadiumNativeNoteBridgeDeviceTest
+      - name: Upload instrumented evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scriptura-marked-annotation-device-results
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 7
+
+  android16-saved-notes:
+    name: EPUB and MOBI saved note taps on Android 16 (API 36)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build QA APKs before starting emulator
+        run: sh scripts/android-reader-parity.sh --prepare
+      - name: Configure Android 16 emulator acceleration
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          else
+            echo "No KVM available; CPU fallback is enabled"
+          fi
+      - name: Confirm window-injected saved notes after EPUB/MOBI reopen on Android 16
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_I_WANT_MY_TCG: 'yes'
+        with:
+          api-level: 36
+          arch: x86_64
+          target: default
+          profile: pixel_5
+          cores: 2
+          ram-size: 4096M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          script: sh scripts/android-reader-parity.sh com.javierrb35.bibliotecaia.reader.epub.EpubReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.mobi.MobiReadingJourneyDeviceTest,com.javierrb35.bibliotecaia.reader.epub.ReadiumNativeNoteBridgeDeviceTest
+      - name: Archive Android 16 instrumented test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android16-note-modal-device-results
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+          retention-days: 7

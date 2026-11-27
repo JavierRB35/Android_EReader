@@ -1,0 +1,194 @@
+package com.javierrb35.bibliotecaia.ui
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.app.Activity
+import android.app.Instrumentation
+import android.os.SystemClock
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.matcher.RootMatchers.isDialog
+import androidx.test.core.app.ActivityScenario
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.Espresso.pressBack
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class SharedSettingsJourneyDeviceTest {
+    @Test fun unconfiguredDeviceShowsSingleFolderSetup() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Buscar Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Guardar en Drive")).check(doesNotExist())
+            onView(withText("Otra carpeta")).check(doesNotExist())
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+            onView(withText("Recuperar una copia")).perform(scrollTo()).check(matches(isDisplayed()))
+        } finally {
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+    @Test fun folderOnlyAndCancelReturnsToChoice() =
+        verifyPicker("Seleccionar carpeta", Intent.ACTION_OPEN_DOCUMENT_TREE, null)
+
+    @Test fun driveSearchUsesOpenDocumentAndCancelReturnsToChoice() =
+        verifyPicker("Buscar Drive", Intent.ACTION_OPEN_DOCUMENT, "*/*")
+
+    @Test fun driveDocumentIsOnlyNavigationHintAndNeverActivatesLibrary() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val file = Uri.parse("content://synthetic.provider/document/example")
+        val captured = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? = when (intent.action) {
+                Intent.ACTION_OPEN_DOCUMENT -> Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(file))
+                Intent.ACTION_OPEN_DOCUMENT_TREE -> {
+                    captured.set(Intent(intent))
+                    Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                }
+                else -> null
+            }
+        }
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Buscar Drive")).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            onView(withText("Autorizar la carpeta completa")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50L)
+            assertNotNull("Debe solicitar un árbol, no activar el documento", captured.get())
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, captured.get().action)
+            assertEquals(file, captured.get().getParcelableExtra<Uri>(DocumentsContract.EXTRA_INITIAL_URI))
+            instrumentation.waitForIdleSync()
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Buscar Drive")).inRoot(isDialog()).check(matches(isDisplayed()))
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun returnedDocumentCannotBeAcceptedAsTree() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? =
+                if (intent.action == Intent.ACTION_OPEN_DOCUMENT_TREE)
+                    Instrumentation.ActivityResult(Activity.RESULT_OK,
+                        Intent().setData(Uri.parse("content://synthetic.provider/document/not-a-tree")))
+                else null
+        }
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            onView(withText("No se ha comprobado el acceso a la carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+
+    @Test fun sharedFolderCheckOpensTreeWithoutChangingExistingConnection() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val before = com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app)
+        val captured = AtomicReference<Intent>()
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_OPEN_DOCUMENT_TREE &&
+                    intent.action != Intent.ACTION_CREATE_DOCUMENT) return null
+                captured.set(Intent(intent))
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Comprobar acceso a carpeta compartida")).perform(scrollTo(), click())
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).perform(click())
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50L)
+            assertNotNull("Debe abrir el selector de carpetas", captured.get())
+            assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, captured.get().action)
+            instrumentation.waitForIdleSync()
+            assertEquals(before, com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+            onView(withText("Comprobar acceso a carpeta compartida")).perform(scrollTo()).check(matches(isDisplayed()))
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+        }
+    }
+
+    private fun verifyPicker(button: String, expected: String, mime: String?) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val app = instrumentation.targetContext
+        val captured = AtomicReference<Intent>()
+        // Intercept only the system picker, without a real Drive account.
+        // Observe the actual intent launched by the wizard, not its button label.
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action !in setOf(Intent.ACTION_CREATE_DOCUMENT, Intent.ACTION_OPEN_DOCUMENT_TREE, Intent.ACTION_OPEN_DOCUMENT))
+                    return null
+                captured.set(Intent(intent))
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        val scenario = ActivityScenario.launch<SettingsActivity>(Intent(app, SettingsActivity::class.java))
+        instrumentation.addMonitor(monitor)
+        try {
+            onView(withText("Configurar biblioteca")).perform(scrollTo(), click())
+            onView(withText(button)).inRoot(isDialog()).perform(click())
+            // The IO coroutine is not tracked by Espresso. Wait for the real
+            // outgoing intent, then let the cancelled result reach the activity.
+            val deadline = SystemClock.uptimeMillis() + 5000L
+            while (captured.get() == null && SystemClock.uptimeMillis() < deadline) {
+                SystemClock.sleep(50L)
+            }
+            val intent = captured.get()
+            assertNotNull("The wizard must launch the requested picker", intent)
+            instrumentation.waitForIdleSync()
+            onView(withText("Seleccionar carpeta")).inRoot(isDialog()).check(matches(isDisplayed()))
+            assertEquals(expected, intent.action)
+            assertEquals(mime, intent.type)
+            onView(withText("Guardar en Drive")).check(doesNotExist())
+            onView(withText("Continuar más tarde")).inRoot(isDialog()).perform(click())
+        } finally {
+            instrumentation.removeMonitor(monitor)
+            scenario.close()
+            app.getSharedPreferences("storage_setup_wizard", Context.MODE_PRIVATE).edit().clear().commit()
+        }
+    }
+}

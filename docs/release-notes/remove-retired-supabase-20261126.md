@@ -1,0 +1,1 @@
+- Eliminados los componentes inactivos de la antigua conexión Supabase y el coordinador remoto. La biblioteca compartida continúa usando los permisos de Android y Google Drive; se conserva el esquema local y las migraciones para proteger los datos existentes.

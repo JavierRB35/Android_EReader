@@ -1,0 +1,2 @@
+- Comprueba el acceso a la carpeta antes de recuperar datos de la conexión antigua.
+- Muestra en qué operación falla la biblioteca y el detalle del error, sin borrar libros ni exigir copias adicionales.
