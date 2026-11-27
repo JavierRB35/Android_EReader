@@ -9,12 +9,44 @@ import com.javierrb35.bibliotecaia.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import kotlinx.coroutines.flow.first
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Library UX regressions: preserve user context, keep essential actions reachable. */
 @RunWith(AndroidJUnit4::class)
 class LibraryHomeUxDeviceTest {
+    @Test fun searchProjectionIncludesRelationsAndChangesWithoutOriginals() = kotlinx.coroutines.runBlocking {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val db = androidx.room.Room.inMemoryDatabaseBuilder(context,
+            com.javierrb35.bibliotecaia.data.AppDatabase::class.java).build()
+        try {
+            val book = com.javierrb35.bibliotecaia.data.BookEntity("search-test", "Cien años",
+                "García Márquez", com.javierrb35.bibliotecaia.data.BookFormat.EPUB,
+                "original.epub", "", "a".repeat(64), 1, 1)
+            db.bookDao().insert(book)
+            db.categoryDao().insert(com.javierrb35.bibliotecaia.data.CategoryEntity("c","Literatura"))
+            db.tagDao().insert(com.javierrb35.bibliotecaia.data.TagEntity("t","Realismo mágico"))
+            db.collectionDao().insert(com.javierrb35.bibliotecaia.data.CollectionEntity("l","Clásicos",1))
+            db.refsDao().addBookCategory(com.javierrb35.bibliotecaia.data.BookCategoryCrossRef(book.id,"c"))
+            db.refsDao().addBookTag(com.javierrb35.bibliotecaia.data.BookTagCrossRef(book.id,"t"))
+            db.refsDao().addCollectionBook(com.javierrb35.bibliotecaia.data.CollectionBookCrossRef("l",book.id))
+            db.synopsisDao().save(com.javierrb35.bibliotecaia.data.BookSynopsisEntity(book.id,
+                "Historia de una familia", "manual", 1, true))
+            val document = db.bookDao().searchDocuments().first().single()
+            assertEquals("Literatura",document.categories)
+            assertEquals("Realismo mágico",document.tags)
+            assertEquals("Clásicos",document.collections)
+            assertEquals("l",document.collectionIds)
+            val indexed = LibrarySearch.index(document,false)
+            assertEquals(listOf(book.id),LibrarySearch.search(listOf(indexed),"garcia familia","ALL",false,"l",
+                true,setOf(book.contentHash),LibrarySearch.Filters()).books.map { it.id })
+            db.synopsisDao().save(com.javierrb35.bibliotecaia.data.BookSynopsisEntity(book.id,
+                "Nuevo argumento", "manual", 2, true))
+            assertEquals("Nuevo argumento",db.bookDao().searchDocuments().first().single().synopsis)
+        } finally { db.close() }
+    }
+
     @Test
     fun searchAndReadingShelfSurviveActivityRecreation() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)

@@ -7,8 +7,33 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/** Observable metadata only; no schema changes and no N+1 DAO calls per keystroke. */
+data class CatalogSearchDocument(
+    @androidx.room.Embedded val book: BookEntity,
+    val categories: String?,
+    val tags: String?,
+    val collections: String?,
+    val collectionIds: String?,
+    val synopsis: String?
+)
+
 @Dao
 interface BookDao {
+    @Query("""
+        SELECT b.*,
+          (SELECT group_concat(c.name, char(10)) FROM book_categories bc
+            JOIN categories c ON c.id=bc.categoryId WHERE bc.bookId=b.id) AS categories,
+          (SELECT group_concat(t.name, char(10)) FROM book_tags bt
+            JOIN tags t ON t.id=bt.tagId WHERE bt.bookId=b.id) AS tags,
+          (SELECT group_concat(c.name, char(10)) FROM collection_books cb
+            JOIN collections c ON c.id=cb.collectionId WHERE cb.bookId=b.id) AS collections,
+          (SELECT group_concat(cb.collectionId, char(10)) FROM collection_books cb
+            WHERE cb.bookId=b.id) AS collectionIds,
+          (SELECT s.text FROM book_synopses s WHERE s.bookId=b.id) AS synopsis
+        FROM books b
+    """)
+    fun searchDocuments(): Flow<List<CatalogSearchDocument>>
+
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(book: BookEntity)
