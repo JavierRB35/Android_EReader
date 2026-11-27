@@ -10,7 +10,9 @@ internal object KnowledgeBookIndex {
     data class Choice(val id: String, val title: String, val count: Int)
 
     fun byKind(notes: List<AnnotationEntity>, kind: String) = when (kind) {
-        "QUOTE" -> notes.filter { it.quote.isNotBlank() }
+        "NOTE" -> notes.filter { it.kind == "NOTE" && it.bookId != null }
+        "BOOKMARK" -> notes.filter { it.kind == "BOOKMARK" }
+        "QUOTE" -> notes.filter { it.kind != "BOOKMARK" && it.quote.isNotBlank() }
         "IDEAS" -> notes.filter { it.kind == "NOTE" && it.bookId == null }
         else -> notes
     }
