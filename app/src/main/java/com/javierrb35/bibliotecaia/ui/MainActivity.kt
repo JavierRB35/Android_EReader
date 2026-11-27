@@ -36,6 +36,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /**
@@ -64,6 +68,14 @@ class MainActivity : AppCompatActivity() {
     private var pendingImportCentral = false
     private var pickerOpen = false
 
+    private val advancedFilters = MutableStateFlow(LibrarySearch.Filters())
+    private var indexedBooks = emptyList<LibrarySearch.Entry>()
+    private var suggestions = emptyList<LibrarySearch.Suggestion>()
+    private data class SearchRequest(val query: String, val status: String, val favorite: Boolean,
+        val collection: String, val mode: Pair<Boolean, Set<String>?>, val filters: LibrarySearch.Filters)
+    private fun currentSearch() = SearchRequest(queryFlow.value, statusFlow.value, favoriteOnlyFlow.value,
+        collectionFlow.value, centralFlow.value, advancedFilters.value)
+    private var displayedSearch: SearchRequest? = null
     private val queryFlow = MutableStateFlow("")
     private val statusFlow = MutableStateFlow("ALL")
     private val favoriteOnlyFlow = MutableStateFlow(false)
@@ -179,11 +191,12 @@ class MainActivity : AppCompatActivity() {
         recycler = findViewById(R.id.recyclerBooks)
         emptyState = findViewById(R.id.txtEmpty)
         adapter = BookAdapter(onLongClick = { book ->
-            if (!batchRunning && !importing && visibleBooks.any { it.id == book.id }) {
+            if (displayedSearch == currentSearch() && !batchRunning && !importing && visibleBooks.any { it.id == book.id }) {
                 selection.toggle(book.id)
                 renderSelection()
             }
         }) { book ->
+            if (displayedSearch != currentSearch()) return@BookAdapter
             if (selection.active) {
                 selection.toggle(book.id)
                 renderSelection()
@@ -192,6 +205,7 @@ class MainActivity : AppCompatActivity() {
         applyViewMode(loadViewMode())
         recycler.adapter = adapter
         findViewById<View>(R.id.btnSelectAllBooks).setOnClickListener {
+            if (displayedSearch != currentSearch()) return@setOnClickListener
             selection.toggleAll(visibleBooks.map { it.id })
             renderSelection()
         }
@@ -256,12 +270,19 @@ class MainActivity : AppCompatActivity() {
         }.also { selectionBack = it })
 
         val search = findViewById<EditText>(R.id.txtSearch)
+        savedInstanceState?.getStringArray("advanced_search")?.takeIf { it.size == 7 }?.let {
+            advancedFilters.value = LibrarySearch.Filters(it[0],it[1],it[2],it[3],it[4],it[5]=="true",it[6])
+        }
+        findViewById<View>(R.id.btnSearchFilters).setOnClickListener { showSearchFilters() }
+        search.setOnFocusChangeListener { _, _ -> renderSearchSuggestions() }
         search.setText(savedInstanceState?.getString(STATE_QUERY).orEmpty())
         queryFlow.value = search.text?.toString()?.trim().orEmpty()
         search.doOnTextChanged { text, _, _, _ ->
             selection.clear()
             renderSelection()
             queryFlow.value = text?.toString()?.trim().orEmpty()
+            suggestions = emptyList()
+            renderSearchSuggestions()
         }
 
         val shelves = findViewById<ChipGroup>(R.id.chipShelves)
@@ -276,6 +297,9 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnClearFilters).setOnClickListener {
             search.text?.clear()
+            advancedFilters.value = LibrarySearch.Filters()
+            selection.clear()
+            renderSelection()
             shelves.check(R.id.chipAll)
             findViewById<HorizontalScrollView>(R.id.scrollShelves).smoothScrollTo(0, 0)
         }
@@ -410,6 +434,9 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean("central_mode", centralFlow.value.first)
         outState.putBoolean("pending_import_central", pendingImportCentral)
         outState.putBoolean("import_picker_open", pickerOpen)
+        val filters = advancedFilters.value
+        outState.putStringArray("advanced_search", arrayOf(filters.category, filters.tag, filters.collection,
+            filters.format, filters.availability, filters.favorite.toString(), filters.sort))
         outState.putString(STATE_QUERY, findViewById<EditText>(R.id.txtSearch).text?.toString())
         outState.putInt(STATE_SHELF, findViewById<ChipGroup>(R.id.chipShelves).checkedChipId)
         super.onSaveInstanceState(outState)
@@ -429,12 +456,27 @@ class MainActivity : AppCompatActivity() {
     private fun observeCatalog() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow, centralFlow) { q, s, f, c, central ->
-                    db.bookDao().search(q, s, if (f) 1 else 0, c) to central
-                }.flatMapLatest { (flow, mode) ->
-                    flow.map { all -> CentralCatalogue.visible(all, mode.first, mode.second) }
-                }.collect { books ->
-                    val groups = if (centralFlow.value.first) BibliographicEditions.group(books)
+                val documents = db.bookDao().searchDocuments().map { rows ->
+                    rows.map { LibrarySearch.index(it, CentralCatalogue.local(it.book)) }
+                }.flowOn(Dispatchers.Default)
+                val request = combine(queryFlow, statusFlow, favoriteOnlyFlow, collectionFlow, centralFlow) { q, st, f, c, m ->
+                    SearchRequest(q, st, f, c, m, LibrarySearch.Filters())
+                }
+                combine(documents, request, advancedFilters) { docs, req, filters ->
+                    docs to req.copy(filters = filters)
+                }.mapLatest { (docs, req) ->
+                    val found = withContext(Dispatchers.Default) {
+                        LibrarySearch.search(docs, req.query, req.status, req.favorite, req.collection,
+                            req.mode.first, req.mode.second, req.filters)
+                    }
+                    Triple(docs, req, found)
+                }.collect { (docs, req, found) ->
+                    if (req != currentSearch()) return@collect
+                    indexedBooks = docs
+                    displayedSearch = req
+                    suggestions = found.suggestions
+                    val books = found.books
+                    val groups = if (req.mode.first) BibliographicEditions.group(books)
                         else books.map { listOf(it) }
                     visibleBooks = groups.map { it.first() }
                     editions = groups.associateBy { it.first().id }
@@ -444,8 +486,7 @@ class MainActivity : AppCompatActivity() {
                     refreshMissingOriginals()
                     findViewById<TextView>(R.id.txtBookCount).text =
                         resources.getQuantityString(R.plurals.bia_ux_book_count, visibleBooks.size, visibleBooks.size)
-                    val filters = queryFlow.value.isNotEmpty() ||
-                        statusFlow.value != "ALL" || favoriteOnlyFlow.value
+                    val filters = req.query.isNotEmpty() || req.status != "ALL" || req.favorite || req.filters.count > 0
                     val collection = collectionFlow.value.isNotEmpty()
                     val emptyTitle = when {
                         filters -> R.string.bia_ux_no_matches_title
@@ -463,13 +504,88 @@ class MainActivity : AppCompatActivity() {
                         if (filters) View.VISIBLE else View.GONE
                     emptyState.visibility = if (books.isEmpty()) View.VISIBLE else View.GONE
                     recycler.visibility = if (books.isEmpty()) View.GONE else View.VISIBLE
+                    renderSearchSuggestions()
+                    findViewById<TextView>(R.id.btnSearchFilters).text =
+                        if (req.filters.count == 0) "Filtros" else "Filtros (${req.filters.count})"
                 }
             }
         }
     }
 
+    private fun renderSearchSuggestions() {
+        val scroll = findViewById<View>(R.id.searchSuggestions)
+        val items = findViewById<android.widget.LinearLayout>(R.id.searchSuggestionItems)
+        val search = findViewById<EditText>(R.id.txtSearch)
+        items.removeAllViews()
+        val show = search.hasFocus() && !selection.active && suggestions.isNotEmpty()
+        scroll.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+        for (suggestion in suggestions) {
+            val button = com.google.android.material.button.MaterialButton(this, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = suggestion.label
+                isAllCaps = false
+                maxLines = 1
+                setOnClickListener {
+                    search.setText(suggestion.value)
+                    search.setSelection(search.length())
+                    search.clearFocus()
+                    (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                        .hideSoftInputFromWindow(search.windowToken, 0)
+                }
+            }
+            items.addView(button)
+        }
+    }
+
+    private fun showSearchFilters() {
+        val old = advancedFilters.value
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad/2, pad, pad/2)
+        }
+        val scope = indexedBooks.filter {
+            if (centralFlow.value.first) it.book.contentHash in centralFlow.value.second.orEmpty() else it.local
+        }
+        fun choice(title: String, values: List<Pair<String,String>>, selected: String): () -> String {
+            container.addView(TextView(this).apply { text = title; setPadding(0,12,0,4) })
+            val choices = if (values.none { it.first == selected }) values + (selected to selected) else values
+            val spinner = android.widget.Spinner(this)
+            spinner.adapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, choices.map { it.second })
+            spinner.setSelection(choices.indexOfFirst { it.first == selected }.coerceAtLeast(0))
+            container.addView(spinner)
+            return { choices[spinner.selectedItemPosition.coerceAtLeast(0)].first }
+        }
+        fun names(values: List<String>) = listOf("" to "Todas") +
+            values.distinct().sortedBy { LibrarySearch.normalize(it) }.map { it to it }
+        val category = choice("Categoría", names(scope.flatMap { it.categories }),old.category)
+        val tag = choice("Etiqueta", names(scope.flatMap { it.tags }),old.tag)
+        val collection = choice("Colección", names(scope.flatMap { it.collections }),old.collection)
+        val format = choice("Formato",listOf("" to "Todos","EPUB" to "EPUB","MOBI" to "MOBI"),old.format)
+        val availability = choice("Disponibilidad",listOf("" to "Todos","local" to "Descargados","remote" to "No descargados"),old.availability)
+        val sort = choice("Ordenar por",listOf("relevance" to "Relevancia","title" to "Título",
+            "author" to "Autor","recent" to "Última lectura","added" to "Incorporación"),old.sort)
+        val favorite = android.widget.CheckBox(this).apply { text = "Solo favoritos"; isChecked = old.favorite }
+        container.addView(favorite)
+        val scroll = android.widget.ScrollView(this).apply { addView(container) }
+        fun apply(filters: LibrarySearch.Filters) {
+            selection.clear()
+            advancedFilters.value = filters
+            renderSelection()
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Filtros y ordenación").setView(scroll)
+            .setNegativeButton(R.string.dialog_cancel,null)
+            .setNeutralButton("Restablecer") { _, _ -> apply(LibrarySearch.Filters()) }
+            .setPositiveButton("Aplicar") { _, _ ->
+                apply(LibrarySearch.Filters(category(),tag(),collection(),format(),availability(),favorite.isChecked,sort()))
+            }.show()
+    }
+
     private fun renderSelection() {
         adapter.showSelection(selection.ids)
+        renderSearchSuggestions()
         selectionBack?.isEnabled = selection.active
         renderSelectionChrome(selection.ids.size, visibleBooks.size, selection.active && !batchRunning)
         renderBatchActions(centralFlow.value.first, SharedLibrary.namedFolderMode(applicationContext),
@@ -562,7 +678,7 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
-    private fun selectedBooks() = visibleBooks.filter { it.id in selection.ids }
+    private fun selectedBooks() = if (displayedSearch == currentSearch()) visibleBooks.filter { it.id in selection.ids } else emptyList()
 
     private fun confirmBatchDeletion() {
         val books = selectedBooks()
