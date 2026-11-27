@@ -29,13 +29,15 @@ object ReaderRouter {
     private var refreshJob: Job? = null
 
     fun open(activity: AppCompatActivity, bookId: String, locator: String? = null) {
-        openLocal(activity, bookId, locator, ::refreshInBackground)
+        openLocal(activity, bookId, locator) { app ->
+            ReadingPositionSafSync.refreshForRead(app, AppDatabase.get(app))
+        }
     }
 
-    // The refresh request must return immediately; the reader reads Room,
+    // The refresh runs in an independent job; the reader reads Room,
     // never waits for a provider or the shared catalogue mutex.
     internal fun openLocal(activity: AppCompatActivity, bookId: String, locator: String? = null,
-                           requestRefresh: (Context) -> Unit) {
+                           refresh: suspend (Context) -> Unit) {
         if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             opening.put(activity, true) != null) return
         val observer = object : DefaultLifecycleObserver {
@@ -74,7 +76,7 @@ object ReaderRouter {
                 }
                 navigating = true
                 // No lifecycle dependency on the screen that just launched the reader.
-                requestRefresh(activity.applicationContext)
+                refreshInBackground(activity.applicationContext, refresh)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (!navigating) Toast.makeText(activity, e.message ?: "No se pudo abrir el libro.", Toast.LENGTH_LONG).show()
@@ -88,14 +90,14 @@ object ReaderRouter {
     }
 
     @Synchronized
-    private fun refreshInBackground(context: Context) {
+    private fun refreshInBackground(context: Context, refresh: suspend (Context) -> Unit) {
         if (refreshJob?.isActive == true) return
         val app = context.applicationContext
         refreshJob = refreshScope.launch {
             try {
                 // Existing reconciliation merges timestamps, not maximum progress.
                 // Never navigate the already-open reader to a newly arriving position.
-                ReadingPositionSafSync.refreshForRead(app, AppDatabase.get(app))
+                refresh(app)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (SharedLibrary.configured(app)) SharedLibrary.recordFailure(app, e)
