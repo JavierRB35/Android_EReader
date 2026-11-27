@@ -44,28 +44,44 @@ class KnowledgeActivity : AppCompatActivity() {
     private var bookTitles = emptyMap<String, String>()
     private var bookAuthors = emptyMap<String, String>()
     private var availableBookChoices = emptyList<KnowledgeBookIndex.Choice>()
-    private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
-        if (uri != null) lifecycleScope.launch {
+    private val selectedIds = linkedSetOf<String>()
+    private var visibleNotes = emptyList<AnnotationEntity>()
+    private var pendingExportIds: List<String>? = emptyList()
+    private val exportMarkdown = registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) {
+        uri -> finishExport(uri, true)
+    }
+    private val exportText = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) {
+        uri -> finishExport(uri, false)
+    }
+
+    private fun chooseExport(ids: Set<String>? = null) {
+        val captured = ids?.toList()
+        MaterialAlertDialogBuilder(this).setTitle("Exportar " + (captured?.let { "${it.size} anotaciones" } ?: "cuaderno"))
+            .setItems(arrayOf("Markdown (.md)", "Texto (.txt)")) { _, index ->
+                pendingExportIds = captured
+                if (index == 0) exportMarkdown.launch("BibliotecaIA-cuaderno.md")
+                else exportText.launch("BibliotecaIA-cuaderno.txt")
+            }.setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun finishExport(uri: android.net.Uri?, markdown: Boolean) {
+        val ids = pendingExportIds
+        pendingExportIds = emptyList()
+        if (uri == null) return
+        lifecycleScope.launch {
             try {
-                val notes = db.readingDao().allNotes()
+                val dao = db.readingDao()
+                val notes = if (ids == null) dao.allNotes() else ids.mapNotNull { dao.annotation(it) }
+                val scoped = KnowledgeExport.scoped(notes, ids?.toSet())
+                if (scoped.isEmpty()) { toast("No hay anotaciones disponibles para exportar."); return@launch }
+                val books = scoped.mapNotNull { it.bookId }.distinct().mapNotNull { db.bookDao().findById(it) }
                 withContext(Dispatchers.IO) {
+                    val document = KnowledgeExport.render(scoped,
+                        books.associate { it.id to it.title }, books.associate { it.id to it.authors.orEmpty() }, markdown)
                     val stream = contentResolver.openOutputStream(uri, "wt") ?: error("No destination")
-                    stream.bufferedWriter(Charsets.UTF_8).use { out ->
-                        out.appendLine("# Cuaderno · Biblioteca IA\n")
-                        for (note in notes) {
-                            out.appendLine("## ${label(note.kind)} · ${DateFormat.getDateTimeInstance().format(Date(note.createdAt))}\n")
-                            note.bookId?.let { id -> db.bookDao().findById(id)?.let { out.appendLine("Libro: ${it.title}\n") } }
-                            if (note.quote.isNotBlank()) {
-                                out.appendLine("Texto del libro:")
-                                note.quote.lineSequence().forEach { out.appendLine("> $it") }
-                            }
-                            if (note.body.isNotBlank()) out.appendLine("\nNota del usuario:\n\n${note.body}")
-                            note.locator?.let { out.appendLine("\nLocalizador: $it") }
-                            out.appendLine("\n---\n")
-                        }
-                    }
+                    stream.bufferedWriter(Charsets.UTF_8).use { it.write(document) }
                 }
-                toast("Cuaderno exportado")
+                toast("Anotaciones exportadas: ${scoped.size}")
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 toast("No se pudo exportar. Comprueba el destino y vuelve a intentarlo.")
@@ -75,6 +91,9 @@ class KnowledgeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedIds.addAll(savedInstanceState?.getStringArrayList("selected_notes").orEmpty())
+        pendingExportIds = if (savedInstanceState?.getBoolean("export_all") == true) null
+            else savedInstanceState?.getStringArrayList("export_ids").orEmpty()
         bookFilter.value = savedInstanceState?.getString("selected_book_filter")
             ?: KnowledgeBookIndex.ALL
         val root = LinearLayout(this).apply {
@@ -108,7 +127,7 @@ class KnowledgeActivity : AppCompatActivity() {
                 setOnMenuItemClickListener { item ->
                     when (item.title.toString()) {
                         "Nueva idea" -> AnnotationEditor.show(this@KnowledgeActivity, null, null, "", "NOTE")
-                        "Exportar cuaderno" -> export.launch("BibliotecaIA-cuaderno.md")
+                        "Exportar cuaderno" -> chooseExport()
                         "Mostrar papelera", "Salir de papelera" -> trash.value = !trash.value
                         "Ajustes" -> startActivity(Intent(this@KnowledgeActivity, SettingsActivity::class.java))
                     }
@@ -254,9 +273,46 @@ class KnowledgeActivity : AppCompatActivity() {
             clipToPadding = false
             setPadding(dp(16), dp(3), dp(16), dp(10))
         }
-        val adapter = NotesAdapter { note -> showDetail(note) }
+        val selectionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(16), dp(2), dp(16), dp(2))
+        }
+        val selectionCount = TextView(this).apply {
+            setTextColor(getColor(R.color.bia_text))
+            textSize = 14f
+        }
+        selectionBar.addView(selectionCount)
+        val selectionActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        selectionBar.addView(selectionActions)
+        lateinit var adapter: NotesAdapter
+        fun refreshSelection() {
+            selectionCount.text = "${selectedIds.size} seleccionadas"
+            selectionBar.visibility = if (selectedIds.isEmpty()) View.GONE else View.VISIBLE
+            adapter.setSelection(selectedIds)
+        }
+        fun toggle(note: AnnotationEntity) {
+            if (!selectedIds.add(note.id)) selectedIds.remove(note.id)
+            refreshSelection()
+        }
+        adapter = NotesAdapter(
+            click = { note -> if (selectedIds.isEmpty()) showDetail(note) else toggle(note) },
+            longClick = { note -> toggle(note) })
         list.adapter = adapter
+        selectionActions.addView(button("Todas") {
+            selectedIds.addAll(visibleNotes.map { it.id })
+            refreshSelection()
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        selectionActions.addView(button("Exportar") {
+            chooseExport(selectedIds.toSet())
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        selectionActions.addView(button("Cancelar") {
+            selectedIds.clear()
+            refreshSelection()
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(selectionBar)
+        
         val nav = layoutInflater.inflate(R.layout.premium_bottom_navigation, root, false)
         root.addView(nav)
         PremiumBottomBar.bind(this, nav, R.id.navKnowledge) {
@@ -294,7 +350,10 @@ class KnowledgeActivity : AppCompatActivity() {
                     sortButton.contentDescription = "Ordenar: " + sortFilter.value.title
                     clearButton.visibility = if (query.value.isNotBlank() || bookFilter.value != KnowledgeBookIndex.ALL ||
                         kindFilter.value != "ALL" || sortFilter.value != KnowledgeBookIndex.Sort.MODIFIED) View.VISIBLE else View.GONE
+                    visibleNotes = notes
+                    selectedIds.retainAll(notes.map { it.id }.toSet())
                     adapter.submit(notes, titles)
+                    refreshSelection()
                     empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
                     empty.text = when {
                         query.value.isNotEmpty() -> "No hay resultados para esta búsqueda."
@@ -316,6 +375,9 @@ class KnowledgeActivity : AppCompatActivity() {
         outState.putString("knowledge_query", query.value)
         outState.putBoolean("premium_trash", trash.value)
         outState.putString("knowledge_sort", sortFilter.value.name)
+        outState.putStringArrayList("selected_notes", ArrayList(selectedIds))
+        outState.putBoolean("export_all", pendingExportIds == null)
+        outState.putStringArrayList("export_ids", ArrayList(pendingExportIds.orEmpty()))
         super.onSaveInstanceState(outState)
     }
 
@@ -384,7 +446,7 @@ class KnowledgeActivity : AppCompatActivity() {
     }
 
     private fun showDetailActions(note: AnnotationEntity) {
-        val items = listOf("Copiar", "Compartir", "Versiones anteriores", "Mover a papelera")
+        val items = listOf("Copiar", "Compartir", "Versiones anteriores", "Mover a papelera", "Exportar anotación")
         MaterialAlertDialogBuilder(this).setTitle("Opciones de anotación")
             .setItems(items.toTypedArray()) { _, index ->
                 when (index) {
@@ -405,6 +467,7 @@ class KnowledgeActivity : AppCompatActivity() {
                         .setPositiveButton("Mover") { _, _ ->
                             lifecycleScope.launch { repository.setDeleted(note.id, true) }
                         }.show()
+                    4 -> chooseExport(setOf(note.id))
                 }
             }
             .setNegativeButton("Volver") { _, _ -> showDetail(note) }
@@ -435,11 +498,22 @@ class KnowledgeActivity : AppCompatActivity() {
     private fun dp(value: Int) = (resources.displayMetrics.density * value).toInt()
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
-    private class NotesAdapter(val click: (AnnotationEntity) -> Unit) :
+    private class NotesAdapter(val click: (AnnotationEntity) -> Unit,
+                               val longClick: (AnnotationEntity) -> Unit) :
         RecyclerView.Adapter<NotesAdapter.Holder>() {
 
         private var notes = emptyList<AnnotationEntity>()
         private var titles = emptyMap<String, String>()
+        private var selected = emptySet<String>()
+        fun setSelection(ids: Set<String>) {
+            val next = ids.toSet()
+            if (selected == next) return
+            val old = selected
+            selected = next
+            notes.forEachIndexed { index, note ->
+                if ((note.id in old) != (note.id in next)) notifyItemChanged(index)
+            }
+        }
         fun submit(value: List<AnnotationEntity>, bookTitles: Map<String, String>) {
             notes = value
             titles = bookTitles
@@ -533,7 +607,13 @@ class KnowledgeActivity : AppCompatActivity() {
                 if (note.deletedAt != null) "  ·  Papelera" else ""
             holder.card.contentDescription = source + ", " +
                 label(note.kind) + ": " + firstLine.take(80)
+            val checked = note.id in selected
+            holder.card.isSelected = checked
+            holder.card.strokeColor = holder.card.context.getColor(if (checked) R.color.bia_accent else R.color.bia_accent_low)
+            holder.card.strokeWidth = ((if (checked) 2 else 1) * holder.card.resources.displayMetrics.density).toInt()
+            if (checked) holder.card.contentDescription = "Seleccionada: " + holder.card.contentDescription
             holder.card.setOnClickListener { click(note) }
+            holder.card.setOnLongClickListener { longClick(note); true }
         }
     }
 
