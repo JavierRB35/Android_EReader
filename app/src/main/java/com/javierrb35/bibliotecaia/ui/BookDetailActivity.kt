@@ -421,15 +421,26 @@ class BookDetailActivity : AppCompatActivity() {
         val current = book ?: return
         MaterialAlertDialogBuilder(this)
             .setTitle("Eliminar de la biblioteca")
-            .setMessage("¿Eliminar definitivamente «" + current.title + "» de la biblioteca y de los dispositivos vinculados? Se eliminarán también sus notas y posiciones. Las copias históricas externas no se modificarán.")
+            .setMessage("¿Eliminar definitivamente «" + current.title + "» de la biblioteca y de los dispositivos vinculados al sincronizar? Se eliminarán el original de Drive (si está en la biblioteca compartida), las notas, marcadores y posiciones. Las copias históricas externas no se modificarán.")
             .setNegativeButton(R.string.dialog_cancel, null)
             .setPositiveButton("Eliminar definitivamente") { _, _ ->
                 lifecycleScope.launch {
                     try {
-                        com.javierrb35.bibliotecaia.sync.SharedLibrary.deleteEverywhere(applicationContext, db, current.id)
-                        BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
-                        setResult(RESULT_LOCAL_REMOVED)
-                        finish()
+                        val app = applicationContext
+                        if (com.javierrb35.bibliotecaia.sync.SharedLibrary.namedFolderMode(app)) {
+                            val uri = requireNotNull(com.javierrb35.bibliotecaia.sync.SharedLibrary.uri(app))
+                            LibraryBatchQueue.enqueue(app, LibraryBatchAction.DELETE, uri, listOf(current))
+                            Toast.makeText(this@BookDetailActivity, "Eliminación en cola. Consulta su progreso en la biblioteca.", Toast.LENGTH_LONG).show()
+                            finish()
+                        } else {
+                            require(!com.javierrb35.bibliotecaia.sync.SharedLibrary.configured(app)) {
+                                "La eliminación definitiva compartida requiere la carpeta de biblioteca única."
+                            }
+                            com.javierrb35.bibliotecaia.sync.SharedLibrary.deleteEverywhere(app, db, current.id)
+                            BackupRoutine.refreshOnLibraryOpen(app, BuildConfig.VERSION_NAME)
+                            setResult(RESULT_LOCAL_REMOVED)
+                            finish()
+                        }
                     } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                     catch (e: Exception) {
                         Toast.makeText(this@BookDetailActivity, e.message ?: "No se pudo eliminar.", Toast.LENGTH_LONG).show()

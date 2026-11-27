@@ -21,6 +21,8 @@ internal interface SharedStore : java.io.Closeable {
     val namedOriginals: Boolean get() = false
     fun commit() {}
     fun retireManagedState(item: SharedDocumentStore.Item, owner: String): Boolean = false
+    fun canDeleteOriginal(item: SharedDocumentStore.Item): Boolean = false
+    fun deleteVerifiedOriginal(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean = false
     override fun close() {}
     fun list(): List<SharedDocumentStore.Item>
     fun open(item: SharedDocumentStore.Item): InputStream
@@ -129,6 +131,31 @@ internal class SharedDocumentStore(context: Context, private val tree: Uri,
             ?: throw IOException("El documento escrito no aparece todavía en la carpeta.")
         require(item.name == name) { "El proveedor cambió el nombre del documento." }
         return item
+    }
+    /** Explicit user-requested deletion only. Never touch technical metadata,
+     * directories, historic backups or a replacement with the same name. */
+    private fun exactRootOriginal(item: Item): Item? {
+        if (!namedOriginals || item.directory ||
+            !(SharedNamedOriginals.validName(item.name) ||
+                item.name.matches(Regex("bia-book-[a-f0-9]{64}-[a-f0-9-]{36}\\.bin")))) return null
+        return childrenOf(root).singleOrNull {
+            !it.directory && it.name == item.name && sameDocument(it.uri, item.uri)
+        }
+    }
+    override fun canDeleteOriginal(item: Item): Boolean {
+        val exact = exactRootOriginal(item) ?: return false
+        return resolver.query(exact.uri, arrayOf(Document.COLUMN_FLAGS), null, null, null)?.use {
+            it.moveToFirst() && (it.getLong(0) and Document.FLAG_SUPPORTS_DELETE.toLong()) != 0L
+        } ?: false
+    }
+    override fun deleteVerifiedOriginal(item: Item, hash: String, size: Long): Boolean {
+        val exact = exactRootOriginal(item) ?: return false
+        require(canDeleteOriginal(exact)) { "El proveedor no permite eliminar este original." }
+        require(verify(exact, hash, size)) { "El original ha cambiado; no se eliminará." }
+        require(exactRootOriginal(exact) != null) { "El documento ha cambiado." }
+        if (!DocumentsContract.deleteDocument(resolver, exact.uri)) return false
+        // Do not equate a successful call with disappearance from the folder.
+        return childrenOf(root).none { sameDocument(it.uri, exact.uri) }
     }
     override fun retireManagedState(item: Item, owner: String): Boolean {
         require(namedOriginals && !item.directory)

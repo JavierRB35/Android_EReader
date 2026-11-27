@@ -9,9 +9,13 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #147 — eliminación definitiva de biblioteca (27/11/2026)
+- Selección individual y múltiple en biblioteca completa, confirmación explícita de títulos/formatos y pérdida de datos de lectura. Variantes no seleccionadas permanecen. Cola WorkManager existente, identidad y generación capturadas; publicación y relectura de tombstone antes de tocar originales; borrado SAF solo documentos directos de la carpeta con identidad, tamaño y SHA-256 comprobados, permiso de borrado y verificación de ausencia. Las copias históricas externas no se modifican.
+- Si falla antes de la baja no se inicia borrado; si falla tras entrar en fase irreversible, la cola conserva la petición y reintenta, incluso si ya no hay ficha. Detener afecta a los libros aún no iniciados. La sincronización de peers es eventual y SAF no ofrece atomicidad distribuida; probar Drive real en dos equipos compatibles. El proveedor puede usar papelera. No borrar datos reales para validar. CI pendiente; no fusionar hasta verde.
+
 ## #131 — modo contextual compacto (27/11/2026)
-- Petición física: la multiselección suma dos filas de controles a una cabecera ya extensa. Rama fix/compact-library-selection-20261127 desde d18a3236: sustituir cabecera/navegación por barra contextual superior e inferior, ocultar grupo de accesos rápidos sin cambiar su estado individual, conservar búsqueda/filtros/conmutador y progreso persistente. Sombreado sin checks; singular y selección total correctos. No alterar contratos de lote #145 ni habilitar borrado global #147.
-- Regresión: LibraryHomeUxDeviceTest.contextualSelectionReplacesNormalChromeAndRestoresIt. Pendiente CI y aceptación física en teléfono; coordinar integración con #147.
+- #149 fusionada 7d8baffb, cuatro gates verdes y APK v0.1.210 publicada. Cabecera contextual y acciones inferiores, búsqueda/filtros y sombreado sin checks. Aceptación visual física comunicada mediante captura con solicitud de añadir borrado.
+- #148 integra ambas acciones en la barra inferior; etiquetas breves y color de error para eliminación, manteniendo confirmación, formato preferido y guardia SAF. Cinco gates del HEAD anterior superados; revalidación del conjunto integrado y prueba física de borrado pendientes. Pruebas LibraryHomeUxDeviceTest.contextualSelectionReplacesNormalChromeAndRestoresIt y contextualActionsDistinguishDownloadGlobalDeletionAndLocalRemoval.
 
 ## #145 — operaciones múltiples en segundo plano (27/11/2026)
 - Reporte físico: 4 retiradas ~15 s. Cola WorkManager serial y persistente para descargar, guardar y retirar en carpeta nombrada SAF. Petición privada atómica fuera del límite de 10 KB, conexión y hash fijados; no cancelar cadena por error de un lote. Navegación y selección disponibles, progreso y resultados no modales, detención segura. Se conserva el flujo heredado no nombrado.

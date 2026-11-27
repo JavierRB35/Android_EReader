@@ -140,6 +140,35 @@ class LibraryHomeUxDeviceTest {
     }
 
     @Test
+    fun contextualActionsDistinguishDownloadGlobalDeletionAndLocalRemoval() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val primary = activity.findViewById<android.widget.TextView>(R.id.btnBatchPrimary)
+                val secondary = activity.findViewById<android.widget.TextView>(R.id.btnBatchSecondary)
+                activity.renderSelectionChrome(2, 470, true)
+                activity.renderBatchActions(true, true, true)
+                assertEquals("Descargar", primary.text.toString())
+                assertEquals("Descargar formato preferido al dispositivo", primary.contentDescription.toString())
+                assertEquals("Eliminar", secondary.text.toString())
+                assertEquals("Eliminar definitivamente de la biblioteca", secondary.contentDescription.toString())
+                org.junit.Assert.assertTrue(primary.isShown && secondary.isShown)
+                assertEquals(primary.parent, secondary.parent)
+                assertNotEquals(primary.currentTextColor, secondary.currentTextColor)
+                activity.renderBatchActions(true, false, false)
+                assertEquals(android.view.View.GONE, secondary.visibility)
+                activity.renderBatchActions(false, false, false)
+                assertEquals("Guardar en biblioteca", primary.text.toString())
+                assertEquals("Retirar del dispositivo", secondary.text.toString())
+                assertEquals(primary.currentTextColor, secondary.currentTextColor)
+                org.junit.Assert.assertTrue(secondary.isShown)
+                activity.renderSelectionChrome(0, 470, false)
+                org.junit.Assert.assertFalse(secondary.isShown)
+            }
+        } finally { scenario.close() }
+    }
+
+    @Test
     fun compactHeaderKeepsImportAndViewSwitcherAccessible() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
