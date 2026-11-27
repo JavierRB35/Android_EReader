@@ -43,7 +43,8 @@ internal object LibraryBatchQueue {
         }
     }
     private fun folder(context: Context) = File(context.filesDir, "library-batches").apply {
-        check(isDirectory || mkdirs()) { "No se pudo preparar la cola." }
+        if (!isDirectory) mkdirs()
+        check(isDirectory) { "No se pudo preparar la cola." }
     }
     private fun requestFile(context: Context, id: UUID) = File(folder(context), "$id.json")
     private fun stopFile(context: Context, id: UUID) = File(folder(context), "$id.stop")
@@ -128,6 +129,9 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
                     }
                 }
                 failures = invalid
+                require(request.action != LibraryBatchAction.REMOVE || invalid.isEmpty()) {
+                    "La selección ha cambiado. No se retirará ninguna otra copia del lote."
+                }
                 val previous = completed
                 progress(previous, "Comprobando la selección…")
                 if (books.isNotEmpty() && !stopped()) when (request.action) {
