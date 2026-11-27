@@ -57,3 +57,9 @@ Descarga individual y selección múltiple comparten sesión de inventario, veri
 
 ## #143 — apertura local sin espera remota (27/11)
 ReaderRouter consultaba el catálogo remoto bajo el mutex de biblioteca antes de navegar. Apertura local primero, una navegación por actividad hasta salir de RESUMED, refresco independiente y coalescido, sin mover el lector abierto. BookAdapter usa DiffUtil y payload de portada; no invalida toda la lista por cada miniatura. Pruebas EpubReaderLaunchTest.opensLocalEpubWhileRemoteRefreshIsSuspendedAndIgnoresDoubleTap y LibraryHomeUxDeviceTest.catalogueAndCoverUpdatesPreserveCardClickAndDoNotInvalidateAllRows en gate startup existente. CI pendiente, físico EPUB/MOBI A/B y posición reciente pendiente; no certificar causa física sin reproducción.
+
+
+## #145 — operaciones múltiples persistentes (27/11/2026)
+- SharedLibraryJourneyTest: selección de 537 libros fuera de límite WorkManager Data, rechazo de carpeta cambiada, siguiente lote no bloqueado por resultado de error; verificación de todos los originales antes de retirar, progreso/cancelación tras el primer libro y recuperación SHA-256 del resto.
+- LibraryHomeUxDeviceTest: operación en cola visible, importación, navegación y búsqueda accesibles tras recreación de pantalla. Pruebas incluidas en startup smoke existente. No se simula una medición de Drive real.
+- Aceptación física pendiente: 4 libros locales en dos dispositivos; medir confirmación hasta interfaz utilizable y duración total separadas; navegar/leer otro libro y cerrar/reabrir, detener lote, verificar originales remotos, notas y posiciones, guardar/descargar por lotes y probar pérdida de acceso. Sin borrado global.
