@@ -526,10 +526,13 @@ class MainActivity : AppCompatActivity() {
                         findViewById<View>(R.id.recentBookCard).visibility = View.GONE
                 } else {
                     val done = work.progress.getInt("done", 0)
-                    val phase = work.progress.getString("phase") ?: "En cola"
+                    val phase = work.progress.getString("phase") ?: if (work.runAttemptCount > 0 &&
+                        work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.DELETE.name))
+                        "Baja pendiente; reintento en Drive" else "En cola"
                     status.text = "$label: $done/$total · $phase" +
                         if (active.size > 1) " · ${active.size - 1} en cola" else ""
-                    button.text = "Detener"
+                    button.text = if (work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.DELETE.name))
+                        "Detener restantes" else "Detener"
                     button.isEnabled = true
                 }
             }
