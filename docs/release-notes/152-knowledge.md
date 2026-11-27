@@ -1,0 +1,2 @@
+- Pantalla Conocimiento más compacta, con pestañas independientes para notas, fragmentos, marcadores e ideas.
+- Búsqueda y filtros conservados al recrear la pantalla; exportación y papelera en el menú de opciones.
