@@ -9,9 +9,13 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #145 — operaciones múltiples en segundo plano (27/11/2026)
+- Reporte físico: 4 retiradas ~15 s. Cola WorkManager serial y persistente para descargar, guardar y retirar en carpeta nombrada SAF. Petición privada atómica fuera del límite de 10 KB, conexión y hash fijados; no cancelar cadena por error de un lote. Navegación y selección disponibles, progreso y resultados no modales, detención segura. Se conserva el flujo heredado no nombrado.
+- Se mantiene verificación remota completa previa a la primera retirada y luego retirada progresiva, nunca borrar originales Drive. Descarga cancelable, guardado/retirada cooperativos; la ejecución depende de Android y proveedor, no se promete ejecución durante detención forzada ni menor duración de Drive. Pruebas instrumentadas de 537 entradas, rechazo de conexión cambiada, continuidad tras fallo, cancelación progresiva, navegación/recreación. CI y medición física pendientes.
+
 ## P0 #143 — apertura intermitente de libros (27/11/2026)
 - Rama fix/reader-offline-opening-143, código y pruebas guardados en GitHub. ReaderRouter navega con Room y archivo local sin aguardar SAF; refresco independiente coalescido, guardia contra doble pulsación, errores de disponibilidad explícitos. DiffUtil y payload de carátula evitan invalidación global de catálogo; sin cambios en originales, almacenamiento ni sincronización existente. 
-- EpubReaderLaunchTest y LibraryHomeUxDeviceTest ampliados, gate startup existente. CI exacto, integración, APK, validación física EPUB/MOBI A/B y posición efectiva pendientes. No competir con trabajos de #138/#135; prueba física no acreditada.
+- EpubReaderLaunchTest y LibraryHomeUxDeviceTest ampliados, gate startup existente. CI 7/7, integrada 773badc88 y release v0.1.206 acreditada por API; validación física EPUB/MOBI A/B y posición efectiva pendientes. No competir con trabajos de #138/#135; prueba física no acreditada.
 
 ## P0 #138 — repetición de ZIP lenta en v0.1.200 (26/11/2026)
 - La PR #139 se fusionó en 76bebec9 y v0.1.200 se publicó con cinco gates verdes y 19/19 pruebas locales. El propietario comunica que la repetición de ZIP se demora en «Integrando el catálogo compartido».
