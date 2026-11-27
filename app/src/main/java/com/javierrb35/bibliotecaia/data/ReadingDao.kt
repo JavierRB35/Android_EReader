@@ -14,6 +14,10 @@ interface ReadingDao {
     @Query("UPDATE books SET progress = :progress, lastOpenedAt = :now, readingStatus = CASE WHEN readingStatus = 'PENDING' THEN 'READING' ELSE readingStatus END WHERE id = :bookId")
     suspend fun updateBookProgress(bookId: String, progress: Float, now: Long)
 
+    // Visiting a book is not a new reading position. Keep recency separate.
+    @Query("UPDATE books SET lastOpenedAt = CASE WHEN lastOpenedAt IS NULL OR lastOpenedAt < :now THEN :now ELSE lastOpenedAt END, readingStatus = CASE WHEN readingStatus = 'PENDING' THEN 'READING' ELSE readingStatus END WHERE id = :bookId")
+    suspend fun markOpened(bookId: String, now: Long)
+
     @Query("SELECT * FROM annotations WHERE bookId = :bookId AND deletedAt IS NULL ORDER BY createdAt")
     fun observeAnnotations(bookId: String): Flow<List<AnnotationEntity>>
 
