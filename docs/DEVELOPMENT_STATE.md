@@ -9,6 +9,10 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #131 — modo contextual compacto (27/11/2026)
+- Petición física: la multiselección suma dos filas de controles a una cabecera ya extensa. Rama fix/compact-library-selection-20261127 desde d18a3236: sustituir cabecera/navegación por barra contextual superior e inferior, ocultar grupo de accesos rápidos sin cambiar su estado individual, conservar búsqueda/filtros/conmutador y progreso persistente. Sombreado sin checks; singular y selección total correctos. No alterar contratos de lote #145 ni habilitar borrado global #147.
+- Regresión: LibraryHomeUxDeviceTest.contextualSelectionReplacesNormalChromeAndRestoresIt. Pendiente CI y aceptación física en teléfono; coordinar integración con #147.
+
 ## #145 — operaciones múltiples en segundo plano (27/11/2026)
 - Reporte físico: 4 retiradas ~15 s. Cola WorkManager serial y persistente para descargar, guardar y retirar en carpeta nombrada SAF. Petición privada atómica fuera del límite de 10 KB, conexión y hash fijados; no cancelar cadena por error de un lote. Navegación y selección disponibles, progreso y resultados no modales, detención segura. Se conserva el flujo heredado no nombrado.
 - Se mantiene verificación remota completa previa a la primera retirada y luego retirada progresiva, nunca borrar originales Drive. Descarga cancelable, guardado/retirada cooperativos; la ejecución depende de Android y proveedor, no se promete ejecución durante detención forzada ni menor duración de Drive. Pruebas instrumentadas de 537 entradas, rechazo de conexión cambiada, continuidad tras fallo, cancelación progresiva, navegación/recreación. CI y medición física pendientes.
