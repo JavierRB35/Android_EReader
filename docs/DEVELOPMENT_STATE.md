@@ -8,6 +8,11 @@
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+
+## P0 #143 — apertura intermitente de libros (27/11/2026)
+- Rama fix/reader-offline-opening-143, código y pruebas guardados en GitHub. ReaderRouter navega con Room y archivo local sin aguardar SAF; refresco independiente coalescido, guardia contra doble pulsación, errores de disponibilidad explícitos. DiffUtil y payload de carátula evitan invalidación global de catálogo; sin cambios en originales, almacenamiento ni sincronización existente. 
+- EpubReaderLaunchTest y LibraryHomeUxDeviceTest ampliados, gate startup existente. CI exacto, integración, APK, validación física EPUB/MOBI A/B y posición efectiva pendientes. No competir con trabajos de #138/#135; prueba física no acreditada.
+
 ## P0 #138 — repetición de ZIP lenta en v0.1.200 (26/11/2026)
 - La PR #139 se fusionó en 76bebec9 y v0.1.200 se publicó con cinco gates verdes y 19/19 pruebas locales. El propietario comunica que la repetición de ZIP se demora en «Integrando el catálogo compartido».
 - Causa de código: migrateZipStore llamaba availableHashes() y reabría todos los originales remotos. Nueva ruta: ZIP validado localmente, recibos inequívocos con tamaño exacto se reutilizan sin relectura; originales nuevos/ausentes/ambiguos comprobados por SHA-256. No se promueve un listado a auditoría de bytes. Se conserva auditoría explícita, no se borra ningún original ni se altera el formato de catálogo.

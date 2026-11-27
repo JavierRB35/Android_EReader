@@ -9,6 +9,7 @@ on:
       - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/study/DefinitionSelectionDeviceTest.java'
       - 'app/src/androidTest/java/com/javierrb35/bibliotecaia/reader/**'
       - '.github/workflows/android-scriptura-annotation-parity.yml'
+      - 'scripts/android-reader-parity.sh'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,8 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Build QA APKs before starting emulator
+        run: sh scripts/android-reader-parity.sh --prepare
       - name: Configure emulator acceleration
         shell: bash
         run: |
@@ -84,6 +87,8 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Build QA APKs before starting emulator
+        run: sh scripts/android-reader-parity.sh --prepare
       - name: Configure Android 16 emulator acceleration
         shell: bash
         run: |
@@ -102,7 +107,7 @@ jobs:
           target: default
           profile: pixel_5
           cores: 2
-          ram-size: 2048M
+          ram-size: 4096M
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics

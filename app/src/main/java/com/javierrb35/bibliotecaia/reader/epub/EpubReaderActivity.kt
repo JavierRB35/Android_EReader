@@ -199,6 +199,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             return true
                         }
                     })
+                repository.markOpened(bookId)
                 loading.visibility = View.GONE
                 if (nativeMode) {
                     val initialIndex = opened.readingOrder.indexOfFirst {
@@ -207,7 +208,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                     val initialOffset = NativeEpubAnchors.point(savedLocator)?.offset
                     showNativeChapter(initialIndex, initialOffset ?: 0,
                         restoreFraction = if (initialOffset == null) initial?.locations?.progression else null,
-                        recordPosition = savedLocator == null)
+                        recordPosition = false)
                 } else {
                     showReadingSurface()
                 }
@@ -239,7 +240,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             // Do not manufacture a newer position merely by opening
                             // a book on another screen. Save subsequent navigation.
-                            if (previous != null && previous != locator || savedLocator == null) readiumMoved = true
+                            if (previous != null && previous != locator) readiumMoved = true
                             if (!readiumMoved) return@collect
                             pendingSave?.cancel()
                             pendingSave = lifecycleScope.launch {

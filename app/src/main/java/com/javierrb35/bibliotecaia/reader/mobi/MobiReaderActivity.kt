@@ -237,9 +237,11 @@ class MobiReaderActivity : AppCompatActivity() {
                 if (text.isBlank()) error("No se encontró texto legible en este MOBI.")
                 title = book.title
                 loaded = true
-                lastQueuedOffset = saved.takeIf { repository.position(bookId) != null &&
-                    intent.getStringExtra("locator") == null }
-                showChunk(saved.coerceIn(0, text.lastIndex))
+                repository.markOpened(bookId)
+                // Opening alone must not publish a synthetic offset while a
+                // peer position may still be arriving. A real jump/scroll saves.
+                showChunk(saved.coerceIn(0, text.lastIndex), recordPosition = false)
+                lastQueuedOffset = visibleOffset()
                 launch {
                     repository.observeAnnotations(bookId).collect { notes ->
                         annotations = notes
@@ -283,7 +285,7 @@ class MobiReaderActivity : AppCompatActivity() {
         speech.toggle(this, content.text.toString(), speechListener)
     }
 
-    private fun showChunk(at: Int) {
+    private fun showChunk(at: Int, recordPosition: Boolean = true) {
         if (!loaded) return
         if (speech.active() && !automaticSpeechAdvance) speech.stop()
         offset = at.coerceIn(0, text.lastIndex)
@@ -295,7 +297,7 @@ class MobiReaderActivity : AppCompatActivity() {
         scroll.scrollTo(0, 0)
         paintMarks()
         status.text = "${title} · MOBI texto · ${(offset * 100L / text.length)} %"
-        savePosition(offset)
+        if (recordPosition) savePosition(offset)
     }
 
     private fun aiConfigured() = AiKeyStore.providers().any { AiKeyStore.getKey(this, it) != null }
