@@ -26,10 +26,38 @@
         <item name="colorOutline">@color/bia_outline</item>
         <item name="android:textColorPrimary">@color/bia_text</item>
         <item name="android:textColorSecondary">@color/bia_text_secondary</item>
+        <!-- Incremento 1 — estado y componentes editoriales (DEC-002, CMP-003, CMP-010). -->
+        <item name="colorError">@color/bia_error</item>
+        <item name="materialButtonStyle">@style/Widget.BibliotecaIA.Button</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.BibliotecaIA.AlertDialog</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.BibliotecaIA.Dialog</item>
     </style>
     <style name="Theme.BibliotecaIA.Splash" parent="Theme.BibliotecaIA">
         <item name="android:windowBackground">@color/bia_brand_background</item>
         <item name="android:statusBarColor">@color/bia_brand_background</item>
         <item name="android:navigationBarColor">@color/bia_brand_background</item>
+    </style>
+    <!-- CMP-010: diálogos sobre superficie grafito #1B1A18, texto principal, título 20/26,
+         botones de 48 dp mínimo y radio 12; sin tinte de elevación (UX-008). -->
+    <style name="ThemeOverlay.BibliotecaIA.AlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/bia_surface</item>
+        <item name="colorOnSurface">@color/bia_text</item>
+        <item name="colorPrimary">@color/bia_accent</item>
+        <item name="colorOnPrimary">@color/bia_background</item>
+        <item name="elevationOverlayEnabled">false</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Bia.Dialog</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TextAppearance.BibliotecaIA.DialogTitle</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.BibliotecaIA.DialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.BibliotecaIA.DialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.BibliotecaIA.DialogButton</item>
+    </style>
+    <!-- UX-008: AlertDialog AppCompat (SettingsActivity) sobre superficie cálida coherente. -->
+    <style name="ThemeOverlay.BibliotecaIA.Dialog" parent="ThemeOverlay.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@color/bia_surface</item>
+        <item name="colorAccent">@color/bia_accent</item>
+        <item name="android:textColorPrimary">@color/bia_text</item>
+        <item name="android:textColorSecondary">@color/bia_text_secondary</item>
+        <item name="colorControlNormal">@color/bia_outline_interactive</item>
+        <item name="colorControlActivated">@color/bia_accent</item>
     </style>
 </resources>

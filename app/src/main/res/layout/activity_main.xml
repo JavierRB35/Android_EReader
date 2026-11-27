@@ -185,9 +185,9 @@
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:hint="@string/bia_ux_search_hint"
-            app:boxBackgroundColor="@color/bia_surface" app:boxStrokeColor="@color/bia_outline"
-            app:boxCornerRadiusTopStart="18dp" app:boxCornerRadiusTopEnd="18dp"
-            app:boxCornerRadiusBottomStart="18dp" app:boxCornerRadiusBottomEnd="18dp"
+            app:boxBackgroundColor="@color/bia_surface" app:boxStrokeColor="@color/bia_field_stroke"
+            app:boxCornerRadiusTopStart="@dimen/bia_radius_field" app:boxCornerRadiusTopEnd="@dimen/bia_radius_field"
+            app:boxCornerRadiusBottomStart="@dimen/bia_radius_field" app:boxCornerRadiusBottomEnd="@dimen/bia_radius_field"
             app:startIconDrawable="@drawable/ic_premium_search" app:endIconMode="clear_text">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/txtSearch" android:layout_width="match_parent"
