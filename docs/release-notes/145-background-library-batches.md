@@ -1,0 +1,3 @@
+- Las operaciones múltiples de descarga, guardado y retirada se ponen en cola en segundo plano en la biblioteca compartida.
+- Puedes seguir navegando y seleccionando libros mientras avanza la operación; el panel indica progreso, detención y resultados.
+- Las copias locales solo se retiran tras comprobar los originales de Drive; se conservan las notas y posiciones.
