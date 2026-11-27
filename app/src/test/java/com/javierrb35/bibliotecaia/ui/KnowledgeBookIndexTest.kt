@@ -33,6 +33,16 @@ class KnowledgeBookIndexTest {
         assertTrue(KnowledgeBookIndex.byBook(entries, "not-in-library").isEmpty())
     }
 
+    @Test fun distinguishesBookmarksFromNotesAndFragments() {
+        val bookmark = note("mark", "book-A", "BOOKMARK", "context")
+        val all = entries + bookmark
+        assertEquals(listOf("one"), KnowledgeBookIndex.byKind(all, "NOTE").map { it.id })
+        assertEquals(listOf("mark"), KnowledgeBookIndex.byKind(all, "BOOKMARK").map { it.id })
+        assertEquals(listOf("idea"), KnowledgeBookIndex.byKind(all, "IDEAS").map { it.id })
+        assertEquals(listOf("one", "two", "three"), KnowledgeBookIndex.byKind(all, "QUOTE").map { it.id })
+        assertEquals(all, KnowledgeBookIndex.byKind(all, "ALL"))
+    }
+
     @Test fun fragmentAndIdeaFiltersHaveNoFalseMatches() {
         assertEquals(3, KnowledgeBookIndex.byKind(entries, "QUOTE").size)
         assertEquals(listOf("idea"), KnowledgeBookIndex.byKind(entries, "IDEAS").map { it.id })
