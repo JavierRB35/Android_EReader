@@ -42,8 +42,10 @@
         <item name="android:textSize">12sp</item>
         <item name="android:lineSpacingExtra">4sp</item>
     </style>
-    <!-- Título de diálogo (CMP-010): 20sp/26sp. -->
-    <style name="TextAppearance.BibliotecaIA.DialogTitle">
+    <!-- Título de diálogo (CMP-010): 20sp/26sp. Hereda del estilo título de Material 3
+         porque el layout de diálogo toma de este estilo los layout_width/height
+         obligatorios; sobrescribir sin ese padre rompe la inflación de m3_alert_dialog. -->
+    <style name="TextAppearance.BibliotecaIA.DialogTitle" parent="MaterialAlertDialog.Material3.Title.Text">
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:lineSpacingExtra">6sp</item>
