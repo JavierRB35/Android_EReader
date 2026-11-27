@@ -203,7 +203,7 @@ class MainActivity : AppCompatActivity() {
             startBookBatch(if (centralFlow.value.first) LibraryBatchAction.DOWNLOAD else LibraryBatchAction.SAVE)
         }
         findViewById<View>(R.id.btnBatchSecondary).setOnClickListener {
-            if (!centralFlow.value.first) confirmBatchRemoval()
+            if (centralFlow.value.first) confirmBatchDeletion() else confirmBatchRemoval()
         }
         findViewById<View>(R.id.txtBookBatchProgress).setOnClickListener {
             if (!batchRunning && batchHistory.isNotEmpty()) {
@@ -481,10 +481,10 @@ class MainActivity : AppCompatActivity() {
             if (centralFlow.value.first && selection.ids.any { editions[it].orEmpty().size > 1 })
                 "Descargar formato preferido"
             else if (centralFlow.value.first) "Descargar al dispositivo" else "Guardar en biblioteca"
-        // Global deletion currently destroys reading metadata. Do not expose it as
-        // a batch action until the recoverable deletion contract is implemented.
-        findViewById<View>(R.id.btnBatchSecondary).visibility =
-            if (centralFlow.value.first) View.GONE else View.VISIBLE
+        val secondary = findViewById<TextView>(R.id.btnBatchSecondary)
+        secondary.text = if (centralFlow.value.first) "Eliminar definitivamente" else "Retirar del dispositivo"
+        secondary.visibility = if (!centralFlow.value.first || SharedLibrary.namedFolderMode(applicationContext))
+            View.VISIBLE else View.GONE
     }
 
     private fun observeBatchQueue() {
@@ -520,7 +520,8 @@ class MainActivity : AppCompatActivity() {
                     status.append(if (batchHistory.size > 1) "\nToca para ver los resultados anteriores." else "")
                     button.text = "Cerrar"
                     button.isEnabled = true
-                    if (work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.REMOVE.name) &&
+                    if ((work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.REMOVE.name) ||
+                        work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.DELETE.name)) &&
                         work.outputData.getInt("done", 0) > 0)
                         findViewById<View>(R.id.recentBookCard).visibility = View.GONE
                 } else {
@@ -535,6 +536,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectedBooks() = visibleBooks.filter { it.id in selection.ids }
+
+    private fun confirmBatchDeletion() {
+        val books = selectedBooks()
+        if (books.isEmpty() || batchRunning || queueSubmitting) return
+        if (!SharedLibrary.namedFolderMode(applicationContext)) return
+        val details = books.take(8).joinToString("\n") { "• " + it.title.take(100) + " (" + it.format.name + ")" }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Eliminar definitivamente ${books.size} libros")
+            .setMessage(details + (if (books.size > 8) "\n… y ${books.size - 8} más." else "") +
+                "\n\nSe eliminarán de Drive y de los dispositivos vinculados al sincronizar, junto con sus notas, marcadores y posiciones. Solo los formatos seleccionados; las copias históricas externas no se modificarán. Esta operación no es una retirada del dispositivo.")
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton("Eliminar definitivamente") { _, _ -> startBookBatch(LibraryBatchAction.DELETE, books) }
+            .show()
+    }
 
     private fun confirmBatchRemoval() {
         val books = selectedBooks()
@@ -554,6 +569,7 @@ class MainActivity : AppCompatActivity() {
         if (action != LibraryBatchAction.DOWNLOAD && !checkSharedImportAccess()) return
         val destination = SharedLibrary.uri(app)
         val centralUri = BackupRoutine.centralUri(app)
+        if (action == LibraryBatchAction.DELETE && !SharedLibrary.namedFolderMode(app)) return
         if (SharedLibrary.namedFolderMode(app) && destination != null) {
             queueSubmitting = true
             selection.clear()
@@ -636,6 +652,7 @@ class MainActivity : AppCompatActivity() {
                             saveError?.let { throw it }
                             require(book.contentHash in savedHashes.orEmpty()) { "Original compartido no verificado." }
                         }
+                        LibraryBatchAction.DELETE -> error("La baja definitiva requiere la carpeta compartida.")
                         LibraryBatchAction.REMOVE -> BackupRoutine.evictBook(app, db, BuildConfig.VERSION_NAME, book.id)
                     }
                 }
