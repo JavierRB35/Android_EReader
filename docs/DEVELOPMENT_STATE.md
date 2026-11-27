@@ -9,6 +9,11 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #150 — buscador local inteligente (27/11/2026)
+- Base v0.1.212 / ca4e80c5. P1: proyección observable Room de título/autor/nombre original, categorías/etiquetas/colecciones y argumento; índice Unicode en memoria reconstruible sin migración, sin leer archivos de Drive. AND de términos en distinto orden, coincidencia exacta/prefijo/parcial, errores conservadores por distancia, relevancia ponderada y recencia como desempate; búsquedas vacías conservan orden habitual.
+- Filtros combinables, ordenación, sugerencias contextuales mientras el buscador tiene foco, estado restaurado al recrear, protección de selección obsoleta y conservación de identidad/ámbito local/remoto. No alterar sincronización, operaciones destructivas ni formato de originales.
+- Pruebas: LibrarySearchTest y LibraryHomeUxDeviceTest.searchProjectionIncludesRelationsAndChangesWithoutOriginals. Gates y medición física de latencia pendientes. FTS persistente aplazado hasta evidencia de necesidad. P2 historial/búsquedas guardadas, IA opcional y conocimiento; P3 contenido local indexado siguen pendientes en #150; no anunciarlos en esta release.
+
 ## #147 — eliminación definitiva de biblioteca (27/11/2026)
 - Selección individual y múltiple en biblioteca completa, confirmación explícita de títulos/formatos y pérdida de datos de lectura. Variantes no seleccionadas permanecen. Cola WorkManager existente, identidad y generación capturadas; publicación y relectura de tombstone antes de tocar originales; borrado SAF solo documentos directos de la carpeta con identidad, tamaño y SHA-256 comprobados, permiso de borrado y verificación de ausencia. Las copias históricas externas no se modifican.
 - Si falla antes de la baja no se inicia borrado; si falla tras entrar en fase irreversible, la cola conserva la petición y reintenta, incluso si ya no hay ficha. Detener afecta a los libros aún no iniciados. La sincronización de peers es eventual y SAF no ofrece atomicidad distribuida; probar Drive real en dos equipos compatibles. El proveedor puede usar papelera. No borrar datos reales para validar. CI pendiente; no fusionar hasta verde.
