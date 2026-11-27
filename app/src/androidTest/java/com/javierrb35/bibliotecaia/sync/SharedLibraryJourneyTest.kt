@@ -808,7 +808,14 @@ class SharedLibraryJourneyTest {
             } catch (_: IllegalArgumentException) {}
             assertTrue(books.all { File(it.localPath).isFile })
             assertTrue(SharedLibrary.syncStore(store, db, "a".repeat(32), root).errors.isEmpty())
-            SharedLibrary.evictVerifiedBatch(store, db, root, books)
+            val progress = mutableListOf<Int>()
+            assertEquals(1, SharedLibrary.evictVerifiedBatch(store, db, root, books,
+                onProgress = { done, total -> assertEquals(2, total); progress.add(done) },
+                cancelled = { progress.isNotEmpty() }))
+            assertEquals(listOf(1), progress)
+            assertFalse(File(books.first().localPath).exists())
+            assertTrue(File(books.last().localPath).isFile)
+            assertEquals(1, SharedLibrary.evictVerifiedBatch(store, db, root, listOf(books.last())))
             for (book in books) {
                 assertFalse(File(book.localPath).exists())
                 assertTrue(db.bookDao().findById(book.id)!!.localPath.isBlank())
@@ -817,5 +824,43 @@ class SharedLibraryJourneyTest {
                 assertEquals(book.contentHash, SharedDocumentStore.hash(recovered.readBytes()))
             }
         } finally { db.close(); root.deleteRecursively() }
+    }
+
+    @Test fun persistentBatchSupportsLargeSelectionAndDoesNotPoisonQueueOnFailure() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val queue = com.javierrb35.bibliotecaia.ui.LibraryBatchQueue
+        val action = com.javierrb35.bibliotecaia.ui.LibraryBatchAction.REMOVE
+        val manager = androidx.work.WorkManager.getInstance(context)
+        val wrongFolder = Uri.parse("content://invalid.test/tree/" + UUID.randomUUID())
+        val books = (1..537).map { n ->
+            BookEntity("test-" + UUID.randomUUID(), "Libro $n", null, BookFormat.EPUB,
+                "$n.epub", "/private/test/$n.epub", n.toString().padStart(64, '0'), n.toLong(), 1L)
+        }
+        val first = queue.enqueue(context, action, wrongFolder, books)
+        val second = queue.enqueue(context, action, wrongFolder, books.take(4))
+        try {
+            val snapshot = queue.read(context, first)
+            assertEquals(537, snapshot.books.size)
+            assertEquals(books.map { it.id }, snapshot.books.map { it.id })
+            assertEquals(wrongFolder.toString(), snapshot.uri)
+            suspend fun awaitResult(id: UUID): androidx.work.WorkInfo {
+                repeat(150) {
+                    val info = manager.getWorkInfoById(id).get(5, TimeUnit.SECONDS)
+                    if (info != null && info.state.isFinished) return info
+                    kotlinx.coroutines.delay(200)
+                }
+                error("WorkManager did not finish the persisted request")
+            }
+            val one = awaitResult(first)
+            val two = awaitResult(second)
+            // A changed folder must refuse writes, but must not block the next job.
+            assertEquals(androidx.work.WorkInfo.State.SUCCEEDED, one.state)
+            assertEquals(androidx.work.WorkInfo.State.SUCCEEDED, two.state)
+            assertTrue(one.outputData.getString("summary").orEmpty().contains("0 de 537"))
+            assertTrue(two.outputData.getString("summary").orEmpty().contains("0 de 4"))
+        } finally {
+            queue.clean(context, first)
+            queue.clean(context, second)
+        }
     }
 }
