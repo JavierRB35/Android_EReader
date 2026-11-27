@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia
 import android.content.Intent
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.longClick
 import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -45,6 +46,13 @@ class AnnotationEditorDeviceTest {
             onView(withText("Guardar")).perform(click())
             id = awaitSaved(original)
             assertNotNull("The dialog did not persist the standalone note", id)
+            onView(withText(org.hamcrest.Matchers.containsString(original))).perform(longClick())
+            onView(withText("1 seleccionadas")).check(matches(isDisplayed()))
+            onView(withText("Exportar")).perform(click())
+            onView(withText("Markdown (.md)")).check(matches(isDisplayed()))
+            onView(withText("Texto (.txt)")).check(matches(isDisplayed()))
+            onView(withText("Cancelar")).perform(click())
+            onView(withText("Cancelar")).perform(click())
             onView(withText(org.hamcrest.Matchers.containsString(original))).perform(click())
             onView(withText("Reflexión personal")).check(matches(isDisplayed()))
             onView(withText("Sin libro asociado")).check(matches(isDisplayed()))
