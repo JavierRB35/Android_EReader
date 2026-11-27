@@ -9,6 +9,11 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #152 — cuaderno de conocimiento (27/11/2026)
+- Rama `feature/knowledge-ux-152`, primer incremento WIP: cabecera compacta, pestañas horizontales Todo/Notas/Fragmentos/Marcadores/Ideas, menú de exportación/papelera/ajustes, contador, tarjetas compactas y estado de filtros al recrear Activity. Sin cambios de persistencia ni Drive.
+- KnowledgeBookIndexTest.distinguishesBookmarksFromNotesAndFragments comprueba separación de tipos y conservación del listado; CI pendiente. Las notas independientes siguen siendo ideas en el modelo existente.
+- Siguiente: ficha individual, búsqueda y filtros combinables, selección múltiple, etiquetas/favoritos, exportación, relaciones manuales, IA bajo demanda compatible, navegación al origen sin pérdida de posición, pruebas instrumentadas y regresión de sincronización. Revisar alcance completo de #152; mantener PR draft hasta completar y validar. #138 sigue prioritario; coordinar publicación única con agente P0. No declarar APK ni aceptación física.
+ 
 ## #150 — buscador local inteligente (27/11/2026)
 - Base v0.1.212 / ca4e80c5. P1: proyección observable Room de título/autor/nombre original, categorías/etiquetas/colecciones y argumento; índice Unicode en memoria reconstruible sin migración, sin leer archivos de Drive. AND de términos en distinto orden, coincidencia exacta/prefijo/parcial, errores conservadores por distancia, relevancia ponderada y recencia como desempate; búsquedas vacías conservan orden habitual.
 - Filtros combinables, ordenación, sugerencias contextuales mientras el buscador tiene foco, estado restaurado al recrear, protección de selección obsoleta y conservación de identidad/ámbito local/remoto. No alterar sincronización, operaciones destructivas ni formato de originales.
