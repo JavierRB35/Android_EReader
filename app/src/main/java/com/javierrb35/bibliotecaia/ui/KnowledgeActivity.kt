@@ -246,11 +246,13 @@ class KnowledgeActivity : AppCompatActivity() {
                     arrayOf(q, if (t) "1" else "0", kind, book)
                 }.flatMapLatest { state ->
                     combine(
-                        db.readingDao().notebook(state[0], state[1] == "1"),
+                        db.readingDao().notebook("", state[1] == "1"),
                         db.bookDao().observeAll()
                     ) { notes, books ->
-                        val kindFiltered = KnowledgeBookIndex.byKind(notes, state[2])
                         val titles = books.associate { it.id to it.title }
+                        val authors = books.associate { it.id to it.author.orEmpty() }
+                        val matches = KnowledgeBookIndex.search(notes, state[0], titles, authors)
+                        val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2])
                         val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
                         val visible = KnowledgeBookIndex.byBook(kindFiltered, state[3])
                         Triple(visible, titles, choices)
