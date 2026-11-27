@@ -8,6 +8,7 @@ import android.widget.TextView
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.DiffUtil
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.data.BookEntity
@@ -44,21 +45,49 @@ class BookAdapter(
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
-        if (payloads.isNotEmpty() && payloads.all { it == SELECTION_PAYLOAD })
-            bindSelection(holder, items[position])
-        else super.onBindViewHolder(holder, position, payloads)
+        if (payloads.isNotEmpty() && payloads.all { it == SELECTION_PAYLOAD || it == COVER_PAYLOAD }) {
+            val book = items[position]
+            if (SELECTION_PAYLOAD in payloads) bindSelection(holder, book)
+            if (COVER_PAYLOAD in payloads && holder.fallback.visibility == View.VISIBLE &&
+                holder.job?.isActive != true) loadCover(holder, book, variants(book))
+        } else super.onBindViewHolder(holder, position, payloads)
     }
 
-    private companion object { const val SELECTION_PAYLOAD = "book_selection" }
+    private companion object {
+        const val SELECTION_PAYLOAD = "book_selection"
+        const val COVER_PAYLOAD = "book_cover"
+    }
+
+    // A cover becoming available must not invalidate every row or restart
+    // an active touch gesture. Payloads reuse the existing visible holders.
+    fun refreshCovers() {
+        if (items.isNotEmpty()) notifyItemRangeChanged(0, items.size, COVER_PAYLOAD)
+    }
+
+    private fun variants(book: BookEntity) = editions[book.id].orEmpty().ifEmpty { listOf(book) }
 
     var grid: Boolean = true
         set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
 
     fun submit(books: List<BookEntity>, alternatives: Map<String, List<BookEntity>> = emptyMap()) {
-        editions = alternatives
+        if (items == books && editions == alternatives) return
+        val old = items.toList()
+        val oldEditions = editions
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = books.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                old[oldItemPosition].id == books[newItemPosition].id
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                val previous = old[oldItemPosition]
+                val next = books[newItemPosition]
+                return previous == next && oldEditions[previous.id] == alternatives[next.id]
+            }
+        })
+        editions = alternatives.toMap()
         items.clear()
         items.addAll(books)
-        notifyDataSetChanged()
+        diff.dispatchUpdatesTo(this)
     }
 
     class Holder(view: View, val scope: CoroutineScope?) : RecyclerView.ViewHolder(view) {
@@ -88,7 +117,7 @@ class BookAdapter(
         holder.boundId = book.id
         holder.title.text = book.title
         holder.authors.text = book.authors ?: ""
-        val variants = editions[book.id].orEmpty().ifEmpty { listOf(book) }
+        val variants = variants(book)
         val formats = variants.joinToString(" / ") { it.format.name }
         holder.format.text = (if (book.favorite) "$formats  ★" else formats) +
             if (variants.none { com.javierrb35.bibliotecaia.backup.CentralCatalogue.local(it) })
@@ -108,6 +137,11 @@ class BookAdapter(
             onLongClick.invoke(book)
             true
         })
+        loadCover(holder, book, variants)
+    }
+
+    private fun loadCover(holder: Holder, book: BookEntity, variants: List<BookEntity>) {
+        val context = holder.itemView.context
         holder.job = holder.scope?.launch {
             var bitmap = BookCoverLoader.load(context, book)
             for (alternative in variants.drop(1)) {
