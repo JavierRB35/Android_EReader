@@ -961,7 +961,7 @@ object SharedLibrary {
         return withContext(Dispatchers.IO) {
             mutex.withLock {
                 require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
-                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, cancelled, onProgress) }
+                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, onProgress = onProgress, cancelled = cancelled) }
                 changes.value += 1
                 removed
             }.also { scheduleCovers(context) }
@@ -981,8 +981,9 @@ object SharedLibrary {
     }
 
     internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
-                                            books: List<BookEntity>, cancelled: () -> Boolean = { false },
-                                            onProgress: suspend (Int, Int) -> Unit = { _, _ -> }): Int {
+                                            books: List<BookEntity>,
+                                            onProgress: suspend (Int, Int) -> Unit = { _, _ -> },
+                                            cancelled: () -> Boolean = { false }): Int {
         if (cancelled()) return 0
         val inv = inventory(store)
         require(inv.errors.isEmpty()) { "No se ha podido verificar la biblioteca." }
