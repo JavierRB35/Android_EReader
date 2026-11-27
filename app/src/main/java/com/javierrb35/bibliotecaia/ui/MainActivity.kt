@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var queueSubmitting = false
     private var queuedBatch: androidx.work.WorkInfo? = null
     private var dismissedBatch: String? = null
+    private var batchHistory = emptyList<androidx.work.WorkInfo>()
     @Volatile private var cancelBatch = false
     private var batchJob: kotlinx.coroutines.Job? = null
     private var batchAction: LibraryBatchAction? = null
@@ -204,6 +205,17 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBatchSecondary).setOnClickListener {
             if (!centralFlow.value.first) confirmBatchRemoval()
         }
+        findViewById<View>(R.id.txtBookBatchProgress).setOnClickListener {
+            if (!batchRunning && batchHistory.isNotEmpty()) {
+                val details = batchHistory.takeLast(10).asReversed().joinToString("\n\n") { work ->
+                    LibraryBatchQueue.label(work) + "\n" + (work.outputData.getString("summary")
+                        ?: "Operación interrumpida; comprueba los libros y reintenta.")
+                }
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Resultados de operaciones").setMessage(details)
+                    .setPositiveButton("Cerrar", null).show()
+            }
+        }
         findViewById<View>(R.id.btnCancelBookBatch).setOnClickListener {
             if (!batchRunning) {
                 val work = queuedBatch ?: return@setOnClickListener
@@ -214,8 +226,16 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     findViewById<View>(R.id.btnCancelBookBatch).isEnabled = false
                     findViewById<TextView>(R.id.txtBookBatchProgress).text = "Deteniendo operación…"
-                    lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        LibraryBatchQueue.stop(applicationContext, work.id)
+                    lifecycleScope.launch {
+                        try {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                LibraryBatchQueue.stop(applicationContext, work.id)
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            findViewById<View>(R.id.btnCancelBookBatch).isEnabled = true
+                            Toast.makeText(this@MainActivity, "No se pudo solicitar la detención. Reintenta.", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
                 return@setOnClickListener
@@ -474,6 +494,7 @@ class MainActivity : AppCompatActivity() {
                 val jobs = all.sortedWith(compareBy<androidx.work.WorkInfo> { LibraryBatchQueue.order(it) }
                     .thenBy { it.id.toString() })
                 // WorkManager owns execution independently of this Activity.
+                batchHistory = jobs.filter { it.state.isFinished }
                 val active = jobs.filterNot { it.state.isFinished }
                 val work = active.firstOrNull { it.state == androidx.work.WorkInfo.State.RUNNING }
                     ?: active.firstOrNull() ?: jobs.lastOrNull()
@@ -496,6 +517,7 @@ class MainActivity : AppCompatActivity() {
                 if (work.state.isFinished) {
                     status.text = "$label · " + (work.outputData.getString("summary")
                         ?: "Operación interrumpida; comprueba los libros y reintenta.")
+                    status.append(if (batchHistory.size > 1) "\nToca para ver los resultados anteriores." else "")
                     button.text = "Cerrar"
                     button.isEnabled = true
                     if (work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.REMOVE.name) &&
