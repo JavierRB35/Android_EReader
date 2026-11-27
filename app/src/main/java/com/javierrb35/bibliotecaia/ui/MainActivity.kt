@@ -330,6 +330,9 @@ class MainActivity : AppCompatActivity() {
             if (remoteChecked && ReadingPositionSafSync.status(applicationContext).peerCount == 0) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
             }
+        }
+        // Retomar lectura is local UI; it must not await a remote pull.
+        lifecycleScope.launch {
             val latest = db.backupDao().booksAll().filter {
                 it.lastOpenedAt != null && it.localPath.isNotBlank() && java.io.File(it.localPath).isFile
             }.maxByOrNull { it.lastOpenedAt ?: 0L }
@@ -348,6 +351,9 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.txtRecentCoverFallback).text = latest.title
                 val coverView = findViewById<ImageView>(R.id.imgRecentCover)
                 coverView.setImageDrawable(null)
+                card.contentDescription = getString(R.string.bia_ux_continue_a11y, latest.title)
+                card.setOnClickListener { ReaderRouter.open(this@MainActivity, latest.id) }
+                card.visibility = View.VISIBLE
                 val bitmap = try {
                     BookCoverLoader.load(applicationContext, latest)
                 } catch (cancelled: CancellationException) {
@@ -357,9 +363,6 @@ class MainActivity : AppCompatActivity() {
                     null
                 }
                 if (bitmap != null && !isDestroyed) coverView.setImageBitmap(bitmap)
-                card.contentDescription = getString(R.string.bia_ux_continue_a11y, latest.title)
-                card.setOnClickListener { ReaderRouter.open(this@MainActivity, latest.id) }
-                card.visibility = View.VISIBLE
             }
         }
     }
