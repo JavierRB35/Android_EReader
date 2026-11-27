@@ -9,6 +9,10 @@
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
 
+## #147 — eliminación definitiva de biblioteca (27/11/2026)
+- Selección individual y múltiple en biblioteca completa, confirmación explícita de títulos/formatos y pérdida de datos de lectura. Variantes no seleccionadas permanecen. Cola WorkManager existente, identidad y generación capturadas; publicación y relectura de tombstone antes de tocar originales; borrado SAF solo documentos directos de la carpeta con identidad, tamaño y SHA-256 comprobados, permiso de borrado y verificación de ausencia. Las copias históricas externas no se modifican.
+- Si falla antes de la baja no se inicia borrado; si falla tras entrar en fase irreversible, la cola conserva la petición y reintenta, incluso si ya no hay ficha. Detener afecta a los libros aún no iniciados. La sincronización de peers es eventual y SAF no ofrece atomicidad distribuida; probar Drive real en dos equipos compatibles. El proveedor puede usar papelera. No borrar datos reales para validar. CI pendiente; no fusionar hasta verde.
+
 ## #145 — operaciones múltiples en segundo plano (27/11/2026)
 - Reporte físico: 4 retiradas ~15 s. Cola WorkManager serial y persistente para descargar, guardar y retirar en carpeta nombrada SAF. Petición privada atómica fuera del límite de 10 KB, conexión y hash fijados; no cancelar cadena por error de un lote. Navegación y selección disponibles, progreso y resultados no modales, detención segura. Se conserva el flujo heredado no nombrado.
 - Se mantiene verificación remota completa previa a la primera retirada y luego retirada progresiva, nunca borrar originales Drive. Descarga cancelable, guardado/retirada cooperativos; la ejecución depende de Android y proveedor, no se promete ejecución durante detención forzada ni menor duración de Drive. Pruebas instrumentadas de 537 entradas, rechazo de conexión cambiada, continuidad tras fallo, cancelación progresiva, navegación/recreación. CI y medición física pendientes.
