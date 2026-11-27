@@ -17,6 +17,21 @@ internal object KnowledgeBookIndex {
         else -> notes
     }
 
+    private fun normalized(value: String): String =
+        java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "").lowercase(java.util.Locale.ROOT)
+
+    fun search(notes: List<AnnotationEntity>, query: String,
+               titles: Map<String, String>, authors: Map<String, String>): List<AnnotationEntity> {
+        val terms = normalized(query).trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (terms.isEmpty()) return notes
+        return notes.filter { note ->
+            val source = normalized(listOf(note.body, note.quote,
+                titles[note.bookId].orEmpty(), authors[note.bookId].orEmpty()).joinToString(" "))
+            terms.all { source.contains(it) }
+        }
+    }
+
     fun byBook(notes: List<AnnotationEntity>, selected: String): List<AnnotationEntity> =
         when (selected) {
             ALL -> notes
