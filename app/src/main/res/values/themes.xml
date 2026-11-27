@@ -29,7 +29,6 @@
         <!-- Incremento 1 — estado y componentes editoriales (DEC-002, CMP-003, CMP-010). -->
         <item name="colorError">@color/bia_error</item>
         <item name="materialButtonStyle">@style/Widget.BibliotecaIA.Button</item>
-        <item name="outlinedButtonStyle">@style/Widget.BibliotecaIA.Button.Outlined</item>
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.BibliotecaIA.AlertDialog</item>
         <item name="alertDialogTheme">@style/ThemeOverlay.BibliotecaIA.Dialog</item>
     </style>
@@ -46,7 +45,7 @@
         <item name="colorPrimary">@color/bia_accent</item>
         <item name="colorOnPrimary">@color/bia_background</item>
         <item name="elevationOverlayEnabled">false</item>
-        <item name="materialAlertDialogShapeAppearance">@style/ShapeAppearance.Bia.Dialog</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Bia.Dialog</item>
         <item name="materialAlertDialogTitleTextStyle">@style/TextAppearance.BibliotecaIA.DialogTitle</item>
         <item name="buttonBarPositiveButtonStyle">@style/Widget.BibliotecaIA.DialogButton</item>
         <item name="buttonBarNegativeButtonStyle">@style/Widget.BibliotecaIA.DialogButton</item>
