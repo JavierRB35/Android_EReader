@@ -471,20 +471,44 @@ class MainActivity : AppCompatActivity() {
     private fun renderSelection() {
         adapter.showSelection(selection.ids)
         selectionBack?.isEnabled = selection.active
-        findViewById<View>(R.id.bookSelectionBar).visibility =
-            if (selection.active && !batchRunning) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.txtSelectedBooks).text = "${selection.ids.size} seleccionados"
-        findViewById<TextView>(R.id.btnSelectAllBooks).text =
-            if (visibleBooks.isNotEmpty() && selection.ids.size == visibleBooks.size)
-                "Deseleccionar todos" else "Seleccionar todos"
-        findViewById<TextView>(R.id.btnBatchPrimary).text =
-            if (centralFlow.value.first && selection.ids.any { editions[it].orEmpty().size > 1 })
-                "Descargar formato preferido"
-            else if (centralFlow.value.first) "Descargar al dispositivo" else "Guardar en biblioteca"
+        renderSelectionChrome(selection.ids.size, visibleBooks.size, selection.active && !batchRunning)
+        renderBatchActions(centralFlow.value.first, SharedLibrary.namedFolderMode(applicationContext),
+            selection.ids.any { editions[it].orEmpty().size > 1 })
+    }
+
+    internal fun renderBatchActions(central: Boolean, canDelete: Boolean, preferredFormat: Boolean) {
+        val primary = findViewById<TextView>(R.id.btnBatchPrimary)
+        primary.text = if (central) "Descargar" else "Guardar en biblioteca"
+        primary.contentDescription = if (!central) "Guardar en biblioteca"
+            else if (preferredFormat) "Descargar formato preferido al dispositivo" else "Descargar al dispositivo"
         val secondary = findViewById<TextView>(R.id.btnBatchSecondary)
-        secondary.text = if (centralFlow.value.first) "Eliminar definitivamente" else "Retirar del dispositivo"
-        secondary.visibility = if (!centralFlow.value.first || SharedLibrary.namedFolderMode(applicationContext))
-            View.VISIBLE else View.GONE
+        secondary.text = if (central) "Eliminar" else "Retirar del dispositivo"
+        secondary.contentDescription = if (central) "Eliminar definitivamente de la biblioteca"
+            else "Retirar del dispositivo"
+        if (central) secondary.setTextColor(com.google.android.material.color.MaterialColors.getColor(
+            secondary, com.google.android.material.R.attr.colorError))
+        else secondary.setTextColor(primary.textColors)
+        secondary.visibility = if (!central || canDelete) View.VISIBLE else View.GONE
+    }
+
+    // Hide parent groups, not individual asynchronously updated views. This
+    // preserves recent-book/setup/missing visibility when selection ends.
+    internal fun renderSelectionChrome(count: Int, visibleCount: Int, active: Boolean) {
+        val normal = if (active) View.GONE else View.VISIBLE
+        val contextual = if (active) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.libraryNormalHeader).visibility = normal
+        findViewById<View>(R.id.libraryQuickActions).visibility = normal
+        findViewById<View>(R.id.mainNavigation).visibility = normal
+        findViewById<View>(R.id.bookSelectionBar).visibility = contextual
+        findViewById<View>(R.id.bookBatchActions).visibility = contextual
+        findViewById<TextView>(R.id.txtSelectedBooks).text =
+            if (count == 1) "1 seleccionado" else "$count seleccionados"
+        val allSelected = visibleCount > 0 && count == visibleCount
+        findViewById<TextView>(R.id.btnSelectAllBooks).apply {
+            text = if (allSelected) "Ninguno" else "Todos"
+            contentDescription = if (allSelected) "Deseleccionar todos los resultados"
+                else "Seleccionar todos los resultados"
+        }
     }
 
     private fun observeBatchQueue() {

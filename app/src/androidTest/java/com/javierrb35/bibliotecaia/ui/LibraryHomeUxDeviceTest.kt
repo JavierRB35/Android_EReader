@@ -110,6 +110,65 @@ class LibraryHomeUxDeviceTest {
     }
 
     @Test
+    fun contextualSelectionReplacesNormalChromeAndRestoresIt() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                fun view(id: Int) = activity.findViewById<android.view.View>(id)
+                val recent = view(R.id.recentBookCard)
+                recent.visibility = android.view.View.VISIBLE
+                activity.renderSelectionChrome(1, 470, true)
+                for (id in listOf(R.id.libraryNormalHeader, R.id.libraryQuickActions, R.id.mainNavigation))
+                    assertEquals(android.view.View.GONE, view(id).visibility)
+                for (id in listOf(R.id.bookSelectionBar, R.id.bookBatchActions, R.id.txtSearch, R.id.scrollShelves))
+                    org.junit.Assert.assertTrue(view(id).isShown)
+                org.junit.Assert.assertFalse(recent.isShown)
+                assertEquals("1 seleccionado", activity.findViewById<android.widget.TextView>(R.id.txtSelectedBooks).text.toString())
+                activity.renderSelectionChrome(470, 470, true)
+                assertEquals("470 seleccionados", activity.findViewById<android.widget.TextView>(R.id.txtSelectedBooks).text.toString())
+                assertEquals("Deseleccionar todos los resultados", view(R.id.btnSelectAllBooks).contentDescription.toString())
+                // A background update during selection must not be overwritten by exit.
+                recent.visibility = android.view.View.GONE
+                activity.renderSelectionChrome(0, 470, false)
+                for (id in listOf(R.id.libraryNormalHeader, R.id.libraryQuickActions, R.id.mainNavigation))
+                    org.junit.Assert.assertTrue(view(id).isShown)
+                for (id in listOf(R.id.bookSelectionBar, R.id.bookBatchActions))
+                    assertEquals(android.view.View.GONE, view(id).visibility)
+                assertEquals(android.view.View.GONE, recent.visibility)
+            }
+        } finally { scenario.close() }
+    }
+
+    @Test
+    fun contextualActionsDistinguishDownloadGlobalDeletionAndLocalRemoval() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val primary = activity.findViewById<android.widget.TextView>(R.id.btnBatchPrimary)
+                val secondary = activity.findViewById<android.widget.TextView>(R.id.btnBatchSecondary)
+                activity.renderSelectionChrome(2, 470, true)
+                activity.renderBatchActions(true, true, true)
+                assertEquals("Descargar", primary.text.toString())
+                assertEquals("Descargar formato preferido al dispositivo", primary.contentDescription.toString())
+                assertEquals("Eliminar", secondary.text.toString())
+                assertEquals("Eliminar definitivamente de la biblioteca", secondary.contentDescription.toString())
+                org.junit.Assert.assertTrue(primary.isShown && secondary.isShown)
+                assertEquals(primary.parent, secondary.parent)
+                assertNotEquals(primary.currentTextColor, secondary.currentTextColor)
+                activity.renderBatchActions(true, false, false)
+                assertEquals(android.view.View.GONE, secondary.visibility)
+                activity.renderBatchActions(false, false, false)
+                assertEquals("Guardar en biblioteca", primary.text.toString())
+                assertEquals("Retirar del dispositivo", secondary.text.toString())
+                assertEquals(primary.currentTextColor, secondary.currentTextColor)
+                org.junit.Assert.assertTrue(secondary.isShown)
+                activity.renderSelectionChrome(0, 470, false)
+                org.junit.Assert.assertFalse(secondary.isShown)
+            }
+        } finally { scenario.close() }
+    }
+
+    @Test
     fun compactHeaderKeepsImportAndViewSwitcherAccessible() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {

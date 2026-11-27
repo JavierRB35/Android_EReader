@@ -1,0 +1,1 @@
+- Selección múltiple más compacta: más espacio para las carátulas, contador superior, selección total y acciones inferiores; vuelve automáticamente a la biblioteca normal al cerrar.
