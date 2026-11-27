@@ -982,7 +982,9 @@ object SharedLibrary {
 
         // Mark the irreversible phase durably, before the first remote write.
         started()
-        val deletedAt = maxOf(System.currentTimeMillis(), selected.addedAt, localDeletion?.deletedAt ?: 0L)
+        // Bound the tombstone to the selected generation, not the retry clock.
+        // A later explicit reimport must survive even if it races publication.
+        val deletedAt = maxOf(selected.addedAt, localDeletion?.deletedAt ?: 0L)
         val tombstone = DeletedBookEntity(hash, deletedAt)
         val raw = BackupCodec.fromJson(manager.exportJson(0))
         val snapshot = manager.withoutDeletedBooks(raw.copy(
