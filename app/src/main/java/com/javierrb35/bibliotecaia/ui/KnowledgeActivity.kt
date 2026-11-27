@@ -41,6 +41,7 @@ class KnowledgeActivity : AppCompatActivity() {
     private val kindFilter = MutableStateFlow("ALL")
     private val bookFilter = MutableStateFlow(KnowledgeBookIndex.ALL)
     private var bookTitles = emptyMap<String, String>()
+    private var bookAuthors = emptyMap<String, String>()
     private var availableBookChoices = emptyList<KnowledgeBookIndex.Choice>()
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null) lifecycleScope.launch {
@@ -230,7 +231,7 @@ class KnowledgeActivity : AppCompatActivity() {
             clipToPadding = false
             setPadding(dp(16), dp(3), dp(16), dp(10))
         }
-        val adapter = NotesAdapter { note -> actions(note) }
+        val adapter = NotesAdapter { note -> showDetail(note) }
         list.adapter = adapter
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         val nav = layoutInflater.inflate(R.layout.premium_bottom_navigation, root, false)
@@ -255,10 +256,12 @@ class KnowledgeActivity : AppCompatActivity() {
                         val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2])
                         val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
                         val visible = KnowledgeBookIndex.byBook(kindFiltered, state[3])
-                        Triple(visible, titles, choices)
+                        Pair(Triple(visible, titles, choices), authors)
                     }
-                }.collect { (notes, titles, choices) ->
+                }.collect { (result, authors) ->
+                    val (notes, titles, choices) = result
                     bookTitles = titles
+                    bookAuthors = authors
                     availableBookChoices = choices
                     bookIndex.text = "Libro: " + (choices.firstOrNull {
                         it.id == bookFilter.value
@@ -288,24 +291,96 @@ class KnowledgeActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun actions(note: AnnotationEntity) {
-        if (note.deletedAt != null) {
-            MaterialAlertDialogBuilder(this).setTitle("Recuperar anotación")
-                .setMessage(note.body.ifBlank { note.quote }.take(500))
-                .setPositiveButton("Restaurar") { _, _ -> lifecycleScope.launch { repository.setDeleted(note.id, false) } }
-                .setNegativeButton("Cerrar", null).show()
-            return
+    private fun displayKind(note: AnnotationEntity): String =
+        if (note.kind == "NOTE" && note.bookId == null) "Idea" else label(note.kind)
+
+    private fun sourceTitle(note: AnnotationEntity): String =
+        note.bookId?.let { bookTitles[it] ?: "Obra no disponible" } ?: "Sin libro asociado"
+
+    private fun detailText(note: AnnotationEntity): String = buildString {
+        appendLine(displayKind(note))
+        appendLine(sourceTitle(note))
+        note.bookId?.let { bookAuthors[it]?.takeIf(String::isNotBlank)?.let { author -> appendLine(author) } }
+        if (note.quote.isNotBlank()) appendLine("\nTexto original:\n${note.quote}")
+        if (note.body.isNotBlank()) appendLine("\nReflexión personal:\n${note.body}")
+    }.trimEnd()
+
+    private fun showDetail(note: AnnotationEntity) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(10), dp(22), dp(10))
         }
-        val items = mutableListOf("Editar", "Versiones anteriores", "Mover a papelera")
-        if (note.bookId != null) items.add("Abrir origen")
-        MaterialAlertDialogBuilder(this).setTitle(label(note.kind)).setItems(items.toTypedArray()) { _, index ->
-            when (index) {
-                0 -> AnnotationEditor.edit(this, note)
-                1 -> showVersions(note)
-                2 -> lifecycleScope.launch { repository.setDeleted(note.id, true) }
-                3 -> ReaderRouter.open(this, note.bookId!!, note.locator)
+        fun section(title: String, value: String, literary: Boolean = false) {
+            content.addView(TextView(this).apply {
+                text = title
+                textSize = 12f
+                setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+                setTextColor(getColor(R.color.bia_accent))
+                setPadding(0, dp(12), 0, dp(5))
+                androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+            })
+            content.addView(TextView(this).apply {
+                text = value
+                textSize = 16f
+                if (literary) typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
+                setTextColor(getColor(R.color.bia_text))
+                setTextIsSelectable(true)
+            })
+        }
+        val author = note.bookId?.let { bookAuthors[it] }.orEmpty()
+        section("Origen", listOf(sourceTitle(note), author).filter { it.isNotBlank() }.joinToString("\n"))
+        if (note.quote.isNotBlank()) section("Texto original", note.quote, true)
+        if (note.body.isNotBlank()) section("Reflexión personal", note.body)
+        section("Fecha", DateFormat.getDateTimeInstance().format(Date(note.updatedAt)))
+        val scroll = ScrollView(this).apply { addView(content) }
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(displayKind(note))
+            .setView(scroll)
+            .setNegativeButton("Cerrar", null)
+        if (note.deletedAt != null) {
+            builder.setPositiveButton("Restaurar") { _, _ ->
+                lifecycleScope.launch { repository.setDeleted(note.id, false) }
             }
-        }.show()
+        } else {
+            builder.setPositiveButton("Editar") { _, _ -> AnnotationEditor.edit(this, note) }
+            builder.setNeutralButton("Más opciones") { _, _ -> showDetailActions(note) }
+        }
+        val dialog = builder.create()
+        if (note.bookId != null && note.deletedAt == null) {
+            content.addView(button("Abrir origen") {
+                dialog.dismiss()
+                ReaderRouter.open(this, note.bookId, note.locator)
+            })
+        }
+        dialog.show()
+    }
+
+    private fun showDetailActions(note: AnnotationEntity) {
+        val items = listOf("Copiar", "Compartir", "Versiones anteriores", "Mover a papelera")
+        MaterialAlertDialogBuilder(this).setTitle("Opciones de anotación")
+            .setItems(items.toTypedArray()) { _, index ->
+                when (index) {
+                    0 -> {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(displayKind(note), detailText(note)))
+                        toast("Anotación copiada")
+                    }
+                    1 -> startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, detailText(note))
+                    }, "Compartir anotación"))
+                    2 -> showVersions(note)
+                    3 -> MaterialAlertDialogBuilder(this)
+                        .setTitle("Mover a papelera")
+                        .setMessage("Podrás recuperar la anotación desde la papelera.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Mover") { _, _ ->
+                            lifecycleScope.launch { repository.setDeleted(note.id, true) }
+                        }.show()
+                }
+            }
+            .setNegativeButton("Volver") { _, _ -> showDetail(note) }
+            .show()
     }
 
     private fun showVersions(note: AnnotationEntity) = lifecycleScope.launch {
