@@ -471,12 +471,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderSelection() {
         adapter.showSelection(selection.ids)
         selectionBack?.isEnabled = selection.active
-        findViewById<View>(R.id.bookSelectionBar).visibility =
-            if (selection.active && !batchRunning) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.txtSelectedBooks).text = "${selection.ids.size} seleccionados"
-        findViewById<TextView>(R.id.btnSelectAllBooks).text =
-            if (visibleBooks.isNotEmpty() && selection.ids.size == visibleBooks.size)
-                "Deseleccionar todos" else "Seleccionar todos"
+        renderSelectionChrome(selection.ids.size, visibleBooks.size, selection.active && !batchRunning)
         findViewById<TextView>(R.id.btnBatchPrimary).text =
             if (centralFlow.value.first && selection.ids.any { editions[it].orEmpty().size > 1 })
                 "Descargar formato preferido"
@@ -485,6 +480,26 @@ class MainActivity : AppCompatActivity() {
         // a batch action until the recoverable deletion contract is implemented.
         findViewById<View>(R.id.btnBatchSecondary).visibility =
             if (centralFlow.value.first) View.GONE else View.VISIBLE
+    }
+
+    // Hide parent groups, not individual asynchronously updated views. This
+    // preserves recent-book/setup/missing visibility when selection ends.
+    internal fun renderSelectionChrome(count: Int, visibleCount: Int, active: Boolean) {
+        val normal = if (active) View.GONE else View.VISIBLE
+        val contextual = if (active) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.libraryNormalHeader).visibility = normal
+        findViewById<View>(R.id.libraryQuickActions).visibility = normal
+        findViewById<View>(R.id.mainNavigation).visibility = normal
+        findViewById<View>(R.id.bookSelectionBar).visibility = contextual
+        findViewById<View>(R.id.bookBatchActions).visibility = contextual
+        findViewById<TextView>(R.id.txtSelectedBooks).text =
+            if (count == 1) "1 seleccionado" else "$count seleccionados"
+        val allSelected = visibleCount > 0 && count == visibleCount
+        findViewById<TextView>(R.id.btnSelectAllBooks).apply {
+            text = if (allSelected) "Ninguno" else "Todos"
+            contentDescription = if (allSelected) "Deseleccionar todos los resultados"
+                else "Seleccionar todos los resultados"
+        }
     }
 
     private fun observeBatchQueue() {
