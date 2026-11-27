@@ -221,7 +221,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
     }
 
     /** Remove stale book-specific data before validation and identity mapping. */
-    private fun withoutDeletedBooks(snapshot: LibrarySnapshot, deletions: Map<String, Long>): LibrarySnapshot {
+    internal fun withoutDeletedBooks(snapshot: LibrarySnapshot, deletions: Map<String, Long>): LibrarySnapshot {
         val excluded = snapshot.books.filter { it.addedAt <= (deletions[it.contentHash] ?: Long.MIN_VALUE) }
             .map { it.id }.toSet()
         if (excluded.isEmpty()) return snapshot
