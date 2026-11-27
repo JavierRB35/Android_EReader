@@ -80,54 +80,61 @@ class KnowledgeActivity : AppCompatActivity() {
             setBackgroundColor(getColor(R.color.bia_background))
         }
 
+        trash.value = savedInstanceState?.getBoolean("premium_trash") ?: false
+        kindFilter.value = savedInstanceState?.getString("selected_kind_filter") ?: "ALL"
+        query.value = savedInstanceState?.getString("knowledge_query").orEmpty()
         val brand = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), 0, dp(12), 0)
         }
         brand.addView(TextView(this).apply {
-            text = "◫  BibliotecaAI"
-            textSize = 22f
-            typeface = Typeface.SERIF
-            setTextColor(getColor(R.color.bia_text))
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { gravity = Gravity.CENTER_VERTICAL })
-        brand.addView(button("⚙", "Abrir ajustes") {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }, LinearLayout.LayoutParams(dp(48), dp(48)))
-        root.addView(brand)
-
-        val intro = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(8), dp(20), dp(10))
-        }
-        intro.addView(TextView(this).apply {
             text = "Conocimiento"
-            textSize = 33f
+            textSize = 26f
             typeface = Typeface.SERIF
             setTextColor(getColor(R.color.bia_text))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
-        })
-        intro.addView(TextView(this).apply {
-            text = "Tus ideas, notas y reflexiones de lectura"
-            textSize = 12f
-            setTextColor(getColor(R.color.bia_text_secondary))
-        })
-        root.addView(intro)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        val menuButton = button("⋮", "Opciones de conocimiento") {}
+        menuButton.setOnClickListener {
+            PopupMenu(this, menuButton).apply {
+                menu.add("Nueva idea")
+                menu.add("Exportar cuaderno")
+                menu.add(if (trash.value) "Salir de papelera" else "Mostrar papelera")
+                menu.add("Ajustes")
+                setOnMenuItemClickListener { item ->
+                    when (item.title.toString()) {
+                        "Nueva idea" -> AnnotationEditor.show(this@KnowledgeActivity, null, null, "", "NOTE")
+                        "Exportar cuaderno" -> export.launch("BibliotecaIA-cuaderno.md")
+                        "Mostrar papelera", "Salir de papelera" -> trash.value = !trash.value
+                        "Ajustes" -> startActivity(Intent(this@KnowledgeActivity, SettingsActivity::class.java))
+                    }
+                    true
+                }
+                show()
+            }
+        }
+        brand.addView(menuButton, LinearLayout.LayoutParams(dp(48), dp(48)))
+        root.addView(brand)
 
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(18), 0, dp(18), dp(7))
+            setPadding(dp(14), 0, dp(14), dp(3))
         }
-        val tabButtons = listOf("ALL" to "Notas", "QUOTE" to "Fragmentos", "IDEAS" to "Ideas").map { (kind, title) ->
+        val kinds = listOf("ALL" to "Todo", "NOTE" to "Notas", "QUOTE" to "Fragmentos",
+            "BOOKMARK" to "Marcadores", "IDEAS" to "Ideas")
+        val tabButtons = kinds.map { (kind, title) ->
             button(title) { kindFilter.value = kind }.also {
-                tabs.addView(it, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-                    marginStart = dp(3)
-                    marginEnd = dp(3)
+                it.textSize = 13f
+                it.setSingleLine(true)
+                tabs.addView(it, LinearLayout.LayoutParams(-2, -2).apply {
+                    marginEnd = dp(4)
                 })
             }
         }
         fun updateTabs(value: String) {
             tabButtons.forEachIndexed { index, tab ->
-                val active = when (index) { 0 -> value == "ALL"; 1 -> value == "QUOTE"; else -> value == "IDEAS" }
+                val active = kinds[index].first == value
+                tab.isSelected = active
                 tab.backgroundTintList = ColorStateList.valueOf(
                     getColor(if (active) R.color.bia_accent else R.color.bia_surface))
                 tab.setTextColor(getColor(if (active) R.color.bia_background else R.color.bia_text))
@@ -136,11 +143,15 @@ class KnowledgeActivity : AppCompatActivity() {
         updateTabs(kindFilter.value)
         tabButtons.forEachIndexed { index, tab ->
             tab.setOnClickListener {
-                kindFilter.value = when (index) { 0 -> "ALL"; 1 -> "QUOTE"; else -> "IDEAS" }
+                kindFilter.value = kinds[index].first
                 updateTabs(kindFilter.value)
             }
         }
-        root.addView(tabs)
+        root.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFillViewport = false
+            addView(tabs)
+        })
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -148,7 +159,7 @@ class KnowledgeActivity : AppCompatActivity() {
         }
         val searchBox = TextInputLayout(this, null,
             com.google.android.material.R.attr.textInputOutlinedStyle).apply {
-            hint = "Buscar notas y fragmentos"
+            hint = "Buscar en mi conocimiento"
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
             boxBackgroundColor = getColor(R.color.bia_surface)
             boxStrokeColor = getColor(R.color.bia_outline)
@@ -160,6 +171,7 @@ class KnowledgeActivity : AppCompatActivity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             isSingleLine = true
             textSize = 14f
+            setText(query.value)
             doOnTextChanged { text, _, _, _ -> query.value = text.toString() }
         })
         controls.addView(searchBox)
@@ -173,15 +185,7 @@ class KnowledgeActivity : AppCompatActivity() {
         }.apply {
             backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_accent))
             setTextColor(getColor(R.color.bia_background))
-        }, LinearLayout.LayoutParams(0, dp(52), 1.25f).apply { marginEnd = dp(6) })
-        actionsRow.addView(button("Exportar") {
-            export.launch("BibliotecaIA-cuaderno.md")
-        }.apply {
-            backgroundTintList = ColorStateList.valueOf(getColor(R.color.bia_surface_high))
-            setTextColor(getColor(R.color.bia_text))
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(6) })
-        controls.addView(actionsRow)
-
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
         val bookIndex = button("Todas las obras", "Filtrar notas por libro") {
             val choices = availableBookChoices
             val labels = choices.map { choice ->
@@ -202,18 +206,16 @@ class KnowledgeActivity : AppCompatActivity() {
             strokeWidth = dp(1)
             strokeColor = ColorStateList.valueOf(getColor(R.color.bia_outline))
         }
-        controls.addView(bookIndex, LinearLayout.LayoutParams(-1, dp(48)).apply {
-            topMargin = dp(6)
+        actionsRow.addView(bookIndex, LinearLayout.LayoutParams(0, -2, 1f).apply {
+            marginStart = dp(4)
         })
-
-        controls.addView(com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
-            text = "Mostrar papelera"
-            textSize = 13f
+        controls.addView(actionsRow)
+        val status = TextView(this).apply {
+            textSize = 12f
             setTextColor(getColor(R.color.bia_text_secondary))
-            isChecked = savedInstanceState?.getBoolean("premium_trash") ?: false
-            trash.value = isChecked
-            setOnCheckedChangeListener { _, checked -> trash.value = checked }
-        })
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        controls.addView(status)
         root.addView(controls)
 
         val empty = TextView(this).apply {
@@ -259,6 +261,7 @@ class KnowledgeActivity : AppCompatActivity() {
                     bookIndex.text = "Libro: " + (choices.firstOrNull {
                         it.id == bookFilter.value
                     }?.title ?: "Todas las obras")
+                    status.text = (if (trash.value) "Papelera · " else "") + "${notes.size} apuntes"
                     adapter.submit(notes, titles)
                     empty.visibility = if (notes.isEmpty()) View.VISIBLE else View.GONE
                     empty.text = when {
@@ -277,6 +280,9 @@ class KnowledgeActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("selected_book_filter", bookFilter.value)
+        outState.putString("selected_kind_filter", kindFilter.value)
+        outState.putString("knowledge_query", query.value)
+        outState.putBoolean("premium_trash", trash.value)
         super.onSaveInstanceState(outState)
     }
 
@@ -356,22 +362,23 @@ class KnowledgeActivity : AppCompatActivity() {
                 isClickable = true
                 isFocusable = true
                 layoutParams = RecyclerView.LayoutParams(-1, -2).apply {
-                    setMargins(d(3), d(7), d(3), d(7))
+                    setMargins(d(3), d(4), d(3), d(4))
                 }
             }
             val box = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(d(18), d(17), d(18), d(15))
+                setPadding(d(14), d(12), d(14), d(12))
             }
             val heading = TextView(ctx).apply {
-                textSize = 20f
-                typeface = Typeface.SERIF
+                textSize = 17f
+                typeface = Typeface.DEFAULT_BOLD
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setTextColor(ctx.getColor(R.color.bia_text))
             }
             val quote = TextView(ctx).apply {
                 textSize = 14f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
                 maxLines = 3
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setTextColor(ctx.getColor(R.color.bia_text))
@@ -427,6 +434,6 @@ class KnowledgeActivity : AppCompatActivity() {
 
     companion object {
         fun start(context: Context) = context.startActivity(Intent(context, KnowledgeActivity::class.java))
-        private fun label(kind: String) = when (kind) { "HIGHLIGHT" -> "Subrayado"; "BOOKMARK" -> "Marcador"; else -> "Nota" }
+        private fun label(kind: String) = when (kind) { "HIGHLIGHT" -> "Fragmento"; "BOOKMARK" -> "Marcador"; else -> "Nota" }
     }
 }
