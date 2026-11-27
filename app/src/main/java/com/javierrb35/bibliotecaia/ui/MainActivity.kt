@@ -268,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                SharedLibrary.coverChanges.collect { adapter.notifyDataSetChanged() }
+                SharedLibrary.coverChanges.collect { adapter.refreshCovers() }
             }
         }
         consumeImportIntent(intent)
