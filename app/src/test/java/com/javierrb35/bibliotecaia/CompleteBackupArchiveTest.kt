@@ -249,4 +249,96 @@ class CompleteBackupArchiveTest {
         assertEquals(0, unpacked.bookCount)
         assertTrue(BackupCodec.fromJson(unpacked.json).books.isEmpty())
     }
+
+    // ---------- Issue #155: portadas del migrador en el ZIP ----------
+
+    private fun zipWithBookAndCover(book: BookEntity, coverName: String?, cover: ByteArray? = null,
+                                    dropOriginal: Boolean = false): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("biblioteca.json"))
+            zip.write(json(listOf(book)).toByteArray())
+            zip.closeEntry()
+            if (!dropOriginal) {
+                zip.putNextEntry(ZipEntry(CompleteBackupArchive.entryName(book.id)))
+                zip.write(File(book.localPath).readBytes())
+                zip.closeEntry()
+            }
+            if (coverName != null && cover != null) {
+                zip.putNextEntry(ZipEntry(coverName))
+                zip.write(cover)
+                zip.closeEntry()
+            }
+        }
+        return output.toByteArray()
+    }
+
+    @Test fun migratorCoverForDeclaredBookIsStagedWithoutAffectingOriginals() {
+        val book = book("with-cover", "with-cover.epub", "original".toByteArray())
+        val cover = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0x11, 0x22)
+        val bytes = zipWithBookAndCover(book, "covers/" + book.contentHash + ".jpg", cover)
+        val content = CompleteBackupArchive.read(ByteArrayInputStream(bytes), dir.newFolder("covers"))
+        assertEquals(1, content.coverFiles.size)
+        assertArrayEquals(cover, content.coverFiles.getValue(book.contentHash).readBytes())
+        assertArrayEquals(File(book.localPath).readBytes(),
+            content.staged.getValue(CompleteBackupArchive.entryName(book.id)).readBytes())
+    }
+
+    @Test fun coverForUndeclaredBookIsRejected() {
+        val book = book("declared", "declared.epub", "original".toByteArray())
+        val bytes = zipWithBookAndCover(book, "covers/" + "cd".repeat(32) + ".jpg",
+            byteArrayOf(0xff.toByte(), 0xd8.toByte()))
+        assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupArchive.read(ByteArrayInputStream(bytes), dir.newFolder("undeclared"))
+        }
+    }
+
+    @Test fun coverRepeatedUnderDifferentExtensionIsRejected() {
+        val book = book("two-covers", "two-covers.epub", "original".toByteArray())
+        // El mismo libro no puede traer dos portadas, aunque los nombres difieran.
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("biblioteca.json"))
+            zip.write(json(listOf(book)).toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry(CompleteBackupArchive.entryName(book.id)))
+            zip.write(File(book.localPath).readBytes())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("covers/" + book.contentHash + ".jpg"))
+            zip.write(byteArrayOf(0xff.toByte(), 0xd8.toByte()))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("covers/" + book.contentHash + ".png"))
+            zip.write(byteArrayOf(0x89.toByte(), 0x50))
+            zip.closeEntry()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupArchive.read(ByteArrayInputStream(output.toByteArray()), dir.newFolder("two"))
+        }
+    }
+
+    @Test fun oversizedCoverIsRejected() {
+        val book = book("big-cover", "big-cover.epub", "original".toByteArray())
+        val big = ByteArray(3 * 1024 * 1024) { 0x2a }
+        val bytes = zipWithBookAndCover(book, "covers/" + book.contentHash + ".jpg", big)
+        assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupArchive.read(ByteArrayInputStream(bytes), dir.newFolder("big"))
+        }
+    }
+
+    @Test fun legacyZipWithoutCoversStillRestoresWithoutCoverFiles() {
+        val original = book("legacy-nocover", "legacy-nocover.epub", "Original legacy".toByteArray())
+        val stream = ByteArrayOutputStream()
+        ZipOutputStream(stream).use { zip ->
+            zip.putNextEntry(ZipEntry("biblioteca.json"))
+            zip.write(json(listOf(original)).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry(CompleteBackupArchive.entryName(original.id)))
+            zip.write(File(original.localPath).readBytes())
+            zip.closeEntry()
+        }
+        val content = CompleteBackupArchive.read(ByteArrayInputStream(stream.toByteArray()),
+            dir.newFolder("legacy-nocover"))
+        assertTrue(content.coverFiles.isEmpty())
+        assertEquals(1, content.bookCount)
+    }
 }

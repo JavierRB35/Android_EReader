@@ -87,7 +87,9 @@ class App(tk.Tk):
                 self.preview.configure(state="normal"); self.go.configure(state="normal"); self.cancel.configure(state="disabled")
                 if kind=="done":
                     run,count,books,summary=value
-                    result = f"{books} originales preparados en {count} ZIP; {summary['duplicate']} duplicados; {summary['error']} errores; {summary['unsupported']} fichas sin formato; {summary['warning']} avisos."
+                    result = (f"{books} originales preparados en {count} ZIP; {summary['duplicate']} duplicados; {summary['error']} errores; {summary['unsupported']} fichas sin formato; {summary['warning']} avisos. "
+                              f"Metadatos por catálogo: {summary['metadata_catalog']}; por OPF externo: {summary['metadata_opf']}; internos del archivo: {summary['metadata_internal']}; por nombre: {summary['metadata_name']}. "
+                              f"Portadas incluidas: {summary['covers']} (más {summary['pending_covers']} derivarán en Android); argumentos: {summary['synopses']}.")
                     self.status.set(result + " Consulta Informe.csv. Falta incorporarlos desde Android.")
                     if messagebox.askyesno("Paquetes preparados (no importados aún)", result + "\nEn Android, usa Ajustes → Importar biblioteca de Calibre.\n¿Abrir carpeta de salida?"):
                         os.startfile(str(run))

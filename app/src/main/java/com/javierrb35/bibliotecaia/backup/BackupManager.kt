@@ -59,6 +59,19 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 snapshot, dao.booksAll(), dao.categoriesAll(), dao.tagsAll(),
             )
             val booksRestored = countInserted(dao.insertBooksIgnore(snapshot.books))
+            // La existencia previa del mismo original (mismo SHA-256) no impide
+            // completar o corregir sus metadatos (Issue #155/#142): se reparan
+            // solo valores genéricos, nunca ediciones reales del usuario.
+            val booksByHash = dao.booksAll().associateBy { it.contentHash }
+            var booksRepaired = 0
+            for (incoming in snapshot.books) {
+                val existing = booksByHash[incoming.contentHash] ?: continue
+                val plan = MetadataReconciler.plan(existing, incoming)
+                if (plan.hasChanges) {
+                    db.bookDao().update(MetadataReconciler.apply(existing, plan))
+                    booksRepaired++
+                }
+            }
 
             val categoriesToInsert = snapshot.categories.map {
                 it.copy(id = identity.category(it.id),
@@ -133,6 +146,9 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             db.synopsisDao().insertIgnore(synopses)
             if (synchronize) for (synopsis in synopses) {
                 val existing = db.synopsisDao().byBook(synopsis.bookId)
+                // Un argumento importado del catálogo Calibre solo completa huecos;
+                // jamás reemplaza el texto existente del usuario (Issue #155).
+                if (existing != null && synopsis.provider == MetadataReconciler.IMPORTED_SYNOPSIS_PROVIDER) continue
                 if (existing == null || synopsis.generatedAt > existing.generatedAt)
                     db.synopsisDao().save(synopsis)
             }
@@ -193,6 +209,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
 
             RestoreReport(
                 booksRestored = booksRestored,
+                booksRepaired = booksRepaired,
                 booksSkipped = snapshot.books.size - booksRestored,
                 categoriesRestored = categoriesRestored,
                 categoriesSkipped = snapshot.categories.size - categoriesRestored,
@@ -311,4 +328,5 @@ data class RestoreReport(
     val versionsSkipped: Int,
     val positionsUpdated: Int,
     val positionsSkipped: Int,
+    val booksRepaired: Int = 0,
 )
