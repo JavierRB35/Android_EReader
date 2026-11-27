@@ -30,6 +30,12 @@ class SharedLibraryJourneyTest {
             SharedDocumentStore.Item(it.name, Uri.fromFile(it), it.length())
         }
         override fun open(item: SharedDocumentStore.Item): InputStream = File(item.uri.path!!).inputStream()
+        override fun canDeleteOriginal(item: SharedDocumentStore.Item): Boolean =
+            namedOriginals && File(item.uri.path!!).parentFile == dir && !item.directory
+        override fun deleteVerifiedOriginal(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+            require(canDeleteOriginal(item) && verify(item, hash, size))
+            return File(item.uri.path!!).delete()
+        }
         override fun retireManagedState(item: SharedDocumentStore.Item, owner: String): Boolean {
             val state = SharedStateRetention.parse(item.name) ?: return false
             val file = File(item.uri.path!!)
@@ -862,5 +868,79 @@ class SharedLibraryJourneyTest {
             queue.clean(context, first)
             queue.clean(context, second)
         }
+    }
+
+    @Test fun permanentDeletionPublishesTombstoneBeforeDeletingExactOriginalAndCanResume() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "permanent-delete-" + UUID.randomUUID()).apply { mkdirs() }
+        val cloud = File(root, "cloud").apply { mkdirs() }
+        val base = TestStore(cloud, namedOriginals = true)
+        val a = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val b = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        val original = File(root, "books/one/same.epub").apply { parentFile!!.mkdirs(); writeText("one") }
+        val book = BookEntity("one", "One", null, BookFormat.EPUB, "same.epub", original.absolutePath,
+            SharedDocumentStore.hash(original.readBytes()), original.length(), 1L)
+        val otherFile = File(root, "books/two/same.epub").apply { parentFile!!.mkdirs(); writeText("two") }
+        val other = BookEntity("two", "Two", null, BookFormat.EPUB, "same.epub", otherFile.absolutePath,
+            SharedDocumentStore.hash(otherFile.readBytes()), otherFile.length(), 1L)
+        try {
+            a.bookDao().insert(book)
+            a.bookDao().insert(other)
+            assertTrue(SharedLibrary.syncStore(base, a, "a".repeat(32), root).errors.isEmpty())
+            val stale = com.javierrb35.bibliotecaia.backup.BackupManager(a, "test").exportJson()
+            com.javierrb35.bibliotecaia.backup.BackupManager(b, "test").restoreJson(stale, synchronize = true)
+            val denied = object : SharedStore by base {
+                override fun canDeleteOriginal(item: SharedDocumentStore.Item) = false
+            }
+            try {
+                SharedLibrary.deletePermanentStore(denied, a, "a".repeat(32), root, book)
+                fail("Provider denial must not commit the deletion")
+            } catch (_: IllegalArgumentException) {}
+            assertNotNull(a.bookDao().findById(book.id))
+            assertTrue(original.exists())
+            var began = false
+            val failing = object : SharedStore by base {
+                override fun deleteVerifiedOriginal(item: SharedDocumentStore.Item, hash: String, size: Long): Boolean {
+                    assertTrue(began)
+                    // Before the original can disappear the other device must
+                    // already be able to read the tombstone.
+                    assertTrue(base.list().filter { it.name.startsWith("bia-state-") }.any {
+                        base.open(it).bufferedReader().use { reader ->
+                            val state = org.json.JSONObject(reader.readText())
+                            com.javierrb35.bibliotecaia.backup.BackupCodec.fromJson(state.getString("snapshot"))
+                                .deletedBooks.any { deletion -> deletion.contentHash == book.contentHash }
+                        }
+                    })
+                    return false
+                }
+            }
+            try {
+                SharedLibrary.deletePermanentStore(failing, a, "a".repeat(32), root, book) { began = true }
+                fail("Remote deletion failure must not report completion")
+            } catch (_: IllegalArgumentException) {}
+            assertTrue(began)
+            assertNull(a.bookDao().findById(book.id))
+            // Resume even though the Room row was already removed.
+            SharedLibrary.deletePermanentStore(base, a, "a".repeat(32), root, book)
+            assertFalse(original.exists())
+            assertTrue(otherFile.exists())
+            assertTrue(base.list().filter { it.name.endsWith(".epub") }.none {
+                base.verify(it, book.contentHash, book.sizeBytes)
+            })
+            assertTrue(base.list().filter { it.name.endsWith(".epub") }.any {
+                base.verify(it, other.contentHash, other.sizeBytes)
+            })
+            assertTrue(SharedLibrary.syncStore(base, b, "b".repeat(32)).errors.isEmpty())
+            com.javierrb35.bibliotecaia.backup.BackupManager(b, "test").restoreJson(stale, synchronize = true)
+            assertNull(b.bookDao().findByHash(book.contentHash))
+            assertNotNull(b.bookDao().findByHash(other.contentHash))
+            val reimport = book.copy(addedAt = System.currentTimeMillis() + 100000L, localPath = "")
+            a.bookDao().insert(reimport)
+            try {
+                SharedLibrary.deletePermanentStore(base, a, "a".repeat(32), root, book)
+                fail("A queued old deletion must not remove a new import")
+            } catch (_: SharedLibrary.StaleDeletionSelection) {}
+            assertEquals(reimport.addedAt, a.bookDao().findByHash(book.contentHash)!!.addedAt)
+        } finally { a.close(); b.close(); root.deleteRecursively() }
     }
 }
