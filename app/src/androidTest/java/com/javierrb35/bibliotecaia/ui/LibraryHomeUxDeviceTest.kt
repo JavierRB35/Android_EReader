@@ -72,6 +72,43 @@ class LibraryHomeUxDeviceTest {
         } finally { scenario.close() }
     }
 
+
+    @Test
+    fun catalogueAndCoverUpdatesPreserveCardClickAndDoNotInvalidateAllRows() {
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val book = com.javierrb35.bibliotecaia.data.BookEntity("stable-a", "Libro A", null,
+                    com.javierrb35.bibliotecaia.data.BookFormat.EPUB, "a.epub", "", "a".repeat(64), 1, 1)
+                val other = book.copy(id = "stable-b", title = "Libro B")
+                var clicked = ""
+                var resets = 0
+                var payloadUpdates = 0
+                val adapter = BookAdapter { clicked = it.id }
+                adapter.registerAdapterDataObserver(object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+                    override fun onChanged() { resets++ }
+                    override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) {
+                        if (payload != null) payloadUpdates += itemCount
+                    }
+                })
+                val parent = androidx.recyclerview.widget.RecyclerView(activity).apply {
+                    layoutManager = androidx.recyclerview.widget.GridLayoutManager(activity, 2)
+                }
+                adapter.submit(listOf(book, other))
+                val holder = adapter.onCreateViewHolder(parent, adapter.getItemViewType(0))
+                adapter.onBindViewHolder(holder, 0)
+                adapter.submit(listOf(book.copy(), other.copy()))
+                assertEquals(0, resets)
+                adapter.refreshCovers()
+                assertEquals(2, payloadUpdates)
+                assertEquals(0, resets)
+                holder.itemView.performClick()
+                assertEquals(book.id, clicked)
+                adapter.onViewRecycled(holder)
+            }
+        } finally { scenario.close() }
+    }
+
     @Test
     fun compactHeaderKeepsImportAndViewSwitcherAccessible() {
         val scenario = ActivityScenario.launch(MainActivity::class.java)
