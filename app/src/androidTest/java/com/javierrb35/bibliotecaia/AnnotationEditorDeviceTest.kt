@@ -6,6 +6,7 @@ import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -45,6 +46,8 @@ class AnnotationEditorDeviceTest {
             id = awaitSaved(original)
             assertNotNull("The dialog did not persist the standalone note", id)
             onView(withText(org.hamcrest.Matchers.containsString(original))).perform(click())
+            onView(withText("Reflexión personal")).check(matches(isDisplayed()))
+            onView(withText("Sin libro asociado")).check(matches(isDisplayed()))
             onView(withText("Editar")).perform(click())
             onView(withHint(inputHint)).perform(replaceText(revised), closeSoftKeyboard())
             onView(withText("Guardar")).perform(click())
