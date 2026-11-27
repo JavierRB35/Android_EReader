@@ -33,6 +33,44 @@ class KnowledgeBookIndexTest {
         assertTrue(KnowledgeBookIndex.byBook(entries, "not-in-library").isEmpty())
     }
 
+    @Test fun distinguishesBookmarksFromNotesAndFragments() {
+        val bookmark = note("mark", "book-A", "BOOKMARK", "context")
+        val all = entries + bookmark
+        assertEquals(listOf("one"), KnowledgeBookIndex.byKind(all, "NOTE").map { it.id })
+        assertEquals(listOf("mark"), KnowledgeBookIndex.byKind(all, "BOOKMARK").map { it.id })
+        assertEquals(listOf("idea"), KnowledgeBookIndex.byKind(all, "IDEAS").map { it.id })
+        assertEquals(listOf("one", "two", "three"), KnowledgeBookIndex.byKind(all, "QUOTE").map { it.id })
+        assertEquals(all, KnowledgeBookIndex.byKind(all, "ALL"))
+    }
+
+    @Test fun searchesAuthorTitleAndQuoteTogetherWithoutChangingNotes() {
+        val titles = mapOf("book-A" to "El árbol", "book-B" to "Otra obra")
+        val authors = mapOf("book-A" to "Pär Lagerkvist")
+        assertEquals(listOf("one"), KnowledgeBookIndex.search(entries,
+            "lagerkvist arbol texto", titles, authors).map { it.id })
+        assertEquals(listOf("one", "three"), KnowledgeBookIndex.search(entries,
+            "PÄR", titles, authors).map { it.id })
+        assertEquals(entries, KnowledgeBookIndex.search(entries, " ", titles, authors))
+        assertTrue(KnowledgeBookIndex.search(entries, "inexistente", titles, authors).isEmpty())
+    }
+
+    @Test fun ordersNotesDeterministicallyWithoutChangingIdentity() {
+        val records = listOf(
+            entries[0].copy(createdAt = 1L, updatedAt = 9L),
+            entries[1].copy(createdAt = 4L, updatedAt = 4L),
+            entries[3].copy(createdAt = 2L, updatedAt = 3L))
+        val titles = mapOf("book-A" to "Zeta", "book-B" to "Árbol")
+        assertEquals(listOf("one", "two", "idea"),
+            KnowledgeBookIndex.sorted(records, KnowledgeBookIndex.Sort.MODIFIED, titles).map { it.id })
+        assertEquals(listOf("two", "idea", "one"),
+            KnowledgeBookIndex.sorted(records, KnowledgeBookIndex.Sort.CREATED, titles).map { it.id })
+        assertEquals(listOf("two", "one", "idea"),
+            KnowledgeBookIndex.sorted(records, KnowledgeBookIndex.Sort.BOOK, titles).map { it.id })
+        assertEquals("two", KnowledgeBookIndex.sorted(records,
+            KnowledgeBookIndex.Sort.RELEVANCE, titles, "arbol").first().id)
+        assertEquals(listOf("one", "two", "idea"), records.map { it.id })
+    }
+
     @Test fun fragmentAndIdeaFiltersHaveNoFalseMatches() {
         assertEquals(3, KnowledgeBookIndex.byKind(entries, "QUOTE").size)
         assertEquals(listOf("idea"), KnowledgeBookIndex.byKind(entries, "IDEAS").map { it.id })

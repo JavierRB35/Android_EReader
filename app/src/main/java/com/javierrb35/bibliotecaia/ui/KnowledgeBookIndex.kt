@@ -10,9 +10,54 @@ internal object KnowledgeBookIndex {
     data class Choice(val id: String, val title: String, val count: Int)
 
     fun byKind(notes: List<AnnotationEntity>, kind: String) = when (kind) {
-        "QUOTE" -> notes.filter { it.quote.isNotBlank() }
+        "NOTE" -> notes.filter { it.kind == "NOTE" && it.bookId != null }
+        "BOOKMARK" -> notes.filter { it.kind == "BOOKMARK" }
+        "QUOTE" -> notes.filter { it.kind != "BOOKMARK" && it.quote.isNotBlank() }
         "IDEAS" -> notes.filter { it.kind == "NOTE" && it.bookId == null }
         else -> notes
+    }
+
+    private fun normalized(value: String): String =
+        java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "").lowercase(java.util.Locale.ROOT)
+
+    fun search(notes: List<AnnotationEntity>, query: String,
+               titles: Map<String, String>, authors: Map<String, String>): List<AnnotationEntity> {
+        val terms = normalized(query).trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (terms.isEmpty()) return notes
+        return notes.filter { note ->
+            val source = normalized(listOf(note.body, note.quote,
+                titles[note.bookId].orEmpty(), authors[note.bookId].orEmpty()).joinToString(" "))
+            terms.all { source.contains(it) }
+        }
+    }
+
+    enum class Sort(val title: String) {
+        MODIFIED("Última modificación"), CREATED("Fecha de creación"), BOOK("Libro"), RELEVANCE("Relevancia")
+    }
+
+    fun sorted(notes: List<AnnotationEntity>, sort: Sort, titles: Map<String, String>,
+               query: String = ""): List<AnnotationEntity> {
+        val recent = compareByDescending<AnnotationEntity> { it.updatedAt }.thenBy { it.id }
+        return when (sort) {
+            Sort.MODIFIED -> notes.sortedWith(recent)
+            Sort.CREATED -> notes.sortedWith(compareByDescending<AnnotationEntity> { it.createdAt }.then(recent))
+            Sort.BOOK -> notes.sortedWith(compareBy<AnnotationEntity> {
+                it.bookId == null
+            }.thenBy { normalized(titles[it.bookId].orEmpty()) }.then(recent))
+            Sort.RELEVANCE -> {
+                val terms = normalized(query).trim().split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
+                notes.sortedWith(compareByDescending<AnnotationEntity> { note ->
+                    val body = normalized(note.body)
+                    val quote = normalized(note.quote)
+                    val title = normalized(titles[note.bookId].orEmpty())
+                    terms.sumOf { term: String ->
+                        (if (term in body) 4 else 0) + (if (term in quote) 3 else 0) +
+                            (if (term in title) 2 else 0)
+                    }
+                }.then(recent))
+            }
+        }
     }
 
     fun byBook(notes: List<AnnotationEntity>, selected: String): List<AnnotationEntity> =

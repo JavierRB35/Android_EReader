@@ -72,3 +72,10 @@ ReaderRouter consultaba el catálogo remoto bajo el mutex de biblioteca antes de
 
 ## #150 — búsqueda inteligente de biblioteca
 - LibrarySearchTest: acentos, palabras reordenadas, prefijos, erratas, argumento, nombre original, relevancia, sugerencias, filtros combinados, disponibilidad, identidad y 1500 registros sintéticos. LibraryHomeUxDeviceTest.searchProjectionIncludesRelationsAndChangesWithoutOriginals: consulta Room real, relaciones, argumento actualizado y búsqueda remota sin descargar. Preservar tests de selección, navegación y sincronización. CI pendiente; física: buscar con/sin tildes, error, filtros combinados, selección y rotación, medir latencia con catálogo real sin conexión.
+
+## #152 — cuaderno de conocimiento
+- Pestañas de ancho natural desplazables, separación de notas vinculadas, fragmentos, marcadores e ideas independientes. Regresión JVM: KnowledgeBookIndexTest.distinguishesBookmarksFromNotesAndFragments. Implementado en rama WIP; CI, pruebas de UI y aceptación física pendientes. No alterar anotaciones almacenadas.
+
+- #152 incremento 3: KnowledgeBookIndexTest.ordersNotesDeterministicallyWithoutChangingIdentity; AnnotationEditorDeviceTest.newNotebookNoteSavesAndCanBeEdited verifica ficha con origen/reflexión antes de edición real Room. CI pendiente. Borrado de marcas independientes y posición al abrir origen siguen pendientes; no declarar corregidos.
+
+- #152 incremento 4: KnowledgeExportTest.selectedExportNeverIncludesUnselectedNotes y markdownAndTextPreserveOriginalAndReflectionSeparately, AnnotationEditorDeviceTest.newNotebookNoteSavesAndCanBeEdited ampliada con pulsación larga, contador, opciones de formato y cancelación. CI pendiente; no acreditar escritura SAF física. Head anterior a3833973 4/4 verde.
