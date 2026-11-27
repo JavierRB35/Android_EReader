@@ -41,6 +41,7 @@ class KnowledgeActivity : AppCompatActivity() {
     private val kindFilter = MutableStateFlow("ALL")
     private val bookFilter = MutableStateFlow(KnowledgeBookIndex.ALL)
     private val sortFilter = MutableStateFlow(KnowledgeBookIndex.Sort.MODIFIED)
+    private var savedAuthor = ""
     private var bookTitles = emptyMap<String, String>()
     private var bookAuthors = emptyMap<String, String>()
     private var availableBookChoices = emptyList<KnowledgeBookIndex.Choice>()
@@ -239,6 +240,17 @@ class KnowledgeActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.bia_text_secondary))
             setPadding(0, dp(4), 0, dp(4))
         }
+        val authorFilter = MutableStateFlow(savedInstanceState?.getString("knowledge_author").orEmpty())
+        val authorButton = button("Autor") {
+            val authors = bookAuthors.values.filter { it.isNotBlank() }.distinct().sorted()
+            val options = listOf("Todos los autores") + authors
+            MaterialAlertDialogBuilder(this).setTitle("Filtrar por autor")
+                .setSingleChoiceItems(options.toTypedArray(), (authors.indexOf(authorFilter.value) + 1)) { dialog, index ->
+                    authorFilter.value = if (index == 0) "" else authors[index - 1]
+                    dialog.dismiss()
+                }.setNegativeButton("Cerrar", null).show()
+        }
+        controls.addView(authorButton, LinearLayout.LayoutParams(-1, -2))
         val filterTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         filterTools.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
         val sortButton = button("Ordenar") {
@@ -255,6 +267,7 @@ class KnowledgeActivity : AppCompatActivity() {
             bookFilter.value = KnowledgeBookIndex.ALL
             kindFilter.value = "ALL"
             sortFilter.value = KnowledgeBookIndex.Sort.MODIFIED
+            authorFilter.value = ""
             updateTabs("ALL")
         }.apply { textSize = 12f }
         filterTools.addView(clearButton, LinearLayout.LayoutParams(-2, -2))
@@ -324,7 +337,7 @@ class KnowledgeActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 combine(query, trash, kindFilter, bookFilter, sortFilter) { q, t, kind, book, sort ->
                     arrayOf(q, if (t) "1" else "0", kind, book, sort.name)
-                }.flatMapLatest { state ->
+                }.combine(authorFilter) { state, author -> state + author }.flatMapLatest { state ->
                     combine(
                         db.readingDao().notebook("", state[1] == "1"),
                         db.bookDao().observeAll()
@@ -332,7 +345,9 @@ class KnowledgeActivity : AppCompatActivity() {
                         val titles = books.associate { it.id to it.title }
                         val authors = books.associate { it.id to it.authors.orEmpty() }
                         val matches = KnowledgeBookIndex.search(notes, state[0], titles, authors)
-                        val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2])
+                        val kindFiltered = KnowledgeBookIndex.byKind(matches, state[2]).filter { note ->
+                            state[5].isBlank() || authors[note.bookId] == state[5]
+                        }
                         val choices = KnowledgeBookIndex.choices(kindFiltered, titles)
                         val visible = KnowledgeBookIndex.sorted(KnowledgeBookIndex.byBook(kindFiltered, state[3]),
                             KnowledgeBookIndex.Sort.valueOf(state[4]), titles, state[0])
@@ -342,6 +357,8 @@ class KnowledgeActivity : AppCompatActivity() {
                     val (notes, titles, choices) = result
                     bookTitles = titles
                     bookAuthors = authors
+                    savedAuthor = authorFilter.value
+                    authorButton.text = savedAuthor.ifBlank { "Todos los autores" }
                     availableBookChoices = choices
                     bookIndex.text = "Libro: " + (choices.firstOrNull {
                         it.id == bookFilter.value
@@ -349,7 +366,7 @@ class KnowledgeActivity : AppCompatActivity() {
                     status.text = (if (trash.value) "Papelera · " else "") + "${notes.size} apuntes"
                     sortButton.contentDescription = "Ordenar: " + sortFilter.value.title
                     clearButton.visibility = if (query.value.isNotBlank() || bookFilter.value != KnowledgeBookIndex.ALL ||
-                        kindFilter.value != "ALL" || sortFilter.value != KnowledgeBookIndex.Sort.MODIFIED) View.VISIBLE else View.GONE
+                        kindFilter.value != "ALL" || sortFilter.value != KnowledgeBookIndex.Sort.MODIFIED || savedAuthor.isNotBlank()) View.VISIBLE else View.GONE
                     visibleNotes = notes
                     selectedIds.retainAll(notes.map { it.id }.toSet())
                     adapter.submit(notes, titles)
@@ -374,6 +391,7 @@ class KnowledgeActivity : AppCompatActivity() {
         outState.putString("selected_kind_filter", kindFilter.value)
         outState.putString("knowledge_query", query.value)
         outState.putBoolean("premium_trash", trash.value)
+        outState.putString("knowledge_author", savedAuthor)
         outState.putString("knowledge_sort", sortFilter.value.name)
         outState.putStringArrayList("selected_notes", ArrayList(selectedIds))
         outState.putBoolean("export_all", pendingExportIds == null)
