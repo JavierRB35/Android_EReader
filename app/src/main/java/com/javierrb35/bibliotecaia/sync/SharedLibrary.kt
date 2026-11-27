@@ -847,9 +847,11 @@ object SharedLibrary {
     }
 
     internal suspend fun downloadBatch(context: Context, db: AppDatabase, hashes: List<String>,
+                                      expectedUri: Uri? = null,
                                       onProgress: suspend (Int, Int, String) -> Unit = { _, _, _ -> }): DownloadResult =
         withContext(Dispatchers.IO) {
             mutex.withLock {
+                require(expectedUri == null || uri(context) == expectedUri) { "La biblioteca ha cambiado." }
                 val result = store(context).use {
                     downloadBatchStore(it, db, hashes, context.filesDir, context.cacheDir, onProgress)
                 }
@@ -945,7 +947,9 @@ object SharedLibrary {
     /** One directed publication and one independent verification pass for a selection.
      * No unrelated original needs to be opened. */
     internal suspend fun evictSelection(context: Context, db: AppDatabase, expectedUri: Uri,
-                                        books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
+                                        books: List<BookEntity>,
+                                        onProgress: suspend (Int, Int) -> Unit = { _, _ -> },
+                                        cancelled: () -> Boolean = { false }): Int {
         require(books.isNotEmpty() && namedFolderMode(context))
         if (cancelled()) return 0
         val requested = books.map { it.contentHash }.toSet()
@@ -957,7 +961,7 @@ object SharedLibrary {
         return withContext(Dispatchers.IO) {
             mutex.withLock {
                 require(uri(context) == expectedUri) { "La ubicación de biblioteca ha cambiado." }
-                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, cancelled) }
+                val removed = store(context).use { evictVerifiedBatch(it, db, context.filesDir, books, onProgress = onProgress, cancelled = cancelled) }
                 changes.value += 1
                 removed
             }.also { scheduleCovers(context) }
@@ -977,7 +981,9 @@ object SharedLibrary {
     }
 
     internal suspend fun evictVerifiedBatch(store: SharedStore, db: AppDatabase, filesDir: File,
-                                            books: List<BookEntity>, cancelled: () -> Boolean = { false }): Int {
+                                            books: List<BookEntity>,
+                                            onProgress: suspend (Int, Int) -> Unit = { _, _ -> },
+                                            cancelled: () -> Boolean = { false }): Int {
         if (cancelled()) return 0
         val inv = inventory(store)
         require(inv.errors.isEmpty()) { "No se ha podido verificar la biblioteca." }
@@ -1001,6 +1007,7 @@ object SharedLibrary {
                 check(db.bookDao().clearLocalPath(book.id, book.localPath) == 1)
             }
             removed++
+            onProgress(removed, latest.size)
         }
         return removed
     }

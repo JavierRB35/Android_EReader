@@ -129,4 +129,45 @@ class LibraryHomeUxDeviceTest {
             scenario.close()
         }
     }
+
+    @Test fun queuedBatchDoesNotBlockLibraryAndSurvivesScreenRecreation() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = androidx.work.WorkManager.getInstance(context)
+        // A delayed work request represents a provider operation waiting in the
+        // durable queue; no production library connection or files are touched.
+        val work = androidx.work.OneTimeWorkRequestBuilder<LibraryBatchWorker>()
+            .addTag(LibraryBatchQueue.TAG)
+            .addTag(LibraryBatchQueue.ACTION + LibraryBatchAction.REMOVE.name)
+            .addTag(LibraryBatchQueue.TOTAL + "4")
+            .addTag(LibraryBatchQueue.ORDER + System.currentTimeMillis())
+            .setInitialDelay(1, java.util.concurrent.TimeUnit.HOURS).build()
+        manager.enqueue(work).result.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            fun assertUsable() {
+                var visible = false
+                repeat(60) {
+                    scenario.onActivity { activity ->
+                        visible = activity.findViewById<android.view.View>(R.id.bookBatchProgress).isShown
+                        if (visible) {
+                            org.junit.Assert.assertTrue(activity.findViewById<android.view.View>(R.id.btnImport).isEnabled)
+                            org.junit.Assert.assertTrue(activity.findViewById<android.view.View>(R.id.btnCentralLibrary).isEnabled)
+                            val search = activity.findViewById<EditText>(R.id.txtSearch)
+                            search.setText("Otro libro")
+                            assertEquals("Otro libro", search.text.toString())
+                        }
+                    }
+                    if (visible) return
+                    Thread.sleep(100)
+                }
+                org.junit.Assert.fail("Pending batch was not shown")
+            }
+            assertUsable()
+            scenario.recreate()
+            assertUsable()
+        } finally {
+            scenario.close()
+            manager.cancelWorkById(work.id).result.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+    }
 }

@@ -53,6 +53,10 @@ class MainActivity : AppCompatActivity() {
     private var editions = emptyMap<String, List<com.javierrb35.bibliotecaia.data.BookEntity>>()
     private var selectionBack: androidx.activity.OnBackPressedCallback? = null
     private var batchRunning = false
+    private var queueSubmitting = false
+    private var queuedBatch: androidx.work.WorkInfo? = null
+    private var dismissedBatch: String? = null
+    private var batchHistory = emptyList<androidx.work.WorkInfo>()
     @Volatile private var cancelBatch = false
     private var batchJob: kotlinx.coroutines.Job? = null
     private var batchAction: LibraryBatchAction? = null
@@ -201,7 +205,41 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBatchSecondary).setOnClickListener {
             if (!centralFlow.value.first) confirmBatchRemoval()
         }
+        findViewById<View>(R.id.txtBookBatchProgress).setOnClickListener {
+            if (!batchRunning && batchHistory.isNotEmpty()) {
+                val details = batchHistory.takeLast(10).asReversed().joinToString("\n\n") { work ->
+                    LibraryBatchQueue.label(work) + "\n" + (work.outputData.getString("summary")
+                        ?: "Operación interrumpida; comprueba los libros y reintenta.")
+                }
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Resultados de operaciones").setMessage(details)
+                    .setPositiveButton("Cerrar", null).show()
+            }
+        }
         findViewById<View>(R.id.btnCancelBookBatch).setOnClickListener {
+            if (!batchRunning) {
+                val work = queuedBatch ?: return@setOnClickListener
+                if (work.state.isFinished) {
+                    dismissedBatch = work.id.toString()
+                    getSharedPreferences("batch_ui", MODE_PRIVATE).edit().putString("dismissed", dismissedBatch).apply()
+                    findViewById<View>(R.id.bookBatchProgress).visibility = View.GONE
+                } else {
+                    findViewById<View>(R.id.btnCancelBookBatch).isEnabled = false
+                    findViewById<TextView>(R.id.txtBookBatchProgress).text = "Deteniendo operación…"
+                    lifecycleScope.launch {
+                        try {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                LibraryBatchQueue.stop(applicationContext, work.id)
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            findViewById<View>(R.id.btnCancelBookBatch).isEnabled = true
+                            Toast.makeText(this@MainActivity, "No se pudo solicitar la detención. Reintenta.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                return@setOnClickListener
+            }
             cancelBatch = true
             findViewById<View>(R.id.btnCancelBookBatch).isEnabled = false
             if (batchAction == LibraryBatchAction.DOWNLOAD) {
@@ -258,6 +296,7 @@ class MainActivity : AppCompatActivity() {
         setCentralMode(savedInstanceState?.getBoolean("central_mode") == true)
         findViewById<View>(R.id.btnMissingOriginals).setOnClickListener { showMissingOriginals() }
         observeCatalog()
+        observeBatchQueue()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.changes.collect {
@@ -448,6 +487,53 @@ class MainActivity : AppCompatActivity() {
             if (centralFlow.value.first) View.GONE else View.VISIBLE
     }
 
+    private fun observeBatchQueue() {
+        dismissedBatch = getSharedPreferences("batch_ui", MODE_PRIVATE).getString("dismissed", null)
+        androidx.work.WorkManager.getInstance(applicationContext)
+            .getWorkInfosByTagLiveData(LibraryBatchQueue.TAG).observe(this) { all ->
+                val jobs = all.sortedWith(compareBy<androidx.work.WorkInfo> { LibraryBatchQueue.order(it) }
+                    .thenBy { it.id.toString() })
+                // WorkManager owns execution independently of this Activity.
+                batchHistory = jobs.filter { it.state.isFinished }
+                val active = jobs.filterNot { it.state.isFinished }
+                val work = active.firstOrNull { it.state == androidx.work.WorkInfo.State.RUNNING }
+                    ?: active.firstOrNull() ?: jobs.lastOrNull()
+                queuedBatch = work
+                val app = applicationContext
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    jobs.filter { it.state.isFinished }.forEach { LibraryBatchQueue.clean(app, it.id) }
+                }
+                if (batchRunning) return@observe
+                val panel = findViewById<View>(R.id.bookBatchProgress)
+                if (work == null || (work.state.isFinished && work.id.toString() == dismissedBatch)) {
+                    panel.visibility = View.GONE
+                    return@observe
+                }
+                val status = findViewById<TextView>(R.id.txtBookBatchProgress)
+                val button = findViewById<TextView>(R.id.btnCancelBookBatch)
+                panel.visibility = View.VISIBLE
+                val label = LibraryBatchQueue.label(work)
+                val total = LibraryBatchQueue.total(work)
+                if (work.state.isFinished) {
+                    status.text = "$label · " + (work.outputData.getString("summary")
+                        ?: "Operación interrumpida; comprueba los libros y reintenta.")
+                    status.append(if (batchHistory.size > 1) "\nToca para ver los resultados anteriores." else "")
+                    button.text = "Cerrar"
+                    button.isEnabled = true
+                    if (work.tags.contains(LibraryBatchQueue.ACTION + LibraryBatchAction.REMOVE.name) &&
+                        work.outputData.getInt("done", 0) > 0)
+                        findViewById<View>(R.id.recentBookCard).visibility = View.GONE
+                } else {
+                    val done = work.progress.getInt("done", 0)
+                    val phase = work.progress.getString("phase") ?: "En cola"
+                    status.text = "$label: $done/$total · $phase" +
+                        if (active.size > 1) " · ${active.size - 1} en cola" else ""
+                    button.text = "Detener"
+                    button.isEnabled = true
+                }
+            }
+    }
+
     private fun selectedBooks() = visibleBooks.filter { it.id in selection.ids }
 
     private fun confirmBatchRemoval() {
@@ -463,11 +549,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun startBookBatch(action: LibraryBatchAction,
         books: List<com.javierrb35.bibliotecaia.data.BookEntity> = selectedBooks()) {
-        if (books.isEmpty() || batchRunning || importing || pickerOpen) return
+        if (books.isEmpty() || batchRunning || queueSubmitting || importing || pickerOpen) return
         val app = applicationContext
         if (action != LibraryBatchAction.DOWNLOAD && !checkSharedImportAccess()) return
         val destination = SharedLibrary.uri(app)
         val centralUri = BackupRoutine.centralUri(app)
+        if (SharedLibrary.namedFolderMode(app) && destination != null) {
+            queueSubmitting = true
+            selection.clear()
+            renderSelection()
+            lifecycleScope.launch {
+                try {
+                    LibraryBatchQueue.enqueue(app, action, destination, books)
+                    if (!isDestroyed) Toast.makeText(this@MainActivity,
+                        "Operación en cola. Puedes seguir navegando.", Toast.LENGTH_SHORT).show()
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    if (!isDestroyed) Toast.makeText(this@MainActivity,
+                        e.message ?: "No se pudo guardar la operación. Reintenta.", Toast.LENGTH_LONG).show()
+                } finally { queueSubmitting = false }
+            }
+            return
+        }
         batchRunning = true
         batchAction = action
         cancelBatch = false
@@ -480,6 +583,7 @@ class MainActivity : AppCompatActivity() {
         val centralButton = findViewById<View>(R.id.btnCentralLibrary)
         progress.visibility = View.VISIBLE
         cancel.isEnabled = true
+        (cancel as TextView).text = "Detener"
         importButton.isEnabled = false
         // Downloads do not modify the central originals or connection. Browsing
         // the local shelf remains possible even if a provider blocks an I/O call.
