@@ -196,6 +196,14 @@
                 android:textSize="14sp" android:minHeight="48dp"/>
         </com.google.android.material.textfield.TextInputLayout>
 
+        <HorizontalScrollView android:id="@+id/searchSuggestions"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:visibility="gone" android:scrollbars="none">
+            <LinearLayout android:id="@+id/searchSuggestionItems"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal"/>
+        </HorizontalScrollView>
+
         <HorizontalScrollView android:id="@+id/scrollShelves"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="5dp" android:scrollbars="none">
@@ -219,12 +227,17 @@
             </com.google.android.material.chip.ChipGroup>
         </HorizontalScrollView>
 
-        <LinearLayout android:layout_width="match_parent" android:layout_height="40dp"
+        <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
             android:gravity="center_vertical" android:orientation="horizontal">
             <TextView android:id="@+id/txtBookCount" android:layout_width="0dp"
                 android:layout_height="wrap_content" android:layout_weight="1"
                 android:textSize="13sp" android:textColor="@color/bia_accent"
                 android:accessibilityLiveRegion="polite"/>
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSearchFilters"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:text="Filtros" android:textAllCaps="false"
+                android:contentDescription="Filtros y ordenación de libros"/>
             <ImageButton android:id="@+id/btnViewMode" android:layout_width="48dp"
                 android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_ux_list" android:padding="12dp" android:scaleType="fitCenter"
