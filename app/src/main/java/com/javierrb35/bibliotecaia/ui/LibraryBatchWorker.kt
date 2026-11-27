@@ -24,11 +24,19 @@ internal object LibraryBatchQueue {
     const val ACTION = "batch-action:"
     const val ORDER = "batch-order:"
     const val TOTAL = "batch-total:"
-    data class Entry(val id: String, val hash: String, val path: String)
+    data class Entry(val id: String, val hash: String, val path: String,
+                     val title: String = "", val fileName: String = "", val format: String = "",
+                     val size: Long = -1, val addedAt: Long = -1) {
+        fun book(): BookEntity = BookEntity(id, title, null,
+            com.javierrb35.bibliotecaia.data.BookFormat.valueOf(format),
+            fileName, path, hash, size, addedAt)
+    }
     data class Request(val action: LibraryBatchAction, val uri: String, val books: List<Entry>) {
         fun encode(): String = JSONObject().put("action", action.name).put("uri", uri)
             .put("books", JSONArray(books.map {
                 JSONObject().put("id", it.id).put("hash", it.hash).put("path", it.path)
+                    .put("title", it.title).put("fileName", it.fileName).put("format", it.format)
+                    .put("size", it.size).put("addedAt", it.addedAt)
             })).toString()
         companion object {
             fun decode(raw: String): Request {
@@ -37,7 +45,9 @@ internal object LibraryBatchQueue {
                 return Request(LibraryBatchAction.valueOf(json.getString("action")),
                     json.getString("uri"), (0 until books.length()).map {
                         val item = books.getJSONObject(it)
-                        Entry(item.getString("id"), item.getString("hash"), item.getString("path"))
+                        Entry(item.getString("id"), item.getString("hash"), item.getString("path"),
+                            item.optString("title"), item.optString("fileName"), item.optString("format"),
+                            item.optLong("size", -1), item.optLong("addedAt", -1))
                     })
             }
         }
@@ -52,9 +62,24 @@ internal object LibraryBatchQueue {
     fun stop(context: Context, id: UUID) { stopFile(context, id).createNewFile() }
     fun read(context: Context, id: UUID) = Request.decode(
         AtomicFile(requestFile(context, id)).readFully().toString(Charsets.UTF_8))
+    private fun deletionMarker(context: Context, id: UUID, hash: String, phase: String): File {
+        require(hash.matches(Regex("[a-f0-9]{64}")))
+        return File(folder(context), "$id-$hash.$phase")
+    }
+    fun deletionStarted(context: Context, id: UUID, hash: String) =
+        deletionMarker(context, id, hash, "started").isFile
+    fun deletionDone(context: Context, id: UUID, hash: String) =
+        deletionMarker(context, id, hash, "done").isFile
+    fun markDeletion(context: Context, id: UUID, hash: String, phase: String) {
+        val file = AtomicFile(deletionMarker(context, id, hash, phase))
+        val out = file.startWrite()
+        try { out.write(1); file.finishWrite(out) }
+        catch (e: Exception) { file.failWrite(out); throw e }
+    }
     fun clean(context: Context, id: UUID) {
         AtomicFile(requestFile(context, id)).delete()
         stopFile(context, id).delete()
+        folder(context).listFiles()?.filter { it.name.startsWith("$id-") }?.forEach { it.delete() }
     }
 
     suspend fun enqueue(context: Context, action: LibraryBatchAction, uri: Uri,
@@ -62,7 +87,8 @@ internal object LibraryBatchQueue {
         val app = context.applicationContext
         require(books.isNotEmpty())
         val snapshot = Request(action, uri.toString(),
-            books.distinctBy { it.id }.map { Entry(it.id, it.contentHash, it.localPath) })
+            books.distinctBy { it.id }.map { Entry(it.id, it.contentHash, it.localPath, it.title, it.fileName,
+                it.format.name, it.sizeBytes, it.addedAt) })
         val work = OneTimeWorkRequestBuilder<LibraryBatchWorker>()
             .addTag(TAG).addTag(ACTION + action.name)
             .addTag(TOTAL + snapshot.books.size)
@@ -109,7 +135,34 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
             val request = LibraryBatchQueue.read(app, id)
             total = request.books.size
             val expected = Uri.parse(request.uri)
-            if (!stopped()) {
+            if (request.action == LibraryBatchAction.DELETE) {
+                val db = AppDatabase.get(app)
+                for (entry in request.books) {
+                    if (LibraryBatchQueue.deletionDone(app, id, entry.hash)) {
+                        completed++
+                        continue
+                    }
+                    val started = LibraryBatchQueue.deletionStarted(app, id, entry.hash)
+                    if (stopped() && !started) continue
+                    progress(completed, "Eliminando: " + entry.title.take(100))
+                    try {
+                        SharedLibrary.deletePermanent(app, db, expected, entry.book()) {
+                            LibraryBatchQueue.markDeletion(app, id, entry.hash, "started")
+                        }
+                        LibraryBatchQueue.markDeletion(app, id, entry.hash, "done")
+                        completed++
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: SharedLibrary.StaleDeletionSelection) {
+                        failures = failures + (entry.title + ": " + e.message)
+                    } catch (e: Exception) {
+                        if (LibraryBatchQueue.deletionStarted(app, id, entry.hash)) {
+                            progress(completed, "Baja pendiente de confirmar en Drive; se reintentará.")
+                            return@withContext Result.retry()
+                        }
+                        failures = failures + (entry.title + ": " + (e.message ?: "No se pudo eliminar."))
+                    }
+                }
+            } else if (!stopped()) {
                 require(SharedLibrary.namedFolderMode(app) && SharedLibrary.uri(app) == expected) {
                     "La biblioteca ha cambiado; vuelve a seleccionar los libros."
                 }
@@ -146,6 +199,7 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
                         failures = failures + result.errors
                         if (result.errors.isEmpty()) completed += result.verified
                     }
+                    LibraryBatchAction.DELETE -> error("La baja requiere el flujo de eliminación verificada.")
                     LibraryBatchAction.DOWNLOAD -> supervisorScope {
                         // Stop an in-flight remote download without cancelling the
                         // unique chain or poisoning subsequent queued batches.
