@@ -32,6 +32,34 @@ internal object KnowledgeBookIndex {
         }
     }
 
+    enum class Sort(val title: String) {
+        MODIFIED("Última modificación"), CREATED("Fecha de creación"), BOOK("Libro"), RELEVANCE("Relevancia")
+    }
+
+    fun sorted(notes: List<AnnotationEntity>, sort: Sort, titles: Map<String, String>,
+               query: String = ""): List<AnnotationEntity> {
+        val recent = compareByDescending<AnnotationEntity> { it.updatedAt }.thenBy { it.id }
+        return when (sort) {
+            Sort.MODIFIED -> notes.sortedWith(recent)
+            Sort.CREATED -> notes.sortedWith(compareByDescending<AnnotationEntity> { it.createdAt }.then(recent))
+            Sort.BOOK -> notes.sortedWith(compareBy<AnnotationEntity> {
+                it.bookId == null
+            }.thenBy { normalized(titles[it.bookId].orEmpty()) }.then(recent))
+            Sort.RELEVANCE -> {
+                val terms = normalized(query).trim().split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
+                notes.sortedWith(compareByDescending<AnnotationEntity> { note ->
+                    val body = normalized(note.body)
+                    val quote = normalized(note.quote)
+                    val title = normalized(titles[note.bookId].orEmpty())
+                    terms.sumOf { term: String ->
+                        (if (term in body) 4 else 0) + (if (term in quote) 3 else 0) +
+                            (if (term in title) 2 else 0)
+                    }
+                }.then(recent))
+            }
+        }
+    }
+
     fun byBook(notes: List<AnnotationEntity>, selected: String): List<AnnotationEntity> =
         when (selected) {
             ALL -> notes
