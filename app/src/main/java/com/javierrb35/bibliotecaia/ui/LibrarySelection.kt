@@ -17,7 +17,7 @@ internal class LibrarySelection {
 }
 
 internal enum class LibraryBatchAction(val label: String) {
-    DOWNLOAD("Descargar al dispositivo"), SAVE("Guardar en biblioteca"), REMOVE("Retirar del dispositivo")
+    DOWNLOAD("Descargar al dispositivo"), SAVE("Guardar en biblioteca"), REMOVE("Retirar del dispositivo"), DELETE("Eliminar definitivamente")
 }
 
 internal object LibraryBatch {
