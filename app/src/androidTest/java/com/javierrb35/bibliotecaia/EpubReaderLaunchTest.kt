@@ -42,6 +42,67 @@ class EpubReaderLaunchTest {
         try { assertReaderLaunches(epub) } finally { epub.delete() }
     }
 
+
+    @Test fun opensLocalEpubWhileRemoteRefreshIsSuspendedAndIgnoresDoubleTap() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val epub = File.createTempFile("book-offline-", ".epub", context.filesDir)
+        instrumentation.context.assets.open("reader-sample.epub").use { input ->
+            epub.outputStream().use { input.copyTo(it) }
+        }
+        val id = UUID.randomUUID().toString()
+        runBlocking {
+            AppDatabase.get(context).bookDao().insert(BookEntity(id = id, title = "Lectura offline",
+                authors = null, format = BookFormat.EPUB, fileName = epub.name,
+                localPath = epub.absolutePath, contentHash = id.replace("-", ""),
+                sizeBytes = epub.length(), addedAt = System.currentTimeMillis()))
+        }
+        val detail = instrumentation.startActivitySync(Intent(context,
+            com.javierrb35.bibliotecaia.ui.BookDetailActivity::class.java)
+            .putExtra("book_id", id)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+            as com.javierrb35.bibliotecaia.ui.BookDetailActivity
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val monitor = instrumentation.addMonitor(EpubReaderActivity::class.java.name, null, false)
+        var reader: EpubReaderActivity? = null
+        try {
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                repeat(2) {
+                    com.javierrb35.bibliotecaia.ui.ReaderRouter.openLocal(detail, id) {
+                        entered.countDown()
+                        release.await()
+                    }
+                }
+            }
+            val opened = monitor.waitForActivityWithTimeout(5000) as? EpubReaderActivity
+            assertNotNull("Local reader must open before provider responds", opened)
+            val actual = requireNotNull(opened)
+            reader = actual
+            assertTrue("Synthetic provider must still be waiting",
+                entered.await(5, java.util.concurrent.TimeUnit.SECONDS) && !release.isCompleted)
+            var rendered = false
+            for (step in 0 until 100) {
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    rendered = actual.findViewById<android.widget.TextView>(R.id.epub_native_text)
+                        ?.text?.isNotBlank() == true
+                }
+                if (rendered) break
+                Thread.sleep(100)
+            }
+            assertTrue("Actual EPUB text must be available during remote wait", rendered)
+            assertTrue("Only one reader may open for a double tap", monitor.hits == 1)
+        } finally {
+            release.complete(Unit)
+            instrumentation.removeMonitor(monitor)
+            instrumentation.runOnMainSync { reader?.finish(); detail.finish() }
+            instrumentation.waitForIdleSync()
+            epub.delete()
+        }
+    }
+
     private fun assertReaderLaunches(epub: File) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
