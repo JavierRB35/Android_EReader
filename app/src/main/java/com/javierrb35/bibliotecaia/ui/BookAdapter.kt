@@ -48,8 +48,10 @@ class BookAdapter(
         if (payloads.isNotEmpty() && payloads.all { it == SELECTION_PAYLOAD || it == COVER_PAYLOAD }) {
             val book = items[position]
             if (SELECTION_PAYLOAD in payloads) bindSelection(holder, book)
-            if (COVER_PAYLOAD in payloads && holder.fallback.visibility == View.VISIBLE &&
-                holder.job?.isActive != true) loadCover(holder, book, variants(book))
+            if (COVER_PAYLOAD in payloads && holder.fallback.visibility == View.VISIBLE) {
+                if (holder.job?.isActive == true) holder.coverRefreshPending = true
+                else loadCover(holder, book, variants(book))
+            }
         } else super.onBindViewHolder(holder, position, payloads)
     }
 
@@ -101,6 +103,7 @@ class BookAdapter(
         val cover: ImageView = view.findViewById(R.id.imgBookCover)
         var job: Job? = null
         var boundId: String? = null
+        var coverRefreshPending = false
     }
 
     override fun getItemViewType(position: Int) = if (grid) 1 else 0
@@ -114,6 +117,7 @@ class BookAdapter(
         val book = items[position]
         val context = holder.itemView.context
         holder.job?.cancel()
+        holder.coverRefreshPending = false
         holder.boundId = book.id
         holder.title.text = book.title
         holder.authors.text = book.authors ?: ""
@@ -148,10 +152,14 @@ class BookAdapter(
                 if (bitmap != null) break
                 bitmap = BookCoverLoader.load(context, alternative)
             }
-            if (holder.boundId == book.id && bitmap != null) {
-                holder.cover.setImageBitmap(bitmap)
-                holder.fallback.visibility = View.GONE
-                holder.itemView.contentDescription = "${book.title}, ${book.authors.orEmpty()}, ${holder.format.text}, ${holder.progressText.text}"
+            if (holder.boundId == book.id) {
+                val retry = holder.coverRefreshPending
+                holder.coverRefreshPending = false
+                if (bitmap != null) {
+                    holder.cover.setImageBitmap(bitmap)
+                    holder.fallback.visibility = View.GONE
+                    holder.itemView.contentDescription = "${book.title}, ${book.authors.orEmpty()}, ${holder.format.text}, ${holder.progressText.text}"
+                } else if (retry) loadCover(holder, book, variants)
             }
         }
     }
@@ -159,6 +167,7 @@ class BookAdapter(
     override fun onViewRecycled(holder: Holder) {
         holder.job?.cancel()
         holder.boundId = null
+        holder.coverRefreshPending = false
         holder.cover.setImageDrawable(null)
         super.onViewRecycled(holder)
     }
