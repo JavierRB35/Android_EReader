@@ -4,10 +4,14 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
-**Última actualización:** 2026-11-25 — protocolo unificado y redirección a biblioteca única simple.
+**Última actualización:** 2026-11-27 — #155 migración Calibre: metadatos por archivo, portadas y reparación automática.
 **Fase actual:** Núcleo funcional 1.0 operativo sin registro: lectura EPUB/MOBI, cuaderno, backup/restauración con versiones, revinculación por hash, IA BYOK (Gemini/Groq) con asistente guiado y prueba real. Pendiente: verificación IA con claves del propietario, accesibilidad, AndroidIDE.
 **Remoto canónico:** `https://github.com/JavierRB35/Android_EReader.git`
 
+
+## P0 #155 — migración Calibre: metadatos, portadas y reparación (27/11/2026)
+- Rama fix/metadata-migration-155. Causa raíz acreditada en migrador Windows: modo carpeta usaba nombre de carpeta/carpeta superior para todos los libros. Reescrito scan()/build_snapshot: jerarquía por campo (catálogo db / OPF externo inequívoco → interno EPUB/MOBI EXTH → nombre de archivo), portadas y sinopsis al ZIP (covers/<hash>.jpg, bookSynopses provider «calibre»), bookExtendedMetadata para campos no representables, informe ampliado, elección de formato por registro bibliográfico. 14 pruebas Python.
+- Android: MetadataReconciler + placeholders; restoreJson repara fichas existentes por SHA-256 sin tocar ediciones del usuario (contrato #142) y cuenta booksRepaired; sinopsis importada nunca reemplaza texto existente; CompleteBackupArchive acepta covers/ con validación; migrateZipStore publica portadas del ZIP vía SharedCoverArt (sin reabrir originales); repairCatalogBatchStore repara los 483 registros ya importados leyendo el original verificado una sola vez por hash (lotes 16/60 s, idempotente, reanudable), disparada tras migración/sincronización/descarga y propagada por la sincronización existente. Pruebas: MetadataReconciliationTest (JVM), CompleteBackupArchiveTest ampliada, MetadataMigrationJourneyTest (instrumentado, emulador). Pendiente: CI exacta de la rama, integración, publicación APK+EXE con versión superior a v0.1.215 y prueba física en dos dispositivos.
 
 ## #150 — buscador local inteligente (27/11/2026)
 - Base v0.1.212 / ca4e80c5. P1: proyección observable Room de título/autor/nombre original, categorías/etiquetas/colecciones y argumento; índice Unicode en memoria reconstruible sin migración, sin leer archivos de Drive. AND de términos en distinto orden, coincidencia exacta/prefijo/parcial, errores conservadores por distancia, relevancia ponderada y recencia como desempate; búsquedas vacías conservan orden habitual.
