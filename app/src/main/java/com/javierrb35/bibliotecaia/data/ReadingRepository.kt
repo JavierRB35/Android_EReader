@@ -16,6 +16,8 @@ class ReadingRepository(
     suspend fun position(bookId: String) = dao.position(bookId)
     fun observeAnnotations(bookId: String) = dao.observeAnnotations(bookId)
 
+    suspend fun markOpened(bookId: String) = dao.markOpened(bookId, System.currentTimeMillis())
+
     suspend fun savePosition(bookId: String, locator: String, progress: Float) {
         require(locator.length <= 65536 && locator.isNotBlank())
         require(progress.isFinite())
