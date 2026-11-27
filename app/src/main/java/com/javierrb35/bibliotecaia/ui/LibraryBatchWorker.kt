@@ -147,7 +147,7 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
                         // unique chain or poisoning subsequent queued batches.
                         val task = async {
                             SharedLibrary.downloadBatch(app, db, books.map { it.contentHash }, expected) { done, _, title ->
-                                progress(previous + done, if (title.isBlank()) "Descargando…" else title)
+                                setProgress(workDataOf("done" to (previous + done), "phase" to if (title.isBlank()) "Descargando…" else title.take(180)))
                             }
                         }
                         val watcher = launch {
@@ -169,7 +169,7 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
                                 db.bookDao().findById(book.id)?.let {
                                     it.contentHash == book.contentHash && it.localPath.isNotBlank() &&
                                         File(it.localPath).isFile &&
-                                        com.javierrb35.bibliotecaia.importer.OriginalLinker(app.filesDir)
+                                        com.javierrb35.bibliotecaia.backup.OriginalLinker(app.filesDir)
                                             .sha256Hex(File(it.localPath)) == book.contentHash
                                 } == true
                             }
