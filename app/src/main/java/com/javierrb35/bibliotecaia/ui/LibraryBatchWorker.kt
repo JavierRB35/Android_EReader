@@ -218,6 +218,14 @@ class LibraryBatchWorker(context: Context, params: WorkerParameters) : Coroutine
                             val result = task.await()
                             completed = previous + result.completed
                             failures = failures + result.failures
+                            // Catalogar automáticamente los libros recién descargados (#142).
+                            if (result.completed > 0 && com.javierrb35.bibliotecaia.catalog
+                                    .AutoCatalogSettings.newBooksEnabled(app)) {
+                                try {
+                                    com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                                        app, all = false, ids = books.map { it.id })
+                                } catch (_: Exception) { /* la descarga ya es correcta */ }
+                            }
                         } catch (e: CancellationException) {
                             currentCoroutineContext().ensureActive()
                             if (!stopped()) throw e

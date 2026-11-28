@@ -8,6 +8,10 @@
     <color name="bia_accent">#E9C282</color>
     <color name="bia_accent_low">#776044</color>
     <color name="bia_outline">#49443D</color>
+    <!-- Incremento 1 (DEC-002): borde imprescindible de controles, error y confirmación. -->
+    <color name="bia_outline_interactive">#777168</color>
+    <color name="bia_error">#F2A39B</color>
+    <color name="bia_success">#A6CCA8</color>
     <string name="bia_library_eyebrow">TU ESPACIO DE LECTURA</string>
     <string name="bia_local">En este dispositivo</string>
     <string name="bia_importing">Importando libro…</string>
@@ -26,8 +30,8 @@
     <string name="premium_import">Importar</string>
     <style name="Widget.BibliotecaIA.Filter" parent="Widget.Material3.Chip.Filter">
         <item name="ensureMinTouchTargetSize">true</item>
-        <item name="chipBackgroundColor">@color/bia_surface</item>
-        <item name="chipStrokeColor">@color/bia_outline</item>
+        <item name="chipBackgroundColor">@color/bia_filter_background</item>
+        <item name="chipStrokeColor">@color/bia_outline_interactive</item>
         <item name="chipStrokeWidth">1dp</item>
         <item name="chipCornerRadius">18dp</item>
         <item name="chipMinHeight">42dp</item>
@@ -42,5 +46,45 @@
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
         <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+    </style>
+    <!-- Incremento 1 — botones editoriales (CMP-003): mínimo 48 dp, radio 10, padding H12/V8.
+         Primario: acento con texto #080807; secundario: texto principal con borde interactivo. -->
+    <style name="Widget.BibliotecaIA.Button" parent="Widget.Material3.Button">
+        <item name="android:minWidth">@dimen/bia_touch_min</item>
+        <item name="android:minHeight">@dimen/bia_touch_min</item>
+        <item name="android:paddingStart">@dimen/bia_space_md</item>
+        <item name="android:paddingEnd">@dimen/bia_space_md</item>
+        <item name="android:paddingTop">@dimen/bia_space_sm</item>
+        <item name="android:paddingBottom">@dimen/bia_space_sm</item>
+        <item name="cornerSize">@dimen/bia_radius_button</item>
+        <item name="backgroundTint">@color/bia_accent</item>
+        <item name="android:textColor">@color/bia_background</item>
+        <item name="android:textAppearance">@style/TextAppearance.BibliotecaIA.Action</item>
+    </style>
+    <style name="Widget.BibliotecaIA.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minWidth">@dimen/bia_touch_min</item>
+        <item name="android:minHeight">@dimen/bia_touch_min</item>
+        <item name="android:paddingStart">@dimen/bia_space_md</item>
+        <item name="android:paddingEnd">@dimen/bia_space_md</item>
+        <item name="android:paddingTop">@dimen/bia_space_sm</item>
+        <item name="android:paddingBottom">@dimen/bia_space_sm</item>
+        <item name="cornerSize">@dimen/bia_radius_button</item>
+        <item name="strokeColor">@color/bia_outline_interactive</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:textColor">@color/bia_text</item>
+        <item name="rippleColor">@color/bia_surface_high</item>
+        <item name="android:textAppearance">@style/TextAppearance.BibliotecaIA.Action</item>
+    </style>
+    <!-- Botones de diálogo (CMP-010): altura mínima 48 dp y texto de acción 14sp. -->
+    <style name="Widget.BibliotecaIA.DialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:minHeight">@dimen/bia_touch_min</item>
+        <item name="android:minWidth">64dp</item>
+        <item name="android:textColor">@color/bia_accent</item>
+        <item name="android:textAppearance">@style/TextAppearance.BibliotecaIA.Action</item>
+    </style>
+    <!-- Radio de diálogo (CMP-010): 12 dp, igual que los paneles. -->
+    <style name="ShapeAppearance.Bia.Dialog" parent="ShapeAppearance.MaterialComponents.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/bia_radius_panel</item>
     </style>
 </resources>

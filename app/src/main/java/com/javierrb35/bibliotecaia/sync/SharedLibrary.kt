@@ -10,6 +10,10 @@ import com.javierrb35.bibliotecaia.BuildConfig
 import com.javierrb35.bibliotecaia.backup.*
 import com.javierrb35.bibliotecaia.data.AppDatabase
 import com.javierrb35.bibliotecaia.data.BookEntity
+import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
+import com.javierrb35.bibliotecaia.data.BookTagCrossRef
+import com.javierrb35.bibliotecaia.data.TagEntity
+import com.javierrb35.bibliotecaia.importer.BookRichMetadataParser
 import com.javierrb35.bibliotecaia.importer.LocalBookCopyRemover
 import com.javierrb35.bibliotecaia.data.BookFormat
 import com.javierrb35.bibliotecaia.ui.BookCoverLoader
@@ -751,6 +755,9 @@ object SharedLibrary {
                     } else edit.putString("status", "Sincronización parcial: " + result.errors.joinToString(" · ").take(1200))
                     edit.apply()
                     changes.value += 1
+                    // Fichas ya importadas con metadatos genéricos se reparan desde
+                    // los originales sin repetir la migración (#155).
+                    scheduleCatalogRepair(context)
                     MigrationResult(result.hashes.size, result.verifiedNow.size, result.errors)
                 } finally { stage.deleteRecursively() }
             }
@@ -812,6 +819,21 @@ object SharedLibrary {
             }
             onProgress("Originales de la copia procesados: ${index + 1}/${snapshot.books.size}")
         }
+        // Issue #155: portadas ya incluidas en la copia se publican durante la
+        // migración; nunca se reabren originales remotos solo para una carátula.
+        if (content.coverFiles.isNotEmpty()) {
+            onProgress("Publicando ${content.coverFiles.size} portadas incluidas en la copia…")
+            val listing = store.list()
+            for ((hash, file) in content.coverFiles) {
+                coroutineContext.ensureActive()
+                try {
+                    if (SharedCoverArt.read(store, listing, hash) != null) continue
+                    val bytes = BookCoverLoader.jpegFromBytes(file.readBytes()) ?: continue
+                    SharedCoverArt.publish(store, hash, bytes, listing)
+                } catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* una portada no bloquea la migración */ }
+            }
+        }
         // No availableOriginals paths: all ZIP originals remain in Drive.
         manager.restoreJson(content.json, synchronize = true)
         onProgress("Publicando y verificando el catálogo compartido…")
@@ -861,7 +883,11 @@ object SharedLibrary {
                 }
                 changes.value += 1
                 result
-            }.also { scheduleCovers(context) }
+            }.also {
+                scheduleCovers(context)
+                // El original recién descargado permite reparar fichas pendientes (#155).
+                scheduleCatalogRepair(context)
+            }
         }
 
     /** One inventory and merge for the whole selection, one verified read per
@@ -1272,6 +1298,235 @@ object SharedLibrary {
         catch (_: Exception) { true /* Retry independently; no cover failure changes original integrity. */ }
     }
 
+    /** Fichas cuyo título o autor sigue siendo un placeholder del defecto #155. */
+    internal suspend fun placeholderBooks(db: AppDatabase): List<BookEntity> {
+        val deleted = db.backupDao().deletedBooksAll().map { it.contentHash }.toSet()
+        return db.backupDao().booksAll().filter { book ->
+            book.format != BookFormat.PDF && book.contentHash !in deleted &&
+                (BookMetadataPlaceholders.isPlaceholderTitle(book.title, book.fileName) ||
+                    BookMetadataPlaceholders.isPlaceholderAuthors(book.authors))
+        }
+    }
+
+    internal fun scheduleCatalogRepair(context: Context) {
+        if (!namedFolderMode(context)) return
+        val work = WorkManager.getInstance(context.applicationContext)
+        work.enqueueUniqueWork("catalog-repair-v1", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<CatalogRepairWorker>()
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS).build())
+    }
+
+    /**
+     * Reparación automática y aditiva de los metadatos genéricos ya importados
+     * (Issue #155): lee los metadatos internos del original verificado —local o
+     * remoto— una sola vez por hash, completa solo los campos ausentes o
+     * genéricos y conserva ediciones del usuario, notas, posiciones y demás
+     * datos de lectura. Lotes acotados fuera del mutex: nunca bloquea la
+     * navegación ni las sincronizaciones; es idempotente y reanudable.
+     *
+     * @return true si quedan fichas pendientes (el worker debe reintentar).
+     */
+    internal suspend fun repairCatalogBatch(context: Context, db: AppDatabase): Boolean = withContext(Dispatchers.IO) {
+        if (!namedFolderMode(context)) return@withContext false
+        val tree = uri(context) ?: return@withContext false
+        try {
+            folderStore(context, tree, named = true).use { source ->
+                val prefs = context.getSharedPreferences("catalog_repair_v1", Context.MODE_PRIVATE)
+                val pending = repairCatalogBatchStore(source, db, prefs, context.cacheDir)
+                if (pending != null && pending > 0) {
+                    prefs(context).edit().putString("status",
+                        "Reparación de catálogo: restan $pending fichas con metadatos genéricos.").apply()
+                    changes.value += 1
+                }
+                pending != null && pending > 0
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { true /* Reintento independiente; una reparación nunca altera originales. */ }
+    }
+
+    /**
+     * Copia verificada de un original para la reparación: primero recibos
+     * publicados; si no existen (importación interrumpida, sin catálogo),
+     * candidatos por nombre/extension verificados por SHA-256 en la propia
+     * copia [SharedStore.extract]. Una única lectura íntegra por original.
+     */
+    private fun repairCopy(source: SharedStore, listing: List<SharedDocumentStore.Item>,
+                           inv: Inventory, book: BookEntity, target: File) {
+        for (receipt in inv.receipts[book.contentHash].orEmpty()) {
+            if (receipt.bytes != book.sizeBytes) continue
+            for (item in inv.items[receipt.name].orEmpty()) {
+                if (item.directory || (item.size >= 0 && item.size != receipt.bytes)) continue
+                try { source.extract(item, target, book.contentHash, book.sizeBytes); return }
+                catch (e: CancellationException) { target.delete(); throw e }
+                catch (e: InterruptedException) { target.delete(); throw e }
+                catch (_: Exception) { target.delete() }
+            }
+        }
+        val fallback = SharedNamedOriginals.find(source, book, listing)
+        if (fallback != null) {
+            source.extract(fallback, target, book.contentHash, book.sizeBytes)
+            return
+        }
+        throw IOException("No se encuentra un original central íntegro de " + book.title.take(80))
+    }
+
+    /**
+     * Acción de solo lectura sobre el almacén compartido para catalogar sin
+     * instalar originales (Issue #142). Devuelve null si la carpeta compartida
+     * no está disponible ahora mismo; nunca bloquea la navegación.
+     *
+     * [block] recibe `originalFor(book, target)`: la copia local válida o una
+     * extracción temporal verificada por SHA-256 que EL LLAMADOR debe borrar.
+     */
+    internal suspend fun <T> withStoreSession(
+        context: Context,
+        block: suspend (originalFor: suspend (BookEntity, File) -> File?) -> T,
+    ): T? {
+        if (!namedFolderMode(context)) return null
+        val tree = uri(context) ?: return null
+        return try {
+            folderStore(context, tree, named = true).use { source ->
+                val inv = inventory(source)
+                if (inv.errors.isNotEmpty()) return null
+                val listing = source.list()
+                block { book, target ->
+                    val localFile = File(book.localPath)
+                    if (CentralCatalogue.local(book) && localFile.isFile &&
+                        localFile.length() == book.sizeBytes &&
+                        OriginalLinker(localFile.parentFile ?: File(".")).sha256Hex(localFile) == book.contentHash) {
+                        localFile
+                    } else try {
+                        repairCopy(source, listing, inv, book, target)
+                        target
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: InterruptedException) { throw e }
+                    catch (_: Exception) { target.delete(); null }
+                }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { null }
+    }
+
+    /**
+     * Núcleo a nivel de almacén, reanudable e idempotente: procesa como máximo
+     * 16 fichas o 60 s por invocación. Devuelve las fichas que siguen
+     * pendientes de reparación (null si el inventario no está disponible).
+     */
+    internal suspend fun repairCatalogBatchStore(source: SharedStore, db: AppDatabase,
+                                                 repairPrefs: android.content.SharedPreferences,
+                                                 cacheDir: File? = null): Int? {
+        val inv = inventory(source)
+        if (inv.errors.isNotEmpty()) return null
+        // Tras una importación interrumpida no hay recibos publicados: la
+        // elegibilidad se decide por el listado real del almacén; la copia
+        // [SharedStore.extract] verifica SHA-256 y tamaño antes de usar el dato.
+        val listing = source.list()
+        fun repairable(book: BookEntity): Boolean = CentralCatalogue.local(book) || listing.any { item ->
+            !item.directory && SharedNamedOriginals.validName(item.name) &&
+                item.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT) ==
+                    book.format.name.lowercase(java.util.Locale.ROOT) &&
+                (item.size < 0 || item.size == book.sizeBytes)
+        }
+        val editor = repairPrefs.edit()
+        val books = placeholderBooks(db).filter { book ->
+            System.currentTimeMillis() >= repairPrefs.getLong("retry:" + book.contentHash, 0L) &&
+                repairable(book)
+        }.sortedByDescending(CentralCatalogue::local)
+        if (books.isEmpty()) return 0
+        val deadline = android.os.SystemClock.elapsedRealtime() + 60_000L
+        for (book in books.take(16)) {
+            coroutineContext.ensureActive()
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) break
+            var temp: File? = null
+            try {
+                val localFile = File(book.localPath)
+                val original = if (CentralCatalogue.local(book) &&
+                    localFile.length() == book.sizeBytes &&
+                    OriginalLinker(localFile.parentFile ?: File(".")).sha256Hex(localFile) == book.contentHash) {
+                    localFile
+                } else if (repairable(book)) {
+                    // Una única lectura verificada por hash: metadatos y portada.
+                    requireNotNull(cacheDir) { "Falta el espacio temporal para leer el original." }
+                    File.createTempFile("repair-original-", ".tmp", cacheDir).also {
+                        temp = it
+                        repairCopy(source, listing, inv, book, it)
+                    }
+                } else null
+                if (original == null) {
+                    // No disponible ahora mismo: reanudable sin reabrir originales una y otra vez.
+                    editor.putLong("retry:" + book.contentHash,
+                        System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
+                    continue
+                }
+                val current = db.bookDao().findByHash(book.contentHash)
+                if (current == null) {
+                    editor.putBoolean("done:" + book.contentHash, true)
+                    continue
+                }
+                val rich = BookRichMetadataParser.parse(book.format, original)
+                val repair = MetadataRepairPlan(
+                    title = rich?.title?.trim()?.takeIf {
+                        it.isNotEmpty() && it != current.title &&
+                            BookMetadataPlaceholders.isPlaceholderTitle(current.title, current.fileName)
+                    },
+                    authors = rich?.authorsJoined?.trim()?.takeIf {
+                        it.isNotEmpty() && it != current.authors &&
+                            BookMetadataPlaceholders.isPlaceholderAuthors(current.authors)
+                    },
+                )
+                if (repair.hasChanges) {
+                    db.bookDao().update(MetadataReconciler.apply(current, repair))
+                }
+                // Etiquetas y argumento del propio archivo, solo si faltan (#155).
+                if (rich != null) {
+                    val existingTagIds = db.refsDao().tagIdsForBook(current.id).toSet()
+                    val knownTags = db.tagDao().allOnce()
+                    for (name in rich.tags.take(32)) {
+                        if (name.isBlank()) continue
+                        val tagId = knownTags.firstOrNull { it.name == name }?.id ?: run {
+                            val created = TagEntity(UUID.randomUUID().toString(), name)
+                            db.tagDao().insert(created)
+                            created.id
+                        }
+                        if (tagId !in existingTagIds) {
+                            db.refsDao().addBookTag(BookTagCrossRef(current.id, tagId))
+                        }
+                    }
+                    if (db.synopsisDao().byBook(current.id) == null) {
+                        rich.description?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
+                            db.synopsisDao().insertIgnore(listOf(BookSynopsisEntity(
+                                bookId = current.id, text = text.take(100_000),
+                                provider = MetadataReconciler.IMPORTED_SYNOPSIS_PROVIDER,
+                                generatedAt = System.currentTimeMillis(), spoilerSafe = false)))
+                        }
+                    }
+                }
+                // La portada se deriva del original ya verificado: una sola lectura.
+                if (SharedCoverArt.read(source, listing, book.contentHash) == null) {
+                    val bitmap = BookCoverLoader.extract(book.format, original)
+                    if (bitmap != null) {
+                        val bytes = try { BookCoverLoader.jpeg(bitmap) } finally { bitmap.recycle() }
+                        if (bytes != null) SharedCoverArt.publish(source, book.contentHash, bytes)
+                    }
+                }
+                // Intentado una vez por hash: no releer el mismo original (#155).
+                editor.putBoolean("done:" + book.contentHash, true)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                // Un libro fallido no debe impedir reparar los siguientes.
+                editor.putLong("retry:" + book.contentHash, System.currentTimeMillis() + 300_000L)
+            }
+            finally {
+                editor.apply()
+                temp?.delete()
+            }
+        }
+        return placeholderBooks(db).count { book ->
+            System.currentTimeMillis() >= repairPrefs.getLong("retry:" + book.contentHash, 0L) &&
+                repairable(book)
+        }
+    }
+
     suspend fun pull(context: Context, db: AppDatabase): Result = withContext(Dispatchers.IO) {
         mutex.withLock {
             val result = store(context).use { pullStore(it, db, context.filesDir) }
@@ -1341,6 +1596,10 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
             val db = AppDatabase.get(applicationContext)
             val result = SharedLibrary.syncMetadata(applicationContext, db)
             SharedLibrary.scheduleCovers(applicationContext)
+            // La reparación también se propaga: la sincronización publica las
+            // correcciones y los peers reconcilian sus placeholders (#155).
+            if (SharedLibrary.placeholderBooks(db).isNotEmpty())
+                SharedLibrary.scheduleCatalogRepair(applicationContext)
             if (result.errors.isEmpty() && revision == SharedLibrary.revision(applicationContext)) {
                 BackupRoutine.refreshOnLibraryOpen(applicationContext, BuildConfig.VERSION_NAME)
                 Result.success()
@@ -1357,5 +1616,12 @@ class SharedLibraryWorker(context: Context, params: WorkerParameters) : Coroutin
 class SharedCoverWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
         if (SharedLibrary.maintainCovers(applicationContext, AppDatabase.get(applicationContext)))
+            Result.retry() else Result.success()
+}
+
+/** Reparación incremental de fichas con placeholders (#155): lotes de 16/60 s, reanudable. */
+class CatalogRepairWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result =
+        if (SharedLibrary.repairCatalogBatch(applicationContext, AppDatabase.get(applicationContext)))
             Result.retry() else Result.success()
 }

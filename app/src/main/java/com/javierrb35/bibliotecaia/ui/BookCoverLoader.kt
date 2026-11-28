@@ -95,6 +95,15 @@ object BookCoverLoader {
         return out.toByteArray().takeIf(SharedCoverArt::isJpeg)
     }
 
+    /**
+     * Normalize inbound cover art (migrator ZIP, issue #155) into the shared
+     * bounded JPEG thumbnail format without touching any original file.
+     */
+    internal fun jpegFromBytes(bytes: ByteArray): ByteArray? {
+        if (SharedCoverArt.isJpeg(bytes)) return bytes
+        return decode(bytes)?.let(::jpeg)
+    }
+
     private fun decode(bytes: ByteArray): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

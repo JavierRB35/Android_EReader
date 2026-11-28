@@ -38,6 +38,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 positions = dao.positionsAll(),
                 synopses = db.synopsisDao().all(),
                 deletedBooks = dao.deletedBooksAll(),
+                classifications = db.classificationDao().all(),
             )
         }
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
@@ -59,6 +60,19 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 snapshot, dao.booksAll(), dao.categoriesAll(), dao.tagsAll(),
             )
             val booksRestored = countInserted(dao.insertBooksIgnore(snapshot.books))
+            // La existencia previa del mismo original (mismo SHA-256) no impide
+            // completar o corregir sus metadatos (Issue #155/#142): se reparan
+            // solo valores genéricos, nunca ediciones reales del usuario.
+            val booksByHash = dao.booksAll().associateBy { it.contentHash }
+            var booksRepaired = 0
+            for (incoming in snapshot.books) {
+                val existing = booksByHash[incoming.contentHash] ?: continue
+                val plan = MetadataReconciler.plan(existing, incoming)
+                if (plan.hasChanges) {
+                    db.bookDao().update(MetadataReconciler.apply(existing, plan))
+                    booksRepaired++
+                }
+            }
 
             val categoriesToInsert = snapshot.categories.map {
                 it.copy(id = identity.category(it.id),
@@ -113,6 +127,9 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             require(snapshot.synopses.all { identity.book(it.bookId) in knownBooks }) {
                 "La copia contiene argumentos de libros desconocidos."
             }
+            require(snapshot.classifications.all { identity.book(it.bookId) in knownBooks }) {
+                "La copia contiene clasificaciones de libros desconocidos."
+            }
             require(snapshot.positions.all { identity.book(it.bookId) in knownBooks }) {
                 "La copia contiene posiciones de libros desconocidos."
             }
@@ -133,8 +150,22 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             db.synopsisDao().insertIgnore(synopses)
             if (synchronize) for (synopsis in synopses) {
                 val existing = db.synopsisDao().byBook(synopsis.bookId)
+                // Un argumento importado del catálogo Calibre solo completa huecos;
+                // jamás reemplaza el texto existente del usuario (Issue #155).
+                if (existing != null && synopsis.provider == MetadataReconciler.IMPORTED_SYNOPSIS_PROVIDER) continue
                 if (existing == null || synopsis.generatedAt > existing.generatedAt)
                     db.synopsisDao().save(synopsis)
+            }
+
+            // Estado de catalogación (#142): aditivo al restaurar; al sincronizar gana
+            // la marca temporal más reciente (determinista en ambos dispositivos).
+            val classifications = snapshot.classifications
+                .map { it.copy(bookId = identity.book(it.bookId)) }
+            db.classificationDao().insertIgnore(classifications)
+            if (synchronize) for (classification in classifications) {
+                val existing = db.classificationDao().byBook(classification.bookId)
+                if (existing == null || classification.processedAt > existing.processedAt)
+                    db.classificationDao().save(classification)
             }
 
             val existingNotes = dao.annotationsAll().associateBy { it.id }
@@ -193,6 +224,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
 
             RestoreReport(
                 booksRestored = booksRestored,
+                booksRepaired = booksRepaired,
                 booksSkipped = snapshot.books.size - booksRestored,
                 categoriesRestored = categoriesRestored,
                 categoriesSkipped = snapshot.categories.size - categoriesRestored,
@@ -234,7 +266,8 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             annotations = snapshot.annotations.filterNot { it.id in notes },
             versions = snapshot.versions.filterNot { it.annotationId in notes },
             positions = snapshot.positions.filterNot { it.bookId in excluded },
-            synopses = snapshot.synopses.filterNot { it.bookId in excluded })
+            synopses = snapshot.synopses.filterNot { it.bookId in excluded },
+            classifications = snapshot.classifications.filterNot { it.bookId in excluded })
     }
 
     /**
@@ -311,4 +344,5 @@ data class RestoreReport(
     val versionsSkipped: Int,
     val positionsUpdated: Int,
     val positionsSkipped: Int,
+    val booksRepaired: Int = 0,
 )

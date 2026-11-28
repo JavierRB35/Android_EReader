@@ -24,11 +24,18 @@ object CompleteBackupArchive {
     private const val MAX_BOOK_BYTES = 512L * 1024 * 1024
     private const val MAX_TOTAL_BYTES = 4L * 1024 * 1024 * 1024
     private const val MAX_BOOKS = 10_000
+    // Derived thumbnails shipped by the Windows migrator (issue #155). Bound
+    // above the 512 KiB target so oversized inbound art is still stageable;
+    // Android re-encodes before publishing.
+    private const val MAX_COVER_BYTES = 2 * 1024 * 1024
+    private const val MAX_COVER_TOTAL = 512L * 1024 * 1024
     private val HASH = Regex("[a-f0-9]{64}")
     private val SEGMENT = Regex("[A-Za-z0-9_-]{1,128}")
+    private val COVER_ENTRY = Regex("covers/([a-f0-9]{64})\\.(jpg|jpeg|png|gif|webp)")
 
     data class Contents(val json: String, val staged: Map<String, File>, val bytes: Long,
-                        val missingHashes: Set<String> = emptySet()) {
+                        val missingHashes: Set<String> = emptySet(),
+                        val coverFiles: Map<String, File> = emptyMap()) {
         val bookCount: Int get() = staged.size
     }
 
@@ -112,6 +119,10 @@ object CompleteBackupArchive {
         var expected: Map<String, BookEntity>? = null
         var missing: Set<String> = emptySet()
         val staged = linkedMapOf<String, File>()
+        val covers = linkedMapOf<String, File>()
+        val coverEntries = hashSetOf<String>()
+        var declaredHashes: Set<String> = emptySet()
+        var coverBytes = 0L
         var total = 0L
         val buffer = ByteArray(64 * 1024)
         val seen = hashSetOf<String>()
@@ -155,45 +166,78 @@ object CompleteBackupArchive {
                         }
                         else -> throw IllegalArgumentException("Formato de originales ZIP no compatible.")
                     }
+                    declaredHashes = books.map { it.contentHash }.toSet()
                 } else {
-                    val book = expected?.get(entry.name)
-                        ?: throw IllegalArgumentException("La copia contiene archivos inesperados.")
-                    require(entryName(book.id) !in staged.keys) { "Libro duplicado en copia." }
-                    val target = File(stageDir, book.id + ".bin").canonicalFile
-                    require(target.parentFile == stageDir.canonicalFile && !target.exists()) {
-                        "Ruta no permitida en la copia."
-                    }
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    var size = 0L
-                    val keep = wantedHashes == null || book.contentHash in wantedHashes
-                    val output = if (keep) target.outputStream() else null
-                    output.use { sink ->
-                        while (true) {
-                            val n = zip.read(buffer)
-                            if (n < 0) break
-                            if (n == 0) continue
-                            size += n
-                            total += n
-                            require(size <= MAX_BOOK_BYTES && total <= MAX_TOTAL_BYTES &&
-                                size <= book.sizeBytes) { "La copia contiene un archivo sobredimensionado." }
-                            digest.update(buffer, 0, n)
-                            sink?.write(buffer, 0, n)
+                    // Migrator thumbnails (issue #155): derived art for a declared
+                    // book, staged for publication without reopening any original.
+                    val coverMatch = COVER_ENTRY.matchEntire(entry.name)
+                    if (coverMatch != null) {
+                        val bookHash = coverMatch.groupValues[1]
+                        require(bookHash in declaredHashes) {
+                            "La copia contiene una portada de un libro no declarado."
                         }
+                        require(bookHash !in covers.keys) { "La copia repite la portada de un libro." }
+                        val target = File(stageDir, "cover-$bookHash.bin").canonicalFile
+                        require(target.parentFile == stageDir.canonicalFile && !target.exists()) {
+                            "Ruta no permitida en la copia."
+                        }
+                        var size = 0L
+                        target.outputStream().use { sink ->
+                            while (true) {
+                                val n = zip.read(buffer)
+                                if (n < 0) break
+                                if (n == 0) continue
+                                size += n
+                                coverBytes += n
+                                require(size <= MAX_COVER_BYTES && coverBytes <= MAX_COVER_TOTAL) {
+                                    "La copia contiene una portada sobredimensionada."
+                                }
+                                sink.write(buffer, 0, n)
+                            }
+                        }
+                        require(size > 0) { "La copia contiene una portada vacía." }
+                        covers[bookHash] = target
+                        coverEntries.add(entry.name)
+                    } else {
+                        val book = expected?.get(entry.name)
+                            ?: throw IllegalArgumentException("La copia contiene archivos inesperados.")
+                        require(entryName(book.id) !in staged.keys) { "Libro duplicado en copia." }
+                        val target = File(stageDir, book.id + ".bin").canonicalFile
+                        require(target.parentFile == stageDir.canonicalFile && !target.exists()) {
+                            "Ruta no permitida en la copia."
+                        }
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        var size = 0L
+                        val keep = wantedHashes == null || book.contentHash in wantedHashes
+                        val output = if (keep) target.outputStream() else null
+                        output.use { sink ->
+                            while (true) {
+                                val n = zip.read(buffer)
+                                if (n < 0) break
+                                if (n == 0) continue
+                                size += n
+                                total += n
+                                require(size <= MAX_BOOK_BYTES && total <= MAX_TOTAL_BYTES &&
+                                    size <= book.sizeBytes) { "La copia contiene un archivo sobredimensionado." }
+                                digest.update(buffer, 0, n)
+                                sink?.write(buffer, 0, n)
+                            }
+                        }
+                        require(size == book.sizeBytes && hex(digest.digest()) == book.contentHash) {
+                            "La copia contiene un libro incompleto o modificado."
+                        }
+                        // Stable internal key for restore, regardless of ZIP layout.
+                        if (keep) staged[entryName(book.id)] = target
                     }
-                    require(size == book.sizeBytes && hex(digest.digest()) == book.contentHash) {
-                        "La copia contiene un libro incompleto o modificado."
-                    }
-                    // Stable internal key for restore, regardless of ZIP layout.
-                    if (keep) staged[entryName(book.id)] = target
                 }
                 zip.closeEntry()
             }
         }
         val metadata = json ?: throw IllegalArgumentException("No es una copia completa de Biblioteca IA.")
-        require(expected!!.keys == seen - METADATA) {
+        require(expected!!.keys == seen - METADATA - coverEntries) {
             "Faltan originales: el archivo no es una copia completa."
         }
-        return Contents(metadata, staged, total, missing)
+        return Contents(metadata, staged, total, missing, covers)
     }
 
     /** Legacy JSON import is allowed separately; a ZIP must preserve ALL sections. */

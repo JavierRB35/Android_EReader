@@ -61,6 +61,10 @@ class MainActivity : AppCompatActivity() {
     private var queuedBatch: androidx.work.WorkInfo? = null
     private var dismissedBatch: String? = null
     private var batchHistory = emptyList<androidx.work.WorkInfo>()
+    private var catalogSubmitting = false
+    private var queuedCatalog: androidx.work.WorkInfo? = null
+    private var dismissedCatalog: String? = null
+    private var catalogHistory = emptyList<androidx.work.WorkInfo>()
     @Volatile private var cancelBatch = false
     private var batchJob: kotlinx.coroutines.Job? = null
     private var batchAction: LibraryBatchAction? = null
@@ -219,6 +223,47 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBatchSecondary).setOnClickListener {
             if (centralFlow.value.first) confirmBatchDeletion() else confirmBatchRemoval()
         }
+        findViewById<View>(R.id.btnBatchCatalog).setOnClickListener {
+            val books = selectedBooks()
+            if (books.isNotEmpty()) promptAutoCatalog(books)
+        }
+        findViewById<View>(R.id.btnAutoCatalog).setOnClickListener { promptAutoCatalogAll() }
+        findViewById<View>(R.id.txtAutoCatalogProgress).setOnClickListener {
+            if (catalogHistory.isNotEmpty()) {
+                val details = catalogHistory.takeLast(10).asReversed().joinToString("\n\n") { work ->
+                    com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.LABEL + "\n" +
+                        (work.outputData.getString("summary")
+                            ?: "Catalogación interrumpida; vuelve a lanzarla para reanudar.")
+                }
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.catalog_auto_history_title).setMessage(details)
+                    .setPositiveButton("Cerrar", null).show()
+            }
+        }
+        findViewById<View>(R.id.btnCancelAutoCatalog).setOnClickListener {
+            val work = queuedCatalog ?: return@setOnClickListener
+            if (work.state.isFinished) {
+                dismissedCatalog = work.id.toString()
+                getSharedPreferences("auto_catalog_ui", MODE_PRIVATE).edit()
+                    .putString("dismissed", dismissedCatalog).apply()
+                findViewById<View>(R.id.autoCatalogProgress).visibility = View.GONE
+            } else {
+                findViewById<View>(R.id.btnCancelAutoCatalog).isEnabled = false
+                findViewById<TextView>(R.id.txtAutoCatalogProgress).text =
+                    getString(R.string.catalog_auto_stopping)
+                lifecycleScope.launch {
+                    try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.stop(applicationContext, work.id)
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        findViewById<View>(R.id.btnCancelAutoCatalog).isEnabled = true
+                        Toast.makeText(this@MainActivity, R.string.catalog_auto_stop_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
         findViewById<View>(R.id.txtBookBatchProgress).setOnClickListener {
             if (!batchRunning && batchHistory.isNotEmpty()) {
                 val details = batchHistory.takeLast(10).asReversed().joinToString("\n\n") { work ->
@@ -321,6 +366,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnMissingOriginals).setOnClickListener { showMissingOriginals() }
         observeCatalog()
         observeBatchQueue()
+        observeAutoCatalogQueue()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.changes.collect {
@@ -678,6 +724,112 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
+    // ---- Catalogación automática (#142): encolar, observar y reanudar ----
+
+    /** Toda la biblioteca desde la acción rápida de Biblioteca completa. */
+    private fun promptAutoCatalogAll() {
+        if (catalogSubmitting) return
+        lifecycleScope.launch {
+            val count = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                db.backupDao().booksAll().size
+            }
+            if (count == 0) {
+                Toast.makeText(this@MainActivity, R.string.catalog_auto_empty, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            confirmAutoCatalog(all = true, label = getString(R.string.catalog_auto_all))
+        }
+    }
+
+    private fun promptAutoCatalog(books: List<com.javierrb35.bibliotecaia.data.BookEntity>) {
+        if (books.isEmpty() || catalogSubmitting) return
+        confirmAutoCatalog(all = false,
+            label = getString(R.string.catalog_auto_selection, books.size), books = books)
+    }
+
+    private fun confirmAutoCatalog(
+        all: Boolean,
+        label: String,
+        books: List<com.javierrb35.bibliotecaia.data.BookEntity> = emptyList(),
+    ) {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.catalog_auto_title)
+            .setMessage(getString(R.string.catalog_auto_message))
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(label) { _, _ -> startAutoCatalog(all, books) }
+            .show()
+    }
+
+    private fun startAutoCatalog(
+        all: Boolean,
+        books: List<com.javierrb35.bibliotecaia.data.BookEntity>,
+    ) {
+        if (catalogSubmitting) return
+        val app = applicationContext
+        catalogSubmitting = true
+        selection.clear()
+        renderSelection()
+        lifecycleScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                        app, all = all, ids = books.map { it.id })
+                }
+                if (!isDestroyed) Toast.makeText(this@MainActivity,
+                    R.string.catalog_auto_queued, Toast.LENGTH_SHORT).show()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (!isDestroyed) Toast.makeText(this@MainActivity,
+                    e.message ?: getString(R.string.catalog_auto_enqueue_failed), Toast.LENGTH_LONG).show()
+            } finally { catalogSubmitting = false }
+        }
+    }
+
+    /** Progreso persistente de la catalogación: igual patrón que la cola de lotes. */
+    private fun observeAutoCatalogQueue() {
+        dismissedCatalog = getSharedPreferences("auto_catalog_ui", MODE_PRIVATE).getString("dismissed", null)
+        androidx.work.WorkManager.getInstance(applicationContext)
+            .getWorkInfosByTagLiveData(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.TAG)
+            .observe(this) { all ->
+                val queue = com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue
+                val jobs = all.sortedWith(compareBy<androidx.work.WorkInfo> { queue.order(it) }
+                    .thenBy { it.id.toString() })
+                catalogHistory = jobs.filter { it.state.isFinished }
+                val active = jobs.filterNot { it.state.isFinished }
+                val work = active.firstOrNull { it.state == androidx.work.WorkInfo.State.RUNNING }
+                    ?: active.firstOrNull() ?: jobs.lastOrNull()
+                queuedCatalog = work
+                val app = applicationContext
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    jobs.filter { it.state.isFinished }.forEach { queue.clean(app, it.id) }
+                }
+                val panel = findViewById<View>(R.id.autoCatalogProgress)
+                if (work == null || (work.state.isFinished && work.id.toString() == dismissedCatalog)) {
+                    panel.visibility = View.GONE
+                    return@observe
+                }
+                val status = findViewById<TextView>(R.id.txtAutoCatalogProgress)
+                val button = findViewById<TextView>(R.id.btnCancelAutoCatalog)
+                panel.visibility = View.VISIBLE
+                if (work.state.isFinished) {
+                    status.text = queue.LABEL + " · " + (work.outputData.getString("summary")
+                        ?: "Catalogación interrumpida; vuelve a lanzarla para reanudar.")
+                    status.append(if (catalogHistory.size > 1) "\nToca para ver resultados anteriores." else "")
+                    button.text = "Cerrar"
+                    button.isEnabled = true
+                } else {
+                    val done = work.progress.getInt("done", 0)
+                    val total = work.progress.getInt("total", queue.total(work)).takeIf { it > 0 }
+                    val phase = work.progress.getString("phase") ?: "En cola"
+                    status.text = queue.LABEL + ": " +
+                        (if (total != null) "$done/$total" else "$done") + " · " + phase +
+                        if (active.size > 1) " · ${active.size - 1} en cola" else ""
+                    button.text = "Detener"
+                    button.isEnabled = true
+                }
+            }
+    }
+
     private fun selectedBooks() = if (displayedSearch == currentSearch()) visibleBooks.filter { it.id in selection.ids } else emptyList()
 
     private fun confirmBatchDeletion() {
@@ -802,6 +954,15 @@ class MainActivity : AppCompatActivity() {
                 setCentralMode(centralFlow.value.first)
                 if (action == LibraryBatchAction.REMOVE) {
                     findViewById<View>(R.id.recentBookCard).visibility = View.GONE
+                }
+                if (action == LibraryBatchAction.DOWNLOAD && result.completed > 0 &&
+                    com.javierrb35.bibliotecaia.catalog.AutoCatalogSettings.newBooksEnabled(app)) {
+                    try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                                app, all = false, ids = books.map { it.id })
+                        }
+                    } catch (_: Exception) { /* la descarga ya es correcta */ }
                 }
                 val summary = buildString {
                     append(result.completed).append(" de ").append(books.size).append(" libros completados.")
@@ -929,6 +1090,15 @@ class MainActivity : AppCompatActivity() {
                     else if (ReadingPositionSafSync.refresh(app, db) &&
                         ReadingPositionSafSync.status(app).peerCount == 0) {
                         BackupRoutine.refreshOnLibraryOpen(app, BuildConfig.VERSION_NAME)
+                    }
+                    // Catalogar automáticamente los libros nuevos si el usuario lo pidió (#142).
+                    if (com.javierrb35.bibliotecaia.catalog.AutoCatalogSettings.newBooksEnabled(app)) {
+                        try {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                                    app, all = false, ids = result.imported.map { it.id })
+                            }
+                        } catch (_: Exception) { /* la importación ya es correcta */ }
                     }
                 }
                 val text = buildString {

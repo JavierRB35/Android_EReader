@@ -179,6 +179,29 @@
     <string name="detail_synopsis_export_error">No se pudo guardar el argumento.</string>
     <string name="detail_synopsis_copy">Copiar</string>
 
+    <!-- Catalogación automática y argumento visible en la ficha (#142) -->
+    <string name="detail_synopsis_section">Argumento</string>
+    <string name="detail_synopsis_obtain">Obtener argumento</string>
+    <string name="detail_synopsis_expand">Más</string>
+    <string name="detail_synopsis_collapse">Menos</string>
+    <string name="detail_synopsis_more">Más opciones del argumento</string>
+    <string name="detail_classification_review">Clasificación pendiente de revisión</string>
+    <string name="detail_classification_pending">Sin información suficiente para clasificar</string>
+    <string name="catalog_auto_action">Catalogación automática</string>
+    <string name="catalog_auto_title">Catalogación automática</string>
+    <string name="catalog_auto_message">Recupera el argumento de cada libro (el guardado, el de sus metadatos o uno generado con IA solo si hay copia local) y asigna categorías y etiquetas sin sobrescribir nada de lo que ya hayas organizado. Los libros dudosos quedan marcados como pendientes de revisión. Puedes detener el proceso y reanudarlo cuando quieras.</string>
+    <string name="catalog_auto_all">Catalogar toda la biblioteca</string>
+    <string name="catalog_auto_selection">Catalogar %1$d seleccionados</string>
+    <string name="catalog_auto_empty">No hay libros que catalogar.</string>
+    <string name="catalog_auto_queued">Catalogación en cola. Puedes seguir navegando.</string>
+    <string name="catalog_auto_queued_single">Catalogación en cola: se recuperará el argumento del libro sin descargarlo.</string>
+    <string name="catalog_auto_enqueue_failed">No se pudo preparar la catalogación. Reintenta.</string>
+    <string name="catalog_auto_history_title">Resultados de catalogación</string>
+    <string name="catalog_auto_stopping">Deteniendo catalogación…</string>
+    <string name="catalog_auto_stop_failed">No se pudo solicitar la detención. Reintenta.</string>
+    <string name="settings_auto_catalog_new">Catalogar automáticamente los libros nuevos</string>
+    <string name="settings_auto_catalog_hint">Al importar o descargar un libro se recuperan su argumento, categorías y etiquetas en segundo plano.</string>
+
     <string name="ai_ask">Consultar</string>
     <string name="ai_thinking">Consultando al proveedor…</string>
     <string name="ai_needs_key">Para consultar se necesita tu clave. Pulsa aquí para configurarla.</string>
@@ -246,4 +269,10 @@
     <string name="ai_gemini_model_description">El modelo predeterminado es gemini-3.6-flash. Puedes cambiarlo por un ID habilitado en tu cuenta de Google AI Studio si el anterior deja de estar disponible. El nombre debe corresponder a un modelo real; BibliotecaAI no lo puede garantizar sin hacer la prueba de conexión.</string>
     <string name="ai_gemini_model_save">Guardar modelo</string>
     <string name="ai_gemini_model_invalid">El identificador del modelo no es válido.</string>
+    <string name="detail_classify_ai">Clasificar con IA</string>
+    <string name="detail_classify_working">Clasificando…</string>
+    <string name="detail_classify_no_key">Configura una clave de IA para clasificar este libro.</string>
+    <string name="detail_classify_failed">No se pudo clasificar el libro. Comprueba la IA y vuelve a intentarlo.</string>
+    <string name="detail_classify_success">Clasificación actualizada.</string>
+    <string name="detail_classify_insufficient">No hay información suficiente para clasificar este libro con seguridad.</string>
 </resources>

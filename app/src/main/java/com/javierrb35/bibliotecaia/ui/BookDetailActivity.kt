@@ -16,7 +16,6 @@ import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +43,7 @@ class BookDetailActivity : AppCompatActivity() {
 
     companion object {
         private const val EXTRA_BOOK_ID = "book_id"
+        private const val COLLAPSED_SYNOPSIS_LINES = 6
         const val RESULT_LOCAL_REMOVED = android.app.Activity.RESULT_FIRST_USER + 21
 
         fun start(context: Context, bookId: String) {
@@ -66,6 +66,9 @@ class BookDetailActivity : AppCompatActivity() {
     }
     private var book: BookEntity? = null
     private var savedSynopsis: BookSynopsisEntity? = null
+    private var synopsisExpanded = false
+    private var classificationWork: java.util.UUID? = null
+    private var classificationEnqueuing = false
     private var pendingSynopsisExport: String? = null
     private val exportSynopsisLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -104,7 +107,28 @@ class BookDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnReadBook).setOnClickListener { ReaderRouter.open(this, bookId) }
         findViewById<View>(R.id.btnCycleStatus).setOnClickListener { promptReadingStatus() }
         findViewById<View>(R.id.btnAi).setOnClickListener { openAi() }
-        findViewById<View>(R.id.btnSynopsis).setOnClickListener { openSynopsisAction() }
+        findViewById<View>(R.id.btnSynopsisBody).setOnClickListener { toggleSynopsisExpanded() }
+        findViewById<View>(R.id.btnSynopsisExpand).setOnClickListener { toggleSynopsisExpanded() }
+        findViewById<View>(R.id.btnSynopsisObtain).setOnClickListener { openSynopsisAction() }
+        findViewById<View>(R.id.btnSynopsisEdit).setOnClickListener { editSynopsis() }
+        findViewById<View>(R.id.btnSynopsisDelete).setOnClickListener { confirmDeleteSynopsis() }
+        findViewById<View>(R.id.btnSynopsisMore).setOnClickListener { anchor ->
+            androidx.appcompat.widget.PopupMenu(this, anchor).apply {
+                menu.add(R.string.detail_synopsis_copy)
+                menu.add(R.string.detail_synopsis_export)
+                setOnMenuItemClickListener { item ->
+                    val saved = savedSynopsis?.takeIf { it.bookId == bookId && it.text.isNotBlank() }
+                    if (item.title == getString(R.string.detail_synopsis_copy) && saved != null) {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(
+                            ClipData.newPlainText("Argumento · " + (book?.title ?: ""), saved.text))
+                    } else if (item.title == getString(R.string.detail_synopsis_export) && saved != null) {
+                        exportSynopsis(saved)
+                    }
+                    true
+                }
+            }.show()
+        }
         findViewById<View>(R.id.btnFavorite).setOnClickListener { toggleFavorite() }
         findViewById<View>(R.id.btnLink).setOnClickListener { linkLauncher.launch(arrayOf("*/*")) }
         findViewById<View>(R.id.btnRemoveLocalCopy).setOnClickListener { confirmRemoveLocalCopy() }
@@ -119,6 +143,10 @@ class BookDetailActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnDownloadCentral).setOnClickListener { downloadCentral() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
+        findViewById<View>(R.id.btnClassifyBook).setOnClickListener { classifyBook() }
+        savedInstanceState?.getString("classification_work")?.let { raw ->
+            runCatching { java.util.UUID.fromString(raw) }.getOrNull()?.let { observeClassification(it) }
+        }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
         }
@@ -132,12 +160,87 @@ class BookDetailActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         pendingSynopsisExport?.let { outState.putString("synopsis_export_pending", it) }
+        classificationWork?.let { outState.putString("classification_work", it.toString()) }
         super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
         super.onResume()
-        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { id ->
+            load(id)
+            if (classificationWork == null && !classificationEnqueuing) {
+                lifecycleScope.launch {
+                    val active = withContext(Dispatchers.IO) {
+                        runCatching {
+                            androidx.work.WorkManager.getInstance(applicationContext)
+                                .getWorkInfosByTag(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.explicitTag(id))
+                                .get().firstOrNull { !it.state.isFinished }
+                        }.getOrNull()
+                    }
+                    if (active != null && classificationWork == null && !classificationEnqueuing) {
+                        observeClassification(active.id)
+                    }
+                }
+            }
+        }
+    }
+
+    /** The same persistent catalogue engine as bulk classification, limited to this book. */
+    private fun classifyBook() {
+        val current = book ?: return
+        if (classificationEnqueuing || classificationWork != null) return
+        val configured = com.javierrb35.bibliotecaia.ai.AiKeyStore.providers().any {
+            com.javierrb35.bibliotecaia.ai.AiKeyStore.getKey(this, it) != null
+        }
+        if (!configured) {
+            Toast.makeText(this, R.string.detail_classify_no_key, Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
+            return
+        }
+        classificationEnqueuing = true
+        renderClassificationButton()
+        lifecycleScope.launch {
+            try {
+                val work = com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                    applicationContext, all = false, ids = listOf(current.id), explicit = true)
+                observeClassification(work)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(this@BookDetailActivity, R.string.detail_classify_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                classificationEnqueuing = false
+                renderClassificationButton()
+            }
+        }
+    }
+
+    private fun renderClassificationButton() {
+        findViewById<TextView>(R.id.btnClassifyBook).apply {
+            val busy = classificationEnqueuing || classificationWork != null
+            isEnabled = !busy
+            setText(if (busy) R.string.detail_classify_working else R.string.detail_classify_ai)
+        }
+    }
+
+    private fun observeClassification(work: java.util.UUID) {
+        classificationWork = work
+        renderClassificationButton()
+        val live = androidx.work.WorkManager.getInstance(applicationContext).getWorkInfoByIdLiveData(work)
+        live.observe(this) { info ->
+            if (info == null || !info.state.isFinished || classificationWork != work) return@observe
+            live.removeObservers(this)
+            classificationWork = null
+            renderClassificationButton()
+            val message = when (info.outputData.getString("classification_result")) {
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_CLASSIFIED -> R.string.detail_classify_success
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_REVIEW -> R.string.detail_classification_review
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_PENDING -> R.string.detail_classify_insufficient
+                else -> R.string.detail_classify_failed
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
+        }
     }
 
     private fun openAi() {
@@ -148,31 +251,147 @@ class BookDetailActivity : AppCompatActivity() {
         else startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
     }
 
-    /** A single book-scoped entry point: add if absent, read if already stored. */
+    /**
+     * El argumento ya está visible en la ficha (#142): esta acción solo obtiene
+     * uno cuando falta. Con copia local se genera con IA desde fragmentos; sin
+     * copia se encola la catalogación automática (recupera la descripción de
+     * los metadatos del original sin instalar el libro); en PDF, edición manual.
+     */
     private fun openSynopsisAction() {
         val current = book ?: return
         val existing = savedSynopsis?.takeIf {
             it.bookId == current.id && it.text.isNotBlank()
         }
-        if (existing == null && current.format.name == "PDF") {
+        if (existing != null) return
+        if (current.format.name == "PDF") {
             editSynopsis()
-        } else if (existing == null) {
-            // The CTA requests an AI-generated synopsis automatically; manual editing
-            // remains available in the saved-synopsis modal.
+        } else if (current.localPath.isNotBlank() && java.io.File(current.localPath).isFile) {
             com.javierrb35.bibliotecaia.ai.AiChatActivity.startSynopsis(this, current.id)
-        } else showSavedSynopsis()
+        } else {
+            lifecycleScope.launch {
+                try {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                            applicationContext, all = false, ids = listOf(current.id))
+                    }
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.catalog_auto_queued_single, Toast.LENGTH_LONG).show()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    Toast.makeText(this@BookDetailActivity,
+                        R.string.catalog_auto_enqueue_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
-    private fun renderSynopsisAction(bookId: String) {
-        val hasSynopsis = savedSynopsis?.let {
-            it.bookId == bookId && it.text.isNotBlank()
-        } == true
-        val label = if (hasSynopsis) R.string.detail_synopsis_view else R.string.detail_synopsis_add
-        findViewById<TextView>(R.id.txtSynopsisAction).setText(label)
-        findViewById<View>(R.id.btnSynopsis).apply {
-            visibility = View.VISIBLE
-            contentDescription = getString(label)
+    /** Argumento siempre visible bajo su encabezado; ampliable, editable y borrable. */
+    private fun renderSynopsisSection(bookId: String) {
+        val saved = savedSynopsis?.takeIf { it.bookId == bookId && it.text.isNotBlank() }
+        val body = findViewById<TextView>(R.id.btnSynopsisBody)
+        val expand = findViewById<TextView>(R.id.btnSynopsisExpand)
+        val obtain = findViewById<View>(R.id.btnSynopsisObtain)
+        val edit = findViewById<View>(R.id.btnSynopsisEdit)
+        val delete = findViewById<View>(R.id.btnSynopsisDelete)
+        val more = findViewById<View>(R.id.btnSynopsisMore)
+        synopsisExpanded = if (saved == null) false else synopsisExpanded
+        if (saved == null) {
+            // Sin argumento: una fila compacta con el encabezado y la acción de
+            // obtención; la ficha sigue cabiendo sin desplazamiento (#142).
+            body.visibility = View.GONE
+            obtain.visibility = View.VISIBLE
+            edit.visibility = View.GONE
+            delete.visibility = View.GONE
+            more.visibility = View.GONE
+            expand.visibility = View.GONE
+        } else {
+            body.visibility = View.VISIBLE
+            body.text = saved.text
+            body.alpha = 1f
+            obtain.visibility = View.GONE
+            edit.visibility = View.VISIBLE
+            delete.visibility = View.VISIBLE
+            more.visibility = View.VISIBLE
+            body.maxLines = if (synopsisExpanded) Int.MAX_VALUE else COLLAPSED_SYNOPSIS_LINES
+            expand.visibility = if (synopsisExpanded) View.VISIBLE else View.GONE
+            expand.setText(if (synopsisExpanded) R.string.detail_synopsis_collapse
+                else R.string.detail_synopsis_expand)
+            // El desplegable solo aparece si el texto realmente no cabe.
+            body.post {
+                if (saved.text.isNotBlank() && body.lineCount > COLLAPSED_SYNOPSIS_LINES &&
+                    !synopsisExpanded) expand.visibility = View.VISIBLE
+            }
         }
+    }
+
+    private fun toggleSynopsisExpanded() {
+        if (savedSynopsis?.text.isNullOrBlank()) return
+        synopsisExpanded = !synopsisExpanded
+        book?.let { renderSynopsisSection(it.id) }
+    }
+
+    /** Estado de la catalogación automática junto al argumento (#142). */
+    private fun renderSynopsisStatus(bookId: String) {
+        lifecycleScope.launch {
+            val row = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                db.classificationDao().byBook(bookId)
+            }
+            val label = when (row?.status) {
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_REVIEW ->
+                    getString(R.string.detail_classification_review)
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_PENDING ->
+                    getString(R.string.detail_classification_pending)
+                else -> null
+            }
+            findViewById<TextView>(R.id.txtSynopsisStatus).text = label.orEmpty()
+            findViewById<TextView>(R.id.txtSynopsisStatus).visibility =
+                if (label == null) View.GONE else View.VISIBLE
+        }
+    }
+
+    private fun confirmDeleteSynopsis() {
+        val current = book ?: return
+        val saved = savedSynopsis ?: return
+        if (saved.bookId != current.id || saved.text.isBlank()) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.detail_synopsis_delete_title)
+            .setMessage(R.string.detail_synopsis_delete_message)
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .setPositiveButton(R.string.detail_synopsis_delete) { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            db.synopsisDao().deleteByBook(current.id)
+                        }
+                        savedSynopsis = null
+                        renderSynopsisSection(current.id)
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_synopsis_deleted, Toast.LENGTH_SHORT).show()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        Toast.makeText(this@BookDetailActivity,
+                            R.string.detail_synopsis_delete_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    /** Exportación SAF del argumento, idéntica a la del lector de argumentos. */
+    private fun exportSynopsis(saved: BookSynopsisEntity) {
+        val current = book ?: return
+        pendingSynopsisExport = "Argumento de: " + current.title + "\n" +
+            "Autor: " + (current.authors ?: "No indicado") + "\n\n" +
+            saved.text + "\n\n" + getString(
+                if (saved.provider == "manual") R.string.detail_synopsis_manual_source
+                else R.string.detail_synopsis_ai_source
+            )
+        val safeTitle = current.title
+            .replace(Regex("""[^\p{L}\p{N}_\- ]"""), "")
+            .trim().take(60).ifBlank { "Libro" }
+        exportSynopsisLauncher.launch("Argumento - " + safeTitle + ".txt")
     }
 
     /**
@@ -232,7 +451,7 @@ class BookDetailActivity : AppCompatActivity() {
                             db.synopsisDao().save(changed)
                         }
                         savedSynopsis = changed
-                        renderSynopsisAction(current.id)
+                        renderSynopsisSection(current.id)
                         dialog.dismiss()
                         Toast.makeText(this@BookDetailActivity,
                             R.string.detail_synopsis_saved, Toast.LENGTH_SHORT).show()
@@ -247,112 +466,6 @@ class BookDetailActivity : AppCompatActivity() {
             }
         }
         dialog.show()
-    }
-
-    /** Read the saved book argument instantly without calling an AI provider again. */
-    private fun showSavedSynopsis() {
-        val current = book ?: return
-        val saved = savedSynopsis ?: return
-        if (current.id != saved.bookId || saved.text.isBlank()) return
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density + .5f).toInt()
-        val maxHeight = (resources.displayMetrics.heightPixels * .64f).toInt()
-        val modalText = TextView(this).apply {
-            text = saved.text
-            textSize = 16f
-            typeface = android.graphics.Typeface.SERIF
-            setLineSpacing(dp(4).toFloat(), 1.1f)
-            setTextColor(getColor(R.color.bia_text))
-            setTextIsSelectable(true)
-            setPadding(dp(20), dp(14), dp(20), dp(18))
-        }
-        val scroll = object : ScrollView(this) {
-            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                super.onMeasure(widthMeasureSpec,
-                    View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST))
-            }
-        }.apply {
-            isFillViewport = false
-            addView(modalText)
-        }
-        val dialogContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val editButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = getString(R.string.detail_synopsis_edit)
-            isAllCaps = false
-            minHeight = dp(44)
-            setTextColor(getColor(R.color.bia_text))
-        }
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(12), dp(8), dp(12), 0)
-        }
-        actions.addView(editButton, LinearLayout.LayoutParams(
-            0, dp(48), 1f
-        ))
-        val deleteButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = getString(R.string.detail_synopsis_delete)
-            isAllCaps = false
-            minHeight = dp(48)
-            setTextColor(getColor(R.color.bia_text))
-        }
-        actions.addView(deleteButton, LinearLayout.LayoutParams(
-            0, dp(48), 1f
-        ).apply { marginStart = dp(8) })
-        dialogContent.addView(actions)
-        dialogContent.addView(scroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ai_book_overview)
-            .setView(dialogContent)
-            .setNegativeButton("Cerrar", null)
-            .setNeutralButton(R.string.detail_synopsis_copy) { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Argumento · " + current.title, saved.text))
-            }
-            .setPositiveButton(R.string.detail_synopsis_export) { _, _ ->
-                // Android's system document picker offers local storage, Drive
-                // and any provider selected by the user; no OAuth inside the app.
-                pendingSynopsisExport = "Argumento de: " + current.title + "\n" +
-                    "Autor: " + (current.authors ?: "No indicado") + "\n\n" +
-                    saved.text + "\n\n" + getString(
-                        if (saved.provider == "manual") R.string.detail_synopsis_manual_source
-                        else R.string.detail_synopsis_ai_source
-                    )
-                val safeTitle = current.title
-                    .replace(Regex("""[^\p{L}\p{N}_\- ]"""), "")
-                    .trim().take(60).ifBlank { "Libro" }
-                exportSynopsisLauncher.launch("Argumento - " + safeTitle + ".txt")
-            }
-            .show()
-        editButton.setOnClickListener { dialog.dismiss(); editSynopsis(saved) }
-        deleteButton.setOnClickListener {
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.detail_synopsis_delete_title)
-                .setMessage(R.string.detail_synopsis_delete_message)
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .setPositiveButton(R.string.detail_synopsis_delete) { _, _ ->
-                    lifecycleScope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                db.synopsisDao().deleteByBook(current.id)
-                            }
-                            savedSynopsis = null
-                            renderSynopsisAction(current.id)
-                            dialog.dismiss()
-                            Toast.makeText(this@BookDetailActivity,
-                                R.string.detail_synopsis_deleted, Toast.LENGTH_SHORT).show()
-                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            Toast.makeText(this@BookDetailActivity,
-                                R.string.detail_synopsis_delete_failed, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-                .show()
-        }
     }
 
     /** Revinculación by hash, never by filename. Preserve the user's metadata. */
@@ -506,7 +619,8 @@ class BookDetailActivity : AppCompatActivity() {
                 book = loaded
                 savedSynopsis = db.synopsisDao().byBook(loaded.id)
                 show(loaded)
-                renderSynopsisAction(loaded.id)
+                renderSynopsisSection(loaded.id)
+                renderSynopsisStatus(loaded.id)
                 showAssignments(loaded.id)
             }
         }

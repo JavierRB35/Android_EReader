@@ -134,6 +134,33 @@ class MobiReadingJourneyDeviceTest {
                 .any { text.getSpanStart(it) <= start && text.getSpanEnd(it) >= end }
     }
 
+    @Test fun adjustsFontRepeatedlyWithoutReopeningMenu() {
+        val id = UUID.randomUUID().toString()
+        val file = fixture("Tamaño de lectura")
+        val prefs = context.getSharedPreferences("mobi_reader", android.content.Context.MODE_PRIVATE)
+        val original = prefs.all["size"] as? Float
+        prefs.edit().putFloat("size", 20f).commit()
+        setup(id, file)
+        var activity: MobiReaderActivity? = null
+        try {
+            val opened = open(id)
+            activity = opened
+            val reader = requireNotNull(findScroll(opened)).getChildAt(0) as TextView
+            val before = reader.textSize
+            onView(withText("Aa")).perform(click())
+            repeat(2) { onView(withText(R.string.reader_font_increase)).inRoot(isDialog()).perform(click()) }
+            assertEquals(24f, prefs.getFloat("size", 20f), .01f)
+            assertTrue(reader.textSize > before)
+            onView(withText(R.string.reader_font_decrease)).inRoot(isDialog()).perform(click())
+            assertEquals(22f, prefs.getFloat("size", 20f), .01f)
+            onView(withText(R.string.reader_settings_done)).inRoot(isDialog()).perform(click())
+        } finally {
+            activity?.let(::finish)
+            if (original == null) prefs.edit().remove("size").commit() else prefs.edit().putFloat("size", original).commit()
+            file.delete()
+        }
+    }
+
     @Test fun annotationPaintsInBookAndSurvivesReopenWithIndependentPositions() {
         val a = UUID.randomUUID().toString()
         val b = UUID.randomUUID().toString()

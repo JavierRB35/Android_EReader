@@ -1,6 +1,7 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
 import com.javierrb35.bibliotecaia.R
+import com.javierrb35.bibliotecaia.reader.ReaderPalette
 
 import android.content.Context
 import android.content.Intent
@@ -413,25 +414,41 @@ class MobiReaderActivity : AppCompatActivity() {
             }.setNegativeButton("Cancelar", null).show()
     }
     private fun settings() {
-        val options = arrayOf("Letra más grande", "Letra más pequeña", "OLED", "Oscuro", "Sepia", "Claro")
-        MaterialAlertDialogBuilder(this).setTitle("Lectura").setItems(options) { _, which ->
-            val at = visibleOffset()
-            if (which < 2) preferences.edit().putFloat("size",
-                (preferences.getFloat("size", 20f) + if (which == 0) 2 else -2).coerceIn(14f, 36f)).apply()
-            else preferences.edit().putInt("theme", which - 2).apply()
-            applySettings()
-            if (loaded) showChunk(at)
-        }.show()
+        val at = visibleOffset()
+        val options = arrayOf(getString(R.string.reader_font_increase), getString(R.string.reader_font_decrease),
+            "OLED", "Oscuro", "Sepia", "Claro")
+        fun sizeTitle() = getString(R.string.reader_font_sp, preferences.getFloat("size", 20f).toInt())
+        val dialog = MaterialAlertDialogBuilder(this).setTitle(sizeTitle())
+            .setItems(options, null).setNegativeButton(R.string.reader_settings_done, null).show()
+        dialog.listView?.setOnItemClickListener { _, _, which, _ ->
+            if (which < 2) {
+                val old = preferences.getFloat("size", 20f)
+                val next = (old + if (which == 0) 2 else -2).coerceIn(14f, 36f)
+                if (next != old) {
+                    preferences.edit().putFloat("size", next).apply()
+                    applySettings()
+                    if (loaded) showChunk(at)
+                }
+                dialog.setTitle(sizeTitle())
+            } else {
+                dialog.dismiss()
+                preferences.edit().putInt("theme", which - 2).apply()
+                applySettings()
+                if (loaded) showChunk(at)
+            }
+        }
     }
     private fun applySettings() {
         val theme = preferences.getInt("theme", 0).coerceIn(0, 3)
-        val backgrounds = intArrayOf(Color.BLACK, 0xff191b1d.toInt(), 0xfff4e7ce.toInt(), 0xfffaf9f5.toInt())
-        val foreground = if (theme < 2) 0xffe8dfce.toInt() else 0xff302a24.toInt()
-        root.setBackgroundColor(backgrounds[theme]); content.setTextColor(foreground); status.setTextColor(foreground)
+        val palette = ReaderPalette.at(theme)
+        root.setBackgroundColor(palette.background)
+        content.setTextColor(palette.foreground)
+        status.setTextColor(palette.foreground)
+        palette.applyChrome(toolbar)
+        palette.applyChrome(noteRow)
         content.setHighlightColor(if (theme < 2) 0x66D4B483 else 0x55C7A264)
         content.textSize = preferences.getFloat("size", 20f)
-        window.statusBarColor = backgrounds[theme]; window.navigationBarColor = backgrounds[theme]
-        window.decorView.systemUiVisibility = if (theme >= 2) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
+        palette.applySystemBars(window)
     }
     private fun button(label: String, action: () -> Unit) =
         com.google.android.material.button.MaterialButton(this).apply {

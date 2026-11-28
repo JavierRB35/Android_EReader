@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_font_percent">Tu lectura · letra %1$d %%</string>
+    <string name="reader_font_sp">Lectura · letra %1$d sp</string>
+    <string name="reader_font_increase">Letra más grande</string>
+    <string name="reader_font_decrease">Letra más pequeña</string>
+    <string name="reader_settings_done">Cerrar</string>
+</resources>

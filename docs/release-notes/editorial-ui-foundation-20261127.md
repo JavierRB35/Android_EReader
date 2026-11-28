@@ -1,0 +1,5 @@
+- Identidad editorial aplicada a toda la app: botones con acento dorado, radio 10 dp y área táctil mínima de 48 dp; diálogos (Material y AppCompat) sobre superficie grafito cálida con texto principal y título editorial.
+- Barra de navegación inferior compacta y flexible: altura mínima de 64 dp, iconos de 24 dp, etiquetas de 12 sp con hasta dos líneas e importación de 32 dp con área táctil completa.
+- Campo de búsqueda con radio 12 dp, borde interactivo #777168 y foco dorado; chips de filtro sin cambios funcionales.
+- Escala tipográfica editorial (serif del sistema para títulos, sans-serif funcional) y dimensiones comunes centralizadas (margen 16 dp, 12 dp en pantallas de 320 dp) como base de los próximos incrementos del rediseño.
+- Sin cambios de funcionalidad, datos ni preferencias de lectura.
