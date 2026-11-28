@@ -16,6 +16,7 @@ import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -324,6 +325,22 @@ class AutoCatalogEngineTest {
         assertFalse(old.explicit)
         val explicit = AutoCatalogQueue.Request(false, listOf("book"), true)
         assertEquals(explicit, AutoCatalogQueue.Request.decode(explicit.encode()))
+    }
+
+
+    @Test fun explicitSubmissionSurvivesCancelledScreenWaiter() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val bookId = UUID.randomUUID().toString()
+        val submission = AutoCatalogQueue.submitExplicit(context, bookId)
+        val screen = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job() + kotlinx.coroutines.Dispatchers.Default)
+        val waiter = screen.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { submission.await() }
+        waiter.cancel()
+        waiter.join()
+        val workId = kotlinx.coroutines.withTimeout(10000) { submission.await() }
+        val manager = androidx.work.WorkManager.getInstance(context)
+        val info = manager.getWorkInfoById(workId).get(10, java.util.concurrent.TimeUnit.SECONDS)
+        assertNotNull(info)
+        assertTrue(info!!.tags.contains(AutoCatalogQueue.explicitTag(bookId)))
     }
 
 }

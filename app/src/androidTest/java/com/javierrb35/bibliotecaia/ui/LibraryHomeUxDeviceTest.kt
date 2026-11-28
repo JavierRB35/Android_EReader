@@ -77,13 +77,14 @@ class LibraryHomeUxDeviceTest {
                 val adapter = BookAdapter(onLongClick = { longPressed = it.id }) {}
                 val parent = androidx.recyclerview.widget.RecyclerView(activity)
                 adapter.submit(listOf(book, other))
-                for (grid in listOf(true, false)) {
+                for (mode in LibraryViewMode.entries) {
+                    val grid = mode == LibraryViewMode.GRID
                     adapter.showSelection(emptySet())
                     longPressed = ""
                     parent.layoutManager = if (grid)
                         androidx.recyclerview.widget.GridLayoutManager(activity, 2)
                     else androidx.recyclerview.widget.LinearLayoutManager(activity)
-                    adapter.grid = grid
+                    adapter.mode = mode
                     val holder = adapter.onCreateViewHolder(parent, adapter.getItemViewType(0))
                     adapter.onBindViewHolder(holder, 0)
                     val card = holder.itemView as com.google.android.material.card.MaterialCardView
@@ -213,8 +214,19 @@ class LibraryHomeUxDeviceTest {
                 val before = switcher.contentDescription.toString()
                 switcher.performClick()
                 assertNotEquals(before, switcher.contentDescription.toString())
+                val second = switcher.contentDescription.toString()
+                switcher.performClick()
+                assertNotEquals(before, switcher.contentDescription.toString())
+                assertNotEquals(second, switcher.contentDescription.toString())
                 switcher.performClick()
                 assertEquals(before, switcher.contentDescription.toString())
+                val controls = activity.findViewById<ImageButton>(R.id.btnLibraryControls)
+                controls.performClick()
+                assertEquals(android.view.View.GONE, activity.findViewById<android.view.View>(R.id.libraryQuickActions).visibility)
+                assertEquals(android.view.View.GONE, activity.findViewById<android.view.View>(R.id.librarySearchControls).visibility)
+                org.junit.Assert.assertTrue(switcher.isShown)
+                controls.performClick()
+                org.junit.Assert.assertTrue(activity.findViewById<android.view.View>(R.id.txtSearch).isShown)
             }
         } finally {
             scenario.close()

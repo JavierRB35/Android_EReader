@@ -68,8 +68,11 @@ class BookAdapter(
 
     private fun variants(book: BookEntity) = editions[book.id].orEmpty().ifEmpty { listOf(book) }
 
-    var grid: Boolean = true
+    internal var mode: LibraryViewMode = LibraryViewMode.GRID
         set(value) { if (field != value) { field = value; notifyDataSetChanged() } }
+    var grid: Boolean
+        get() = mode == LibraryViewMode.GRID
+        set(value) { mode = if (value) LibraryViewMode.GRID else LibraryViewMode.CARDS }
 
     fun submit(books: List<BookEntity>, alternatives: Map<String, List<BookEntity>> = emptyMap()) {
         if (items == books && editions == alternatives) return
@@ -106,9 +109,13 @@ class BookAdapter(
         var coverRefreshPending = false
     }
 
-    override fun getItemViewType(position: Int) = if (grid) 1 else 0
+    override fun getItemViewType(position: Int) = mode.ordinal
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(
-        LayoutInflater.from(parent.context).inflate(if (viewType == 1) R.layout.item_book else R.layout.item_book_list, parent, false),
+        LayoutInflater.from(parent.context).inflate(when (LibraryViewMode.entries[viewType]) {
+            LibraryViewMode.GRID -> R.layout.item_book
+            LibraryViewMode.CARDS -> R.layout.item_book_list
+            LibraryViewMode.COMPACT -> R.layout.item_book_compact
+        }, parent, false),
         parent.findViewTreeLifecycleOwner()?.lifecycleScope
     )
     override fun getItemCount() = items.size

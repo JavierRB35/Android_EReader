@@ -69,6 +69,7 @@ class BookDetailActivity : AppCompatActivity() {
     private var synopsisExpanded = false
     private var classificationWork: java.util.UUID? = null
     private var classificationEnqueuing = false
+    private var lastFinishedClassification: java.util.UUID? = null
     private var pendingSynopsisExport: String? = null
     private val exportSynopsisLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -147,6 +148,20 @@ class BookDetailActivity : AppCompatActivity() {
         savedInstanceState?.getString("classification_work")?.let { raw ->
             runCatching { java.util.UUID.fromString(raw) }.getOrNull()?.let { observeClassification(it) }
         }
+        androidx.work.WorkManager.getInstance(applicationContext)
+            .getWorkInfosByTagLiveData(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.explicitTag(bookId))
+            .observe(this) { works ->
+                val active = works.firstOrNull { !it.state.isFinished }
+                if (active != null && classificationWork == null && !classificationEnqueuing) {
+                    observeClassification(active.id)
+                }
+                val finished = works.filter { it.state.isFinished }
+                    .maxByOrNull { com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.order(it) }
+                if (finished != null && finished.id != lastFinishedClassification) {
+                    lastFinishedClassification = finished.id
+                    if (classificationWork == null && !classificationEnqueuing) load(bookId)
+                }
+            }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
         }
@@ -166,23 +181,7 @@ class BookDetailActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        intent.getStringExtra(EXTRA_BOOK_ID)?.let { id ->
-            load(id)
-            if (classificationWork == null && !classificationEnqueuing) {
-                lifecycleScope.launch {
-                    val active = withContext(Dispatchers.IO) {
-                        runCatching {
-                            androidx.work.WorkManager.getInstance(applicationContext)
-                                .getWorkInfosByTag(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.explicitTag(id))
-                                .get().firstOrNull { !it.state.isFinished }
-                        }.getOrNull()
-                    }
-                    if (active != null && classificationWork == null && !classificationEnqueuing) {
-                        observeClassification(active.id)
-                    }
-                }
-            }
-        }
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
     }
 
     /** The same persistent catalogue engine as bulk classification, limited to this book. */
@@ -199,18 +198,19 @@ class BookDetailActivity : AppCompatActivity() {
         }
         classificationEnqueuing = true
         renderClassificationButton()
+        // Application-owned submission is started before the screen's observer.
+        val submission = com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.submitExplicit(
+            applicationContext, current.id)
         lifecycleScope.launch {
             try {
-                val work = com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
-                    applicationContext, all = false, ids = listOf(current.id), explicit = true)
-                observeClassification(work)
+                observeClassification(submission.await())
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 Toast.makeText(this@BookDetailActivity, R.string.detail_classify_failed, Toast.LENGTH_LONG).show()
             } finally {
                 classificationEnqueuing = false
-                renderClassificationButton()
+                if (!isDestroyed) renderClassificationButton()
             }
         }
     }
