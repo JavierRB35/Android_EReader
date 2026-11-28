@@ -233,9 +233,9 @@ class BookDetailActivity : AppCompatActivity() {
             classificationWork = null
             renderClassificationButton()
             val message = when (info.outputData.getString("classification_result")) {
-                "CLASSIFIED" -> R.string.detail_classify_success
-                "REVIEW" -> R.string.detail_classification_review
-                "PENDING" -> R.string.detail_classify_insufficient
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_CLASSIFIED -> R.string.detail_classify_success
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_REVIEW -> R.string.detail_classification_review
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_PENDING -> R.string.detail_classify_insufficient
                 else -> R.string.detail_classify_failed
             }
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
