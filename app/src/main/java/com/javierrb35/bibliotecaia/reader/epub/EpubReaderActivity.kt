@@ -134,6 +134,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeRestoreTarget: String? = null
     private var nativeMoved = false
     private var readiumMoved = false
+    private var readiumNavigationArmed = false
     @Volatile private var lastQueuedLocator: String? = null
     @Volatile private var positionWriteRevision = 0L
     private var lastNativeReadiumKey: String? = null
@@ -243,7 +244,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                             positionLabel.text = "${((locator.locations.totalProgression ?: 0.0) * 100).toInt()} %"
                             // Do not manufacture a newer position merely by opening
                             // a book on another screen. Save subsequent navigation.
-                            if (previous != null && previous != locator) readiumMoved = true
+                            if (readiumNavigationArmed && previous != null && previous != locator) readiumMoved = true
                             if (!readiumMoved) return@collect
                             pendingSave?.cancel()
                             pendingSave = lifecycleScope.launch {
@@ -257,8 +258,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 }
                 launch {
                     repository.observeAnnotations(bookId).collect { saved ->
+                        val changed = annotations != saved
                         annotations = saved
-                        if (nativeMode && nativeChapter != null) paintNativeMarks()
+                        if (changed && nativeMode && nativeChapter != null) paintNativeMarks()
                         fragment.applyDecorations(EpubAnnotationMarks.forReadium(saved), "annotations")
                         if (!nativeMode) {
                             lastNativeReadiumKey = null
@@ -520,6 +522,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             saveNativePosition(visibleNativeOffset())
         }
         nativeMode = enabled
+        readiumNavigationArmed = false
+        readiumMoved = false
+        pendingSave?.cancel()
         if (!enabled) lastNativeReadiumKey = null
         else nativeReadiumRefresh?.cancel()
         preferences.edit().putBoolean("native_selection", enabled).apply()
@@ -818,6 +823,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             pub.readingOrder.map { it.url().toString() },
             latest?.href?.toString(), direction
         ) ?: return
+        readiumNavigationArmed = true
         navigator?.go(pub.readingOrder[target])
     }
 
@@ -840,15 +846,22 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             })
         private var captured = false
         private var firstDownX = 0f
+        private var firstDownY = 0f
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             if (nativeMode || readiumSelectionActive) {
                 horizontal.cancel()
                 return super.dispatchTouchEvent(event)
             }
+            if (event.actionMasked == MotionEvent.ACTION_MOVE && event.pointerCount == 1 &&
+                (kotlin.math.abs(event.x - firstDownX) > ViewConfiguration.get(context).scaledTouchSlop ||
+                    kotlin.math.abs(event.y - firstDownY) > ViewConfiguration.get(context).scaledTouchSlop)) {
+                readiumNavigationArmed = true
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     horizontal.down(event.x, event.y)
                     firstDownX = event.x
+                    firstDownY = event.y
                     captured = false
                 }
                 MotionEvent.ACTION_MOVE -> if (scroll &&
@@ -1018,7 +1031,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                 it.url().toString().substringBefore('#') == selectedHref
             }
             if (nativeMode && chapter >= 0) showNativeChapter(chapter)
-            else navigator?.go(selected)
+            else {
+                readiumNavigationArmed = true
+                navigator?.go(selected)
+            }
         }.setNegativeButton("Cerrar", null).show()
     }
 
@@ -1060,7 +1076,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                     // native anchor even from Maquetación.
                                     if (!nativeMode) setNativeMode(true)
                                     showNativeChapter(chapterIndex, point.offset)
-                                } else parseLocator(note.locator)?.let { navigator?.go(it) }
+                                } else parseLocator(note.locator)?.let {
+                                    readiumNavigationArmed = true
+                                    navigator?.go(it)
+                                }
                             }
                             1 -> if (note.kind == "HIGHLIGHT") {
                                 lifecycleScope.launch {
@@ -1119,7 +1138,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                 }
                                 if (nativeMode && chapter >= 0)
                                     showNativeChapter(chapter, findQuote = result.text.highlight)
-                                else navigator?.go(result)
+                                else {
+                                    readiumNavigationArmed = true
+                                    navigator?.go(result)
+                                }
                             }.setNegativeButton("Cerrar", null).show()
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) { toast(error.message ?: "La búsqueda no se ha podido completar.") }
@@ -1333,7 +1355,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         val locator = if (nativeMode) {
             if (nativeRestoring) nativeRestoreTarget ?: lastQueuedLocator
             else nativeLocator(visibleNativeOffset(), "")
-        } else latest?.toJSON()?.toString()
+        } else if (readiumMoved) latest?.toJSON()?.toString() else lastQueuedLocator
         locator?.let { outState.putString(LOCATION, it) }
         super.onSaveInstanceState(outState)
     }
@@ -1378,6 +1400,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)
         }
         readiumMoved = false
+        readiumNavigationArmed = false
         super.onStop()
     }
     private suspend fun persist(locator: Locator) {
