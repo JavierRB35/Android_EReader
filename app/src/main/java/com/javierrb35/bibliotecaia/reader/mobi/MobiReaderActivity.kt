@@ -2,6 +2,7 @@ package com.javierrb35.bibliotecaia.reader.mobi
 
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.reader.ReaderPalette
+import com.javierrb35.bibliotecaia.ui.EditorialTypeface
 
 import android.content.Context
 import android.content.Intent
@@ -119,7 +120,7 @@ class MobiReaderActivity : AppCompatActivity() {
         root.addView(status)
         content = TextView(this).apply {
             setPadding(dp(24), dp(16), dp(24), dp(32))
-            typeface = Typeface.create("serif", Typeface.NORMAL)
+            typeface = EditorialTypeface.serif(context)
             setLineSpacing(dp(5).toFloat(), 1.15f)
             setTextIsSelectable(true)
 

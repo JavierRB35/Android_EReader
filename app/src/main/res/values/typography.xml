@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Incremento 1 — tipografía editorial (DEC-003): serif del sistema para títulos
-         editoriales y sans-serif funcional para el resto, sin fuentes embebidas.
+    <!-- Refinamiento #154: Inter local para interfaz; títulos Literata en EditorialTextView.
          Las alturas de línea se expresan como lineSpacingExtra sobre el tamaño base. -->
     <style name="TextAppearance.BibliotecaIA" parent="android:TextAppearance.DeviceDefault">
-        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:fontFamily">@font/inter</item>
         <item name="android:textColor">@color/bia_text</item>
         <item name="android:textStyle">normal</item>
     </style>
@@ -28,7 +27,7 @@
     </style>
     <!-- Acción: sans-serif-medium 14sp/20sp, 500. -->
     <style name="TextAppearance.BibliotecaIA.Action">
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/inter</item>
         <item name="android:textSize">14sp</item>
         <item name="android:lineSpacingExtra">6sp</item>
     </style>
@@ -55,6 +54,7 @@
          porque el layout de diálogo toma de este estilo los layout_width/height
          obligatorios; sobrescribir sin ese padre rompe la inflación de m3_alert_dialog. -->
     <style name="TextAppearance.BibliotecaIA.DialogTitle" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:fontFamily">@font/inter</item>
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:lineSpacingExtra">6sp</item>

@@ -22,3 +22,6 @@ Primer incremento registrado en #154: ajustes repetidos, paleta y barras, contro
 
 ## Segundo incremento en la misma rama
 Recursos: superficies tonales y radios compartidos, splash cálido sin modificar símbolo violeta ni launcher, vector de importar, tarjeta de portada con borde redondeado y escala tipográfica 11sp mínima en tarjetas existentes. Se conserva fitCenter, identificadores de vistas y sombreado de selección. La rejilla dinámica 2:3 y adaptación del tercer modo se coordinan con #164; no cambiar su rama. Pendientes: resto de tipografía y glifos dispersos, fuentes embebidas con licencia y compatibilidad del lector, animaciones (baja prioridad). No afirmar entrega completa hasta gates y verificación.
+
+## Tercer incremento
+Inter y Literata originales, OFL 1.1, empaquetadas sin red; Literata en EPUB nativo/Readium y MOBI, títulos editoriales seleccionados, Inter en sistema visual. Se mantiene serif/sans y se reutiliza el asset de lectura. Vector de volver en EPUB. Fuentes: [procedencia y peso](font-sources.md). La aplicación real de fuentes y tamaño final de APK requieren CI; pruebas físicas pendientes. No modificar layouts reservados de #164 o #153.

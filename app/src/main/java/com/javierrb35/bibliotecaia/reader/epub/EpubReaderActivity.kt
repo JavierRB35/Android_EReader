@@ -28,6 +28,8 @@ import android.view.ViewTreeObserver
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.javierrb35.bibliotecaia.reader.ReaderPalette
+import com.javierrb35.bibliotecaia.ui.EditorialTypeface
+import org.readium.r2.navigator.epub.css.FontStyle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withResumed
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -178,7 +180,20 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         initialLocator = initial, initialPreferences = readerPreferences(), listener = this@EpubReaderActivity,
                         configuration = EpubNavigatorFragment.Configuration(
                             selectionActionModeCallback = selectionCallback
-                        )
+                        ).apply {
+                            addFontFamilyDeclaration(FontFamily("Literata"), listOf(FontFamily("serif"))) {
+                                addFontFace {
+                                    addSource(EditorialTypeface.REGULAR)
+                                    setFontWeight(200..900)
+                                    setFontStyle(FontStyle.NORMAL)
+                                }
+                                addFontFace {
+                                    addSource(EditorialTypeface.ITALIC)
+                                    setFontWeight(200..900)
+                                    setFontStyle(FontStyle.ITALIC)
+                                }
+                            }
+                        }
                     )
                     val created = supportFragmentManager.fragmentFactory.instantiate(classLoader, EpubNavigatorFragment::class.java.name)
                         as EpubNavigatorFragment
@@ -291,8 +306,12 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(14.dp, 8.dp, 16.dp, 3.dp)
         }
-        heading.addView(button("‹") { finish() }.apply {
-            textSize = 27f
+        heading.addView(button("") { finish() }.apply {
+            setIconResource(R.drawable.ic_editorial_back)
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            iconSize = 24.dp
+            iconPadding = 0
+            setPadding(0, 0, 0, 0)
             contentDescription = "Volver a la biblioteca"
             minimumWidth = 46.dp
             minWidth = 46.dp
@@ -311,7 +330,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         readerBookTitle = TextView(this).apply {
             text = "Tu lectura"
             textSize = 19f
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setTextColor(getColor(R.color.bia_text))
@@ -359,7 +378,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setTextIsSelectable(true)
             isLongClickable = true
             setHighlightColor(0x66D4B483)
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             setLineSpacing(6.dp.toFloat(), 1.1f)
             textSize = 22f
         }
@@ -386,7 +405,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         positionLabel = TextView(this).apply {
             text = "0 %"
             textSize = 16f
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             gravity = Gravity.CENTER
             setTextColor(getColor(R.color.bia_text))
             maxLines = 1
@@ -961,7 +980,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         val (background, text) = palette()
         return EpubPreferences(backgroundColor = ReaderColor(background), textColor = ReaderColor(text),
             theme = if (themeIndex <= 1) Theme.DARK else if (themeIndex == 2) Theme.SEPIA else Theme.LIGHT,
-            fontSize = fontScale.toDouble(), fontFamily = FontFamily(if (serif) "serif" else "sans-serif"),
+            fontSize = fontScale.toDouble(), fontFamily = FontFamily(if (serif) "Literata" else "sans-serif"),
             publisherStyles = false, lineHeight = 1.55, pageMargins = 1.2, scroll = scroll)
     }
 
@@ -974,7 +993,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeText.setTextColor(text)
         nativeText.setHighlightColor(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
-        nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
+        nativeText.typeface = if (serif) EditorialTypeface.serif(this) else Typeface.SANS_SERIF
         val palette = ReaderPalette.at(themeIndex)
         palette.applyChrome(controls)
         palette.applyChrome(footer)
@@ -985,7 +1004,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private fun settings() {
         val anchor = if (nativeMode && !nativeRestoring) visibleNativeOffset() else null
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.reader_font_percent, (fontScale * 100).toInt()))
+            .setTitle(getString(R.string.reader_font_percent, kotlin.math.round(fontScale * 100).toInt()))
             .setItems(arrayOf(
                 "Tema: ${arrayOf("OLED", "Oscuro", "Sepia", "Claro")[themeIndex]}",
                 getString(R.string.reader_font_increase), getString(R.string.reader_font_decrease),

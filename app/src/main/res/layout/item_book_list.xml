@@ -6,7 +6,7 @@
         <FrameLayout android:layout_width="78dp" android:layout_height="117dp" android:background="@drawable/bg_premium_cover" android:clipToOutline="true">
             <LinearLayout android:id="@+id/coverFallback" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:orientation="vertical" android:gravity="center" android:padding="3dp" android:importantForAccessibility="noHideDescendants">
-                <TextView android:id="@+id/txtCoverTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                <com.javierrb35.bibliotecaia.ui.EditorialTextView android:id="@+id/txtCoverTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:fontFamily="serif" android:textSize="12sp" android:textColor="@color/bia_text" android:gravity="center" android:maxLines="4" android:ellipsize="end"/>
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp"
                     android:text="@string/bia_no_cover" android:textColor="@color/bia_text_secondary" android:textAppearance="@style/TextAppearance.BibliotecaIA.Overline"/>
