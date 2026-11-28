@@ -166,7 +166,23 @@ class BookDetailActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { id ->
+            load(id)
+            if (classificationWork == null && !classificationEnqueuing) {
+                lifecycleScope.launch {
+                    val active = withContext(Dispatchers.IO) {
+                        runCatching {
+                            androidx.work.WorkManager.getInstance(applicationContext)
+                                .getWorkInfosByTag(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.explicitTag(id))
+                                .get().firstOrNull { !it.state.isFinished }
+                        }.getOrNull()
+                    }
+                    if (active != null && classificationWork == null && !classificationEnqueuing) {
+                        observeClassification(active.id)
+                    }
+                }
+            }
+        }
     }
 
     /** The same persistent catalogue engine as bulk classification, limited to this book. */
