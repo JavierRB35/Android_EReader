@@ -69,6 +69,7 @@ class BookDetailActivity : AppCompatActivity() {
     private var synopsisExpanded = false
     private var classificationWork: java.util.UUID? = null
     private var classificationEnqueuing = false
+    private var lastFinishedClassification: java.util.UUID? = null
     private var pendingSynopsisExport: String? = null
     private val exportSynopsisLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -153,6 +154,12 @@ class BookDetailActivity : AppCompatActivity() {
                 val active = works.firstOrNull { !it.state.isFinished }
                 if (active != null && classificationWork == null && !classificationEnqueuing) {
                     observeClassification(active.id)
+                }
+                val finished = works.filter { it.state.isFinished }
+                    .maxByOrNull { com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.order(it) }
+                if (finished != null && finished.id != lastFinishedClassification) {
+                    lastFinishedClassification = finished.id
+                    if (classificationWork == null && !classificationEnqueuing) load(bookId)
                 }
             }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {

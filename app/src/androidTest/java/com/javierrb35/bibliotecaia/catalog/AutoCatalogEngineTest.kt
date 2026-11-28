@@ -333,13 +333,14 @@ class AutoCatalogEngineTest {
         val bookId = UUID.randomUUID().toString()
         val submission = AutoCatalogQueue.submitExplicit(context, bookId)
         val screen = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job() + kotlinx.coroutines.Dispatchers.Default)
-        val waiter = screen.launch { submission.await() }
+        val waiter = screen.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { submission.await() }
         waiter.cancel()
         waiter.join()
         val workId = kotlinx.coroutines.withTimeout(10000) { submission.await() }
         val manager = androidx.work.WorkManager.getInstance(context)
         val info = manager.getWorkInfoById(workId).get(10, java.util.concurrent.TimeUnit.SECONDS)
-        assertTrue(info.tags.contains(AutoCatalogQueue.explicitTag(bookId)))
+        assertNotNull(info)
+        assertTrue(info!!.tags.contains(AutoCatalogQueue.explicitTag(bookId)))
     }
 
 }

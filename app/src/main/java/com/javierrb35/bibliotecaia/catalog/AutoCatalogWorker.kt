@@ -93,35 +93,35 @@ internal object AutoCatalogQueue {
     suspend fun enqueue(context: Context, all: Boolean, ids: List<String>, explicit: Boolean = false): UUID =
         withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             enqueueMutex.withLock {
-            val app = context.applicationContext
-            require(all || ids.isNotEmpty()) { "No hay libros seleccionados." }
-            require(!explicit || (!all && ids.distinct().size == 1)) { "La clasificación explícita requiere un libro." }
-            val manager = WorkManager.getInstance(app)
-            val singleTag = if (explicit) explicitTag(ids.distinct().single()) else null
-            if (singleTag != null) {
-                manager.getWorkInfosByTag(singleTag).get().firstOrNull { !it.state.isFinished }
-                    ?.let { return@withLock it.id }
-            }
-            val work = OneTimeWorkRequestBuilder<AutoCatalogWorker>()
-                .addTag(TAG)
-                .apply { if (singleTag != null) addTag(singleTag) }
-                .addTag(TOTAL + (if (all) -1 else ids.size))
-                .addTag(ORDER + System.currentTimeMillis())
-                .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
-                .keepResultsForAtLeast(1, TimeUnit.DAYS)
-                .build()
-            val file = AtomicFile(requestFile(app, work.id))
-            val stream = file.startWrite()
-            try {
-                stream.write(Request(all, ids.distinct(), explicit).encode().toByteArray(Charsets.UTF_8))
-                file.finishWrite(stream)
-            } catch (e: Exception) {
-                file.failWrite(stream)
-                throw e
-            }
-            manager.enqueueUniqueWork(TAG, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
-                .result.get()
-            work.id
+                val app = context.applicationContext
+                require(all || ids.isNotEmpty()) { "No hay libros seleccionados." }
+                require(!explicit || (!all && ids.distinct().size == 1)) { "La clasificación explícita requiere un libro." }
+                val manager = WorkManager.getInstance(app)
+                val singleTag = if (explicit) explicitTag(ids.distinct().single()) else null
+                if (singleTag != null) {
+                    manager.getWorkInfosByTag(singleTag).get().firstOrNull { !it.state.isFinished }
+                        ?.let { return@withLock it.id }
+                }
+                val work = OneTimeWorkRequestBuilder<AutoCatalogWorker>()
+                    .addTag(TAG)
+                    .apply { if (singleTag != null) addTag(singleTag) }
+                    .addTag(TOTAL + (if (all) -1 else ids.size))
+                    .addTag(ORDER + System.currentTimeMillis())
+                    .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
+                    .keepResultsForAtLeast(1, TimeUnit.DAYS)
+                    .build()
+                val file = AtomicFile(requestFile(app, work.id))
+                val stream = file.startWrite()
+                try {
+                    stream.write(Request(all, ids.distinct(), explicit).encode().toByteArray(Charsets.UTF_8))
+                    file.finishWrite(stream)
+                } catch (e: Exception) {
+                    file.failWrite(stream)
+                    throw e
+                }
+                manager.enqueueUniqueWork(TAG, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+                    .result.get()
+                work.id
             }
         }
 
@@ -166,6 +166,10 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
         val db = AppDatabase.get(app)
         val request = AutoCatalogQueue.read(app, id)
         val books = scope(db, request)
+        if (request.explicit && books.isEmpty()) {
+            return@withContext Result.success(workDataOf(
+                "summary" to "El libro ya no está disponible.", "classification_result" to "FAILED"))
+        }
         val total = books.size
         var processed = 0
         var skipped = 0

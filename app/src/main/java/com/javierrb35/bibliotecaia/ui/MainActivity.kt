@@ -248,12 +248,16 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnAutoCatalog).setOnClickListener { promptAutoCatalogAll() }
         findViewById<View>(R.id.txtAutoCatalogProgress).setOnClickListener {
-            if (catalogHistory.isNotEmpty()) {
-                val details = catalogHistory.takeLast(10).asReversed().joinToString("\n\n") { work ->
+            val current = queuedCatalog
+            if (catalogHistory.isNotEmpty() || current != null) {
+                val history = catalogHistory.takeLast(10).asReversed().map { work ->
                     com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.LABEL + "\n" +
                         (work.outputData.getString("summary")
                             ?: "Catalogación interrumpida; vuelve a lanzarla para reanudar.")
                 }
+                val active = if (current != null && !current.state.isFinished)
+                    listOf(findViewById<TextView>(R.id.txtAutoCatalogProgress).text.toString()) else emptyList()
+                val details = (active + history).joinToString("\n\n")
                 com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.catalog_auto_history_title).setMessage(details)
                     .setPositiveButton("Cerrar", null).show()
