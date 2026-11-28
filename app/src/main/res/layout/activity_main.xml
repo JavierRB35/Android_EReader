@@ -179,6 +179,14 @@
             android:textAllCaps="false"
             android:visibility="gone" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAutoCatalog"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/catalog_auto_action"
+            android:textAllCaps="false" />
+
         </LinearLayout>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -257,6 +265,18 @@
             android:layout_height="wrap_content" android:text="Detener"/>
     </LinearLayout>
 
+    <LinearLayout android:id="@+id/autoCatalogProgress" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="horizontal"
+        android:paddingStart="16dp" android:paddingEnd="16dp" android:gravity="center_vertical"
+        android:visibility="gone">
+        <TextView android:id="@+id/txtAutoCatalogProgress" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1"
+            android:textColor="@color/bia_text" android:accessibilityLiveRegion="polite"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnCancelAutoCatalog"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="Detener"/>
+    </LinearLayout>
+
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_weight="1" android:paddingStart="16dp" android:paddingEnd="16dp">
         <ScrollView android:id="@+id/txtEmpty" android:layout_width="match_parent"
@@ -305,6 +325,10 @@
             style="@style/Widget.Material3.Button.TextButton" android:layout_width="0dp"
             android:layout_height="wrap_content" android:minHeight="48dp" android:layout_weight="1"
             android:textAllCaps="false" android:text="Retirar del dispositivo"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnBatchCatalog"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:minHeight="48dp" android:layout_weight="1"
+            android:textAllCaps="false" android:text="@string/catalog_auto_action"/>
     </LinearLayout>
 
     <!-- Normal navigation is restored when selection ends. -->

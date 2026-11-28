@@ -333,36 +333,124 @@
                 android:importantForAccessibility="no" />
         </LinearLayout>
 
-        <!-- Book argument action follows Organization as requested. -->
+        <!-- Argumento visible directamente en la ficha (#142): sin abrir diálogos.
+             Sin argumento guardado la sección cabe en una fila compacta para no
+             romper el contrato de ficha sin desplazamiento en teléfono pequeño. -->
         <LinearLayout
-            android:id="@+id/btnSynopsis"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:background="@drawable/bg_book_detail_row"
-            android:clickable="true"
-            android:focusable="true"
-            android:contentDescription="@string/detail_synopsis_add">
-            <TextView
-                android:id="@+id/txtSynopsisAction"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/detail_synopsis_add"
-                android:textColor="@color/bia_text"
-                android:textSize="14sp"
-                android:textStyle="bold"/>
+            android:orientation="horizontal">
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="›"
-                android:textColor="@color/bia_accent"
-                android:textSize="22sp"
-                android:importantForAccessibility="no"/>
+                android:text="@string/detail_synopsis_section"
+                android:textAllCaps="true"
+                android:letterSpacing="0.07"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="@color/bia_text" />
+
+            <TextView
+                android:id="@+id/txtSynopsisStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:gravity="end"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/bia_text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSynopsisObtain"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="40dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/detail_synopsis_obtain"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:textColor="@color/bia_accent" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnSynopsisBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textSize="14sp"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="6"
+            android:ellipsize="end"
+            android:textColor="@color/bia_text"
+            android:background="@drawable/bg_book_detail_row"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/detail_synopsis_section" />
+
+        <TextView
+            android:id="@+id/btnSynopsisExpand"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:gravity="center_vertical"
+            android:paddingStart="10dp"
+            android:text="@string/detail_synopsis_expand"
+            android:textSize="12sp"
+            android:textColor="@color/bia_accent"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/rowSynopsisActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSynopsisEdit"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="44dp"
+                android:text="@string/detail_synopsis_edit"
+                android:textAllCaps="false"
+                android:textColor="@color/bia_text" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSynopsisDelete"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="44dp"
+                android:text="@string/detail_synopsis_delete"
+                android:textAllCaps="false"
+                android:textColor="@color/bia_text" />
+
+            <TextView
+                android:id="@+id/btnSynopsisMore"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:gravity="center"
+                android:text="⋮"
+                android:textSize="24sp"
+                android:textColor="@color/bia_text_secondary"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/detail_synopsis_more" />
         </LinearLayout>
 
         <!-- Keep the reading actions at the bottom when the viewport is tall. -->

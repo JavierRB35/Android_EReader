@@ -38,6 +38,7 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 positions = dao.positionsAll(),
                 synopses = db.synopsisDao().all(),
                 deletedBooks = dao.deletedBooksAll(),
+                classifications = db.classificationDao().all(),
             )
         }
         return BackupCodec.toJson(snapshot, appVersion, exportedAt)
@@ -126,6 +127,9 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             require(snapshot.synopses.all { identity.book(it.bookId) in knownBooks }) {
                 "La copia contiene argumentos de libros desconocidos."
             }
+            require(snapshot.classifications.all { identity.book(it.bookId) in knownBooks }) {
+                "La copia contiene clasificaciones de libros desconocidos."
+            }
             require(snapshot.positions.all { identity.book(it.bookId) in knownBooks }) {
                 "La copia contiene posiciones de libros desconocidos."
             }
@@ -151,6 +155,17 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
                 if (existing != null && synopsis.provider == MetadataReconciler.IMPORTED_SYNOPSIS_PROVIDER) continue
                 if (existing == null || synopsis.generatedAt > existing.generatedAt)
                     db.synopsisDao().save(synopsis)
+            }
+
+            // Estado de catalogación (#142): aditivo al restaurar; al sincronizar gana
+            // la marca temporal más reciente (determinista en ambos dispositivos).
+            val classifications = snapshot.classifications
+                .map { it.copy(bookId = identity.book(it.bookId)) }
+            db.classificationDao().insertIgnore(classifications)
+            if (synchronize) for (classification in classifications) {
+                val existing = db.classificationDao().byBook(classification.bookId)
+                if (existing == null || classification.processedAt > existing.processedAt)
+                    db.classificationDao().save(classification)
             }
 
             val existingNotes = dao.annotationsAll().associateBy { it.id }
@@ -251,7 +266,8 @@ class BackupManager(private val db: AppDatabase, private val appVersion: String,
             annotations = snapshot.annotations.filterNot { it.id in notes },
             versions = snapshot.versions.filterNot { it.annotationId in notes },
             positions = snapshot.positions.filterNot { it.bookId in excluded },
-            synopses = snapshot.synopses.filterNot { it.bookId in excluded })
+            synopses = snapshot.synopses.filterNot { it.bookId in excluded },
+            classifications = snapshot.classifications.filterNot { it.bookId in excluded })
     }
 
     /**

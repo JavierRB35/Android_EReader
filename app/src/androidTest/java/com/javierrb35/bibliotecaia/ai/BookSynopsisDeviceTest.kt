@@ -2,14 +2,9 @@ package com.javierrb35.bibliotecaia.ai
 
 import android.content.Intent
 import android.view.View
+import android.widget.TextView
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withId
-import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.platform.app.InstrumentationRegistry
 import com.javierrb35.bibliotecaia.R
 import com.javierrb35.bibliotecaia.ui.BookDetailActivity
@@ -85,7 +80,9 @@ class BookSynopsisDeviceTest {
         }
         assertTrue(BackupCodec.fromJson(older.toString()).synopses.isEmpty())
     }
-    @Test fun storedSynopsisAppearsImmediatelyBelowBookTitleAndOpensWithoutAiRequest() {
+
+    /** Issue #142: el argumento guardado es texto visible en la ficha, sin abrir nada. */
+    @Test fun storedSynopsisIsVisibleDirectlyInTheSheetWithoutOpeningAnything() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val db = AppDatabase.get(context)
@@ -107,16 +104,19 @@ class BookSynopsisDeviceTest {
             repeat(80) {
                 instrumentation.waitForIdleSync()
                 instrumentation.runOnMainSync {
-                    shown = activity.findViewById<View>(R.id.btnSynopsis).visibility == View.VISIBLE
+                    val body = activity.findViewById<TextView>(R.id.btnSynopsisBody)
+                    shown = body.visibility == View.VISIBLE && body.text.toString() == summary
                 }
                 if (shown) return@repeat
                 Thread.sleep(70)
             }
-            assertTrue("The book synopsis access must appear at the top of details", shown)
-            onView(withId(R.id.btnSynopsis)).perform(click())
-            onView(withText(summary)).check(matches(isDisplayed()))
-            onView(withText(R.string.detail_synopsis_export)).check(matches(isDisplayed()))
-            onView(withText("Cerrar")).perform(click())
+            assertTrue("El argumento debe verse directamente bajo su encabezado", shown)
+            // La edición y el borrado están accesibles sin abrir ningún diálogo.
+            instrumentation.runOnMainSync {
+                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.btnSynopsisEdit).visibility)
+                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.btnSynopsisDelete).visibility)
+                assertEquals(View.GONE, activity.findViewById<View>(R.id.btnSynopsisObtain).visibility)
+            }
         } finally {
             instrumentation.runOnMainSync { activity.finish() }
             instrumentation.waitForIdleSync()

@@ -3,6 +3,7 @@ package com.javierrb35.bibliotecaia.backup
 import com.javierrb35.bibliotecaia.data.AnnotationEntity
 import com.javierrb35.bibliotecaia.data.AnnotationVersionEntity
 import com.javierrb35.bibliotecaia.data.BookCategoryCrossRef
+import com.javierrb35.bibliotecaia.data.BookClassificationEntity
 import com.javierrb35.bibliotecaia.data.BookSynopsisEntity
 import com.javierrb35.bibliotecaia.data.BookEntity
 import com.javierrb35.bibliotecaia.data.DeletedBookEntity
@@ -31,6 +32,8 @@ data class LibrarySnapshot(
     val positions: List<ReadingPositionEntity>,
     val synopses: List<BookSynopsisEntity> = emptyList(),
     val deletedBooks: List<DeletedBookEntity> = emptyList(),
+    /** Estado de catalogación automática (#142). Sección opcional del formato v2. */
+    val classifications: List<BookClassificationEntity> = emptyList(),
 )
 
 object BackupCodec {
@@ -52,7 +55,8 @@ object BackupCodec {
                     .put("annotations", snapshot.annotations.size)
                     .put("versions", snapshot.versions.size)
                     .put("positions", snapshot.positions.size)
-                    .put("synopses", snapshot.synopses.size))
+                    .put("synopses", snapshot.synopses.size)
+                    .put("classifications", snapshot.classifications.size))
         )
         root.put("books", JSONArray().apply { snapshot.books.forEach { put(bookJson(it)) } })
         root.put("categories", JSONArray().apply { snapshot.categories.forEach { put(categoryJson(it)) } })
@@ -65,6 +69,9 @@ object BackupCodec {
         root.put("annotationVersions", JSONArray().apply { snapshot.versions.forEach { put(versionJson(it)) } })
         root.put("readingPositions", JSONArray().apply { snapshot.positions.forEach { put(positionJson(it)) } })
         root.put("bookSynopses", JSONArray().apply { snapshot.synopses.forEach { put(synopsisJson(it)) } })
+        root.put("bookClassifications", JSONArray().apply {
+            snapshot.classifications.sortedBy { it.bookId }.forEach { put(classificationJson(it)) }
+        })
         root.put("deletedBooks", JSONArray().apply {
             snapshot.deletedBooks.sortedBy { it.contentHash }.forEach {
                 put(JSONObject().put("hash", it.contentHash).put("deletedAt", it.deletedAt))
@@ -91,6 +98,11 @@ object BackupCodec {
         .put("book_id", s.bookId).put("text", s.text)
         .put("provider", s.provider).put("generated_at", s.generatedAt)
         .put("spoiler_safe", s.spoilerSafe)
+
+    private fun classificationJson(c: BookClassificationEntity): JSONObject = JSONObject()
+        .put("book_id", c.bookId).put("status", c.status).put("basis", c.basis)
+        .put("provider", c.provider ?: JSONObject.NULL)
+        .put("processed_at", c.processedAt)
 
     private fun categoryJson(c: CategoryEntity): JSONObject = JSONObject()
         .put("id", c.id).put("name", c.name)
@@ -156,6 +168,11 @@ object BackupCodec {
             if (expectedSynopses >= 0 && root.optJSONArray("bookSynopses")?.length() != expectedSynopses) {
                 throw IllegalArgumentException("La copia contiene argumentos incompletos.")
             }
+            val expectedClassifications = counts.optInt("classifications", -1)
+            if (expectedClassifications >= 0 &&
+                root.optJSONArray("bookClassifications")?.length() != expectedClassifications) {
+                throw IllegalArgumentException("La copia contiene clasificaciones incompletas.")
+            }
             val expectedAnnotations = counts.optInt("annotations", -1)
             if (expectedAnnotations >= 0 && root.optJSONArray("annotations")?.length() != expectedAnnotations) {
                 throw IllegalArgumentException("La copia está incompleta (anotaciones declaradas: $expectedAnnotations).")
@@ -182,6 +199,8 @@ object BackupCodec {
                 require(Regex("[a-f0-9]{64}").matches(hash) && time > 0L) { "Baja de libro no válida." }
                 DeletedBookEntity(hash, time)
             },
+            // Sección opcional del formato v2: las copias antiguas no la incluyen.
+            classifications = root.optJSONArray("bookClassifications").mapList { classificationFrom(it) },
         )
     }
 
@@ -262,6 +281,20 @@ object BackupCodec {
         generatedAt = o.optLong("generated_at", 0L),
         spoilerSafe = o.optBoolean("spoiler_safe", true),
     )
+
+    private fun classificationFrom(o: JSONObject): BookClassificationEntity {
+        val status = o.getString("status")
+        val basis = o.getString("basis")
+        require(BookClassificationEntity.validStatus(status)) { "La copia contiene un estado de clasificación no válido." }
+        require(BookClassificationEntity.validBasis(basis)) { "La copia contiene una procedencia de clasificación no válida." }
+        return BookClassificationEntity(
+            bookId = safePathSegment(o.getString("book_id"), "identificador de clasificación"),
+            status = status,
+            basis = basis,
+            provider = if (o.isNull("provider")) null else o.optString("provider").take(32),
+            processedAt = o.optLong("processed_at", 0L),
+        )
+    }
 
     private fun positionFrom(o: JSONObject): ReadingPositionEntity = ReadingPositionEntity(
         bookId = o.getString("book_id"),

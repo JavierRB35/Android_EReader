@@ -17,6 +17,7 @@ object BookDeletion {
         dao.deleteBookTags(book.id)
         dao.deleteBookCollections(book.id)
         db.synopsisDao().deleteByBook(book.id)
+        db.classificationDao().deleteByBook(book.id)
         dao.deleteBookRow(book.id)
         return book
     }
