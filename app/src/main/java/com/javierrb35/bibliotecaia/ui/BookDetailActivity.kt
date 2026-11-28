@@ -67,6 +67,8 @@ class BookDetailActivity : AppCompatActivity() {
     private var book: BookEntity? = null
     private var savedSynopsis: BookSynopsisEntity? = null
     private var synopsisExpanded = false
+    private var classificationWork: java.util.UUID? = null
+    private var classificationEnqueuing = false
     private var pendingSynopsisExport: String? = null
     private val exportSynopsisLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -141,6 +143,10 @@ class BookDetailActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.btnDownloadCentral).setOnClickListener { downloadCentral() }
         findViewById<View>(R.id.btnEditMetadata).setOnClickListener { promptEditMetadata() }
+        findViewById<View>(R.id.btnClassifyBook).setOnClickListener { classifyBook() }
+        savedInstanceState?.getString("classification_work")?.let { raw ->
+            runCatching { java.util.UUID.fromString(raw) }.getOrNull()?.let { observeClassification(it) }
+        }
         findViewById<View>(R.id.btnEditCategories).setOnClickListener {
             promptAssignment(BookOrganizationEditor.Kind.CATEGORY)
         }
@@ -154,12 +160,87 @@ class BookDetailActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         pendingSynopsisExport?.let { outState.putString("synopsis_export_pending", it) }
+        classificationWork?.let { outState.putString("classification_work", it.toString()) }
         super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
         super.onResume()
-        intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
+        intent.getStringExtra(EXTRA_BOOK_ID)?.let { id ->
+            load(id)
+            if (classificationWork == null && !classificationEnqueuing) {
+                lifecycleScope.launch {
+                    val active = withContext(Dispatchers.IO) {
+                        runCatching {
+                            androidx.work.WorkManager.getInstance(applicationContext)
+                                .getWorkInfosByTag(com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.explicitTag(id))
+                                .get().firstOrNull { !it.state.isFinished }
+                        }.getOrNull()
+                    }
+                    if (active != null && classificationWork == null && !classificationEnqueuing) {
+                        observeClassification(active.id)
+                    }
+                }
+            }
+        }
+    }
+
+    /** The same persistent catalogue engine as bulk classification, limited to this book. */
+    private fun classifyBook() {
+        val current = book ?: return
+        if (classificationEnqueuing || classificationWork != null) return
+        val configured = com.javierrb35.bibliotecaia.ai.AiKeyStore.providers().any {
+            com.javierrb35.bibliotecaia.ai.AiKeyStore.getKey(this, it) != null
+        }
+        if (!configured) {
+            Toast.makeText(this, R.string.detail_classify_no_key, Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, com.javierrb35.bibliotecaia.ai.AiSetupActivity::class.java))
+            return
+        }
+        classificationEnqueuing = true
+        renderClassificationButton()
+        lifecycleScope.launch {
+            try {
+                val work = com.javierrb35.bibliotecaia.catalog.AutoCatalogQueue.enqueue(
+                    applicationContext, all = false, ids = listOf(current.id), explicit = true)
+                observeClassification(work)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(this@BookDetailActivity, R.string.detail_classify_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                classificationEnqueuing = false
+                renderClassificationButton()
+            }
+        }
+    }
+
+    private fun renderClassificationButton() {
+        findViewById<TextView>(R.id.btnClassifyBook).apply {
+            val busy = classificationEnqueuing || classificationWork != null
+            isEnabled = !busy
+            setText(if (busy) R.string.detail_classify_working else R.string.detail_classify_ai)
+        }
+    }
+
+    private fun observeClassification(work: java.util.UUID) {
+        classificationWork = work
+        renderClassificationButton()
+        val live = androidx.work.WorkManager.getInstance(applicationContext).getWorkInfoByIdLiveData(work)
+        live.observe(this) { info ->
+            if (info == null || !info.state.isFinished || classificationWork != work) return@observe
+            live.removeObservers(this)
+            classificationWork = null
+            renderClassificationButton()
+            val message = when (info.outputData.getString("classification_result")) {
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_CLASSIFIED -> R.string.detail_classify_success
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_REVIEW -> R.string.detail_classification_review
+                com.javierrb35.bibliotecaia.data.BookClassificationEntity.STATUS_PENDING -> R.string.detail_classify_insufficient
+                else -> R.string.detail_classify_failed
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            intent.getStringExtra(EXTRA_BOOK_ID)?.let { load(it) }
+        }
     }
 
     private fun openAi() {

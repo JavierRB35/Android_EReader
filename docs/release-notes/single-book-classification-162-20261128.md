@@ -1,0 +1,2 @@
+- Nuevo botón «Clasificar con IA» junto a las categorías de cada ficha. Usa el argumento guardado o recupera los metadatos del libro para asignar el género y completar etiquetas, sin borrar las asignaciones manuales.
+- La ficha muestra el resultado al terminar y señala los casos dudosos o sin información suficiente.

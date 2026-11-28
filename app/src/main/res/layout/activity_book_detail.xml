@@ -208,45 +208,66 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/btnEditCategories"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:paddingStart="14dp"
-            android:paddingEnd="12dp"
-            android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:background="@drawable/bg_book_detail_row"
-            android:clickable="true"
-            android:focusable="true">
+            android:orientation="horizontal">
             <LinearLayout
+                android:id="@+id/btnEditCategories"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="match_parent"
+                android:paddingStart="14dp"
+                android:paddingEnd="12dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_book_detail_row"
+                android:clickable="true"
+                android:focusable="true">
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="@string/detail_categories"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/bia_text" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/detail_categories"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/bia_text" />
+                    <TextView
+                        android:id="@+id/txtDetailCategories"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:textSize="12sp"
+                        android:textColor="@color/bia_text_secondary" />
+                </LinearLayout>
                 <TextView
-                    android:id="@+id/txtDetailCategories"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textSize="12sp"
-                    android:textColor="@color/bia_text_secondary" />
+                    android:text="+"
+                    android:textSize="23sp"
+                    android:textColor="@color/bia_accent"
+                    android:importantForAccessibility="no" />
             </LinearLayout>
-            <TextView
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClassifyBook"
+                style="@style/Widget.BibliotecaIA.Button.Outlined"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="+"
-                android:textSize="23sp"
-                android:textColor="@color/bia_accent"
-                android:importantForAccessibility="no" />
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:minHeight="48dp"
+                android:insetTop="2dp"
+                android:insetBottom="2dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="@string/detail_classify_ai"
+                android:textAllCaps="false"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout

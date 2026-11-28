@@ -19,6 +19,9 @@ No confundir una corrección escrita con una verificación realizada. Antes de f
 ## #160 — restauración visual de posición EPUB (28/11/2026)
 Causa de código: showNativeChapter revelaba la superficie antes del Runnable de scroll, que podía usar un layout anterior o nulo. Mantener superficie invisible pero medible y carga opaca hasta pre-draw del capítulo, desplazar antes de revelar, cancelar guardados diferidos durante restauración y conservar locator de arranque al recrear; no tratar emisiones iniciales Readium como movimiento. Prueba permanente EpubReaderLaunchTest.firstVisibleNativeFrameIsAtSavedPositionWithoutChangingIt en gate startup: capítulo largo sintético, primer fotograma y siguientes, locator y timestamp sin movimiento al abrir/cerrar. CI y prueba física A/B pendientes. Sin cambios en SharedLibrary/Room/Drive, retención ni originales.
 
+## #162 — clasificación individual IA
+Botón al lado de categorías, misma cola y motor #142; petición individual explícita, con argumento existente evita leer/descargar original, puede añadir categorías sin borrar anteriores ni duplicar; no cambia etiquetas manuales ni argumento; resultados dudosos no añaden asignaciones. Pruebas AutoCatalogEngineTest (modo explícito, compatibilidad de cola) incluida en startup smoke y BookDetailOrganizationDeviceTest (visibilidad/compactación). CI y aceptación física IA real pendientes.
+
 ## Cierre de incidencias
 
 Registrar PR, SHA exacto, links de Actions, versión publicada y resultado de prueba física si aplica. Reabrir si el síntoma reaparece; reproducir primero y reforzar el test. No declarar verificado Drive real por un emulador con proveedor simulado.

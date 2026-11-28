@@ -43,10 +43,11 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
         book: BookEntity,
         original: File?,
         ask: (suspend (question: String, fragments: List<String>) -> AiClients.Answer)?,
+        explicit: Boolean = false,
     ): Outcome {
         val current = db.bookDao().findByHash(book.contentHash) ?: return Outcome.SKIPPED
         val classification = db.classificationDao().byBook(current.id)
-        if (classification != null &&
+        if (!explicit && classification != null &&
             classification.status != BookClassificationEntity.STATUS_PENDING
         ) return Outcome.SKIPPED
 
@@ -55,7 +56,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
         val hasTags = db.refsDao().tagIdsForBook(current.id).isNotEmpty()
 
         // 1) Ficha ya completa: registrar procedencia sin tocar nada.
-        if (synopsis != null && hasCategories && hasTags) {
+        if (!explicit && synopsis != null && hasCategories && hasTags) {
             record(current.id, BookClassificationEntity.STATUS_CLASSIFIED,
                 BookClassificationEntity.BASIS_EXISTING, null)
             return Outcome.PROCESSED
@@ -65,7 +66,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
         var workingSynopsis = synopsis
         var subjects: List<String> = emptyList()
         var metadataSynopsis = false
-        if (original != null && original.isFile) {
+        if (original != null && original.isFile && (!explicit || synopsis == null)) {
             val rich: RichMetadata? = BookRichMetadataParser.parse(book.format, original)
             if (rich != null) {
                 subjects = rich.tags
@@ -88,7 +89,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
             }
         }
 
-        val needsCategories = !hasCategories
+        val needsCategories = explicit || !hasCategories
         val needsTags = !hasTags
         val localCopy = File(current.localPath)
         val canGenerate = synopsis == null && workingSynopsis == null &&
@@ -118,7 +119,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
             categoryVocabulary = vocabulary,
             generateSynopsis = generateSynopsis,
             proposeTags = needsTags,
-        )
+        ) + if (explicit) "\nClasifica especialmente el tipo de libro y su género literario (por ejemplo, novela histórica, novela negra, ciencia ficción, ensayo o biografía). Prefiere el género específico acreditado por el argumento a categorías genéricas como Novela o Literatura. Si ninguna categoría existente expresa el género específico, propón como máximo una nueva, en español y reutilizable en otros libros. No inventes subgéneros." else ""
         val evidence: List<String> = if (generateSynopsis) {
             val chapters = BookTextSource.chapters(localCopy, current.format.name)
             BookTextSource.overview(chapters, spoilerSafe = false, progress = current.progress)
@@ -161,6 +162,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
 
         db.withTransaction {
             requireNotNull(db.bookDao().findById(current.id)) { "El libro ya no existe." }
+            var explicitCategoryAssigned = false
             var assigned = db.refsDao().categoryIdsForBook(current.id).isNotEmpty() ||
                 db.refsDao().tagIdsForBook(current.id).isNotEmpty()
             // El argumento IA solo se guarda si sigue sin existir (contrato #142).
@@ -173,15 +175,17 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
                     generatedAt = System.currentTimeMillis(),
                     spoilerSafe = false))
             }
-            if (db.refsDao().categoryIdsForBook(current.id).isEmpty()) {
-                assigned = assignCategories(current.id, parsed.categories, allowNew = !parsed.review) || assigned
+            if ((explicit && !parsed.review) || (!explicit && db.refsDao().categoryIdsForBook(current.id).isEmpty())) {
+                val categoriesAssigned = assignCategories(current.id, parsed.categories, allowNew = !parsed.review)
+                explicitCategoryAssigned = categoriesAssigned
+                assigned = categoriesAssigned || assigned
             }
-            if (db.refsDao().tagIdsForBook(current.id).isEmpty()) {
+            if ((!explicit || !parsed.review) && db.refsDao().tagIdsForBook(current.id).isEmpty()) {
                 assigned = assignTags(current.id, parsed.tags) || assigned
             }
             val status = when {
                 parsed.review -> BookClassificationEntity.STATUS_REVIEW
-                assigned -> BookClassificationEntity.STATUS_CLASSIFIED
+                (if (explicit) explicitCategoryAssigned else assigned) -> BookClassificationEntity.STATUS_CLASSIFIED
                 else -> BookClassificationEntity.STATUS_PENDING
             }
             db.classificationDao().save(BookClassificationEntity(

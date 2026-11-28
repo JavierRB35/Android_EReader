@@ -269,4 +269,10 @@
     <string name="ai_gemini_model_description">El modelo predeterminado es gemini-3.6-flash. Puedes cambiarlo por un ID habilitado en tu cuenta de Google AI Studio si el anterior deja de estar disponible. El nombre debe corresponder a un modelo real; BibliotecaAI no lo puede garantizar sin hacer la prueba de conexión.</string>
     <string name="ai_gemini_model_save">Guardar modelo</string>
     <string name="ai_gemini_model_invalid">El identificador del modelo no es válido.</string>
+    <string name="detail_classify_ai">Clasificar con IA</string>
+    <string name="detail_classify_working">Clasificando…</string>
+    <string name="detail_classify_no_key">Configura una clave de IA para clasificar este libro.</string>
+    <string name="detail_classify_failed">No se pudo clasificar el libro. Comprueba la IA y vuelve a intentarlo.</string>
+    <string name="detail_classify_success">Clasificación actualizada.</string>
+    <string name="detail_classify_insufficient">No hay información suficiente para clasificar este libro con seguridad.</string>
 </resources>

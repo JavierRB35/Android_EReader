@@ -274,4 +274,56 @@ class AutoCatalogEngineTest {
                 db.classificationDao().byBook(remoteId)?.status)
         } finally { db.close() }
     }
+
+    @Test fun explicitClassificationUsesSavedArgumentAndAddsGenreWithoutOverwritingOrDuplicating() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = db(context)
+        try {
+            val id = UUID.randomUUID().toString()
+            val other = UUID.randomUUID().toString()
+            db.bookDao().insert(book(id))
+            db.bookDao().insert(book(other))
+            val saved = BookSynopsisEntity(id, "Una detective investiga un crimen en Madrid.", "calibre", 400, false)
+            db.synopsisDao().save(saved)
+            val manual = com.javierrb35.bibliotecaia.data.CategoryEntity(
+                UUID.randomUUID().toString(), "Mis favoritos", null, 0)
+            val genre = com.javierrb35.bibliotecaia.data.CategoryEntity(
+                UUID.randomUUID().toString(), "Novela negra", null, 1)
+            db.categoryDao().insert(manual)
+            db.categoryDao().insert(genre)
+            db.refsDao().addBookCategory(com.javierrb35.bibliotecaia.data.BookCategoryCrossRef(id, manual.id))
+            val tag = TagEntity(UUID.randomUUID().toString(), "Manual")
+            db.tagDao().insert(tag)
+            db.refsDao().addBookTag(com.javierrb35.bibliotecaia.data.BookTagCrossRef(id, tag.id))
+            val engine = AutoCatalogEngine(db)
+            engine.process(book(id), null, null)
+            assertEquals(BookClassificationEntity.STATUS_CLASSIFIED, db.classificationDao().byBook(id)?.status)
+            var calls = 0
+            val ask: suspend (String, List<String>) -> AiClients.Answer = { _, evidence ->
+                calls++
+                assertEquals(listOf(saved.text), evidence)
+                aiAnswer("Novela negra", "no sobrescribir")
+            }
+            repeat(2) {
+                assertEquals(AutoCatalogEngine.Outcome.PROCESSED, engine.process(book(id), null, ask, explicit = true))
+            }
+            assertEquals(2, calls)
+            assertEquals(setOf("Mis favoritos", "Novela negra"), db.refsDao().categoryNamesForBook(id).toSet())
+            assertEquals(2, db.refsDao().categoryIdsForBook(id).size)
+            assertEquals(listOf("Manual"), db.refsDao().tagNamesForBook(id))
+            assertEquals(saved, db.synopsisDao().byBook(id))
+            assertTrue(db.refsDao().categoryIdsForBook(other).isEmpty())
+            engine.process(book(id), null, { _, _ -> aiAnswer("Fantasía", "otra", "DUDOSO") }, explicit = true)
+            assertEquals(BookClassificationEntity.STATUS_REVIEW, db.classificationDao().byBook(id)?.status)
+            assertEquals(setOf("Mis favoritos", "Novela negra"), db.refsDao().categoryNamesForBook(id).toSet())
+        } finally { db.close() }
+    }
+
+    @Test fun singleBookRequestIsBackwardCompatible() {
+        val old = AutoCatalogQueue.Request.decode("""{"all":false,"ids":["book"]}""")
+        assertFalse(old.explicit)
+        val explicit = AutoCatalogQueue.Request(false, listOf("book"), true)
+        assertEquals(explicit, AutoCatalogQueue.Request.decode(explicit.encode()))
+    }
+
 }
