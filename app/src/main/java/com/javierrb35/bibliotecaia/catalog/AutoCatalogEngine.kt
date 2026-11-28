@@ -119,7 +119,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
             categoryVocabulary = vocabulary,
             generateSynopsis = generateSynopsis,
             proposeTags = needsTags,
-        )
+        ) + if (explicit) "\nClasifica especialmente el tipo de libro y su género literario (por ejemplo, novela histórica, novela negra, ciencia ficción, ensayo o biografía). Prefiere el género específico acreditado por el argumento a categorías genéricas como Novela o Literatura. Si ninguna categoría existente expresa el género específico, propón como máximo una nueva, en español y reutilizable en otros libros. No inventes subgéneros." else ""
         val evidence: List<String> = if (generateSynopsis) {
             val chapters = BookTextSource.chapters(localCopy, current.format.name)
             BookTextSource.overview(chapters, spoilerSafe = false, progress = current.progress)
