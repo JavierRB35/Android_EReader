@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bia_brand_background">#0D1430</color>
+    <color name="bia_brand_background">@color/bia_background</color>
     <color name="bia_brand_accent">#9968FA</color>
-    <color name="bia_brand_white">#F7F8FE</color>
-    <color name="bia_brand_muted">#B9BFD6</color>
+    <color name="bia_brand_white">@color/bia_text</color>
+    <color name="bia_brand_muted">@color/bia_text_secondary</color>
     <string name="splash_brand_main">Biblioteca</string>
     <string name="splash_brand_ai">AI</string>
     <string name="splash_subtitle">E-reader con asistente IA</string>

@@ -7,6 +7,7 @@
 ## #154 — Refinamiento editorial autorizado (28/11/2026)
 - Rama existente design/editorial-ui-ux-audit-20261127; base main 49c093a; se preserva la auditoría WIP histórica, no se autoriza rediseño integral. #156 ya integrado; #153 y #164 reservados.
 - Incremento: menú de tamaño abierto en EPUB/MOBI, cambio inmediato y persistente, paleta común y barras por tema, marco tonal, objetivos EPUB 48dp, chips seleccionados visibles. Sin cambios de gestos, Room, Drive, sincronización o dependencias.
+- Segundo incremento: splash grafito/oro preservando logotipo violeta, superficies tonales y radios centralizados, tipografía y miniaturas de tarjetas existentes, icono vectorial importar. No cambiar la tercera vista en desarrollo #164 ni introducir nuevos gestos.
 - Pruebas permanentes: EpubReaderLaunchTest y MobiReadingJourneyDeviceTest amplían el recorrido de tamaño repetido. Gates y prueba física pendientes; no fusionar WIP. Resto del alcance aprobado en docs/ui-ux/refinamiento-aprobado-20261128.md; continuar por incrementos sin duplicar #156 ni #164.
 
 **Última actualización:** 2026-11-28 — Catalogación automática #142: argumento visible en la ficha, clasificación por lotes con IA y sincronización del estado por SHA-256.

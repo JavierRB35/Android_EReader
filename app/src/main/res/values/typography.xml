@@ -37,6 +37,15 @@
         <item name="android:textSize">12sp</item>
         <item name="android:lineSpacingExtra">5sp</item>
     </style>
+    <style name="TextAppearance.BibliotecaIA.CardTitle">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.BibliotecaIA.Overline">
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.09</item>
+        <item name="android:textStyle">bold</item>
+    </style>
     <!-- Navegación: 12sp/16sp. -->
     <style name="TextAppearance.BibliotecaIA.NavLabel">
         <item name="android:textSize">12sp</item>

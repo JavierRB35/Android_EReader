@@ -31,18 +31,16 @@
                 android:layout_height="wrap_content"
                 android:text="@string/splash_brand_main"
                 android:textColor="@color/bia_brand_white"
-                android:textSize="29sp"
-                android:fontFamily="sans"
-                android:textStyle="bold"/>
+                android:textSize="28sp"
+                android:fontFamily="serif"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/splash_brand_ai"
-                android:textColor="@color/bia_brand_accent"
-                android:textSize="29sp"
-                android:fontFamily="sans"
-                android:textStyle="bold"/>
+                android:textColor="@color/bia_accent"
+                android:textSize="28sp"
+                android:fontFamily="serif"/>
         </LinearLayout>
 
         <TextView
@@ -60,7 +58,7 @@
             android:layout_height="24dp"
             android:layout_marginTop="56dp"
             android:indeterminate="true"
-            android:indeterminateTint="@color/bia_brand_accent"/>
+            android:indeterminateTint="@color/bia_accent"/>
 
         <TextView
             android:id="@+id/splashBackupStatus"
