@@ -208,6 +208,25 @@ class MainActivity : AppCompatActivity() {
         }
         applyViewMode(loadViewMode())
         recycler.adapter = adapter
+        findViewById<View>(R.id.btnLibraryControls).setOnClickListener {
+            setLibraryControlsCollapsed(!controlsCollapsed)
+        }
+        recycler.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            private var distance = 0
+            override fun onScrolled(rv: androidx.recyclerview.widget.RecyclerView, dx: Int, dy: Int) {
+                if (dy == 0 || selection.active || rv.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) return
+                if ((dy > 0 && distance < 0) || (dy < 0 && distance > 0)) distance = 0
+                distance += dy
+                val threshold = (24 * resources.displayMetrics.density).toInt()
+                if (distance >= threshold && rv.canScrollVertically(1)) {
+                    setLibraryControlsCollapsed(true)
+                    distance = 0
+                } else if (distance <= -threshold || (dy < 0 && !rv.canScrollVertically(-1))) {
+                    setLibraryControlsCollapsed(false)
+                    distance = 0
+                }
+            }
+        })
         findViewById<View>(R.id.btnSelectAllBooks).setOnClickListener {
             if (displayedSearch != currentSearch()) return@setOnClickListener
             selection.toggleAll(visibleBooks.map { it.id })
@@ -659,7 +678,17 @@ class MainActivity : AppCompatActivity() {
         val normal = if (active) View.GONE else View.VISIBLE
         val contextual = if (active) View.VISIBLE else View.GONE
         findViewById<View>(R.id.libraryNormalHeader).visibility = normal
-        findViewById<View>(R.id.libraryQuickActions).visibility = normal
+        if (active) {
+            controlsCollapsed = false
+            findViewById<View>(R.id.librarySearchControls).visibility = View.VISIBLE
+            findViewById<ImageButton>(R.id.btnLibraryControls).apply {
+                rotation = 0f
+                contentDescription = getString(R.string.library_controls_hide)
+            }
+        }
+        findViewById<View>(R.id.libraryQuickActions).visibility =
+            if (controlsCollapsed) View.GONE else normal
+        findViewById<View>(R.id.btnLibraryControls).visibility = normal
         findViewById<View>(R.id.mainNavigation).visibility = normal
         findViewById<View>(R.id.bookSelectionBar).visibility = contextual
         findViewById<View>(R.id.bookBatchActions).visibility = contextual
@@ -1015,29 +1044,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadViewMode(): Boolean =
-        getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_GRID, true)
+    private var controlsCollapsed = false
 
-    private fun applyViewMode(grid: Boolean) {
+    private fun setLibraryControlsCollapsed(collapsed: Boolean) {
+        if (selection.active || controlsCollapsed == collapsed) return
+        controlsCollapsed = collapsed
+        val visibility = if (collapsed) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.libraryQuickActions).visibility = visibility
+        findViewById<View>(R.id.librarySearchControls).visibility = visibility
+        findViewById<ImageButton>(R.id.btnLibraryControls).apply {
+            rotation = if (collapsed) 180f else 0f
+            contentDescription = getString(if (collapsed) R.string.library_controls_show else R.string.library_controls_hide)
+        }
+    }
+
+    private fun loadViewMode(): LibraryViewMode {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        return LibraryViewMode.restore(prefs.getString(KEY_VIEW_MODE, null), prefs.getBoolean(KEY_GRID, true))
+    }
+
+    private fun applyViewMode(mode: LibraryViewMode) {
         // Large Android font scales need wider book cards instead of clipped 2-column text.
         val minimumWidth = (164f * resources.configuration.fontScale.coerceAtLeast(1f)).toInt()
         val columns = ((resources.configuration.screenWidthDp - 32).coerceAtLeast(1) /
             minimumWidth.coerceAtLeast(1)).coerceIn(1, 6)
         recycler.layoutManager =
-            if (grid) GridLayoutManager(this, columns) else LinearLayoutManager(this)
-        adapter.grid = grid
+            if (mode == LibraryViewMode.GRID) GridLayoutManager(this, columns) else LinearLayoutManager(this)
+        adapter.mode = mode
         findViewById<ImageButton>(R.id.btnViewMode).apply {
-            setImageResource(if (grid) R.drawable.ic_ux_list else R.drawable.ic_ux_grid)
-            contentDescription = getString(if (grid) R.string.action_list else R.string.action_grid)
+            setImageResource(when (mode) {
+                LibraryViewMode.GRID -> R.drawable.ic_ux_list
+                LibraryViewMode.CARDS -> R.drawable.ic_ux_compact
+                LibraryViewMode.COMPACT -> R.drawable.ic_ux_grid
+            })
+            contentDescription = getString(when (mode) {
+                LibraryViewMode.GRID -> R.string.action_list
+                LibraryViewMode.CARDS -> R.string.library_view_compact
+                LibraryViewMode.COMPACT -> R.string.action_grid
+            })
         }
     }
 
     private fun toggleViewMode() {
         val position = (recycler.layoutManager as? LinearLayoutManager)
             ?.findFirstVisibleItemPosition()?.coerceAtLeast(0) ?: 0
-        val grid = !loadViewMode()
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_GRID, grid).apply()
-        applyViewMode(grid)
+        val mode = loadViewMode().next()
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_VIEW_MODE, mode.name).apply()
+        applyViewMode(mode)
         recycler.scrollToPosition(position)
     }
 
@@ -1133,6 +1186,7 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val PREFS = "biblioteca_prefs"
         const val KEY_GRID = "view_mode_grid"
+        const val KEY_VIEW_MODE = "view_mode_v2"
         const val EXTRA_OPEN_IMPORT = "bibliotecaia.premium_open_import"
         const val STATE_QUERY = "ux_library_query"
         const val STATE_SHELF = "ux_library_shelf"

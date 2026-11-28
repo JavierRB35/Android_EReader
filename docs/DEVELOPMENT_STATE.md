@@ -6,6 +6,11 @@
 
 **Última actualización:** 2026-11-28 — Catalogación automática #142: argumento visible en la ficha, clasificación por lotes con IA y sincronización del estado por SHA-256.
 
+## Biblioteca compacta y clasificación asíncrona — 28/11/2026
+- Rama feat/compact-library-async-classification-20261128: tres modos persistentes (cuadrícula, tarjetas y renglones con carátula), cabecera compactada con búsqueda y acciones recuperables por botón o desplazamiento; progreso de catálogo en una línea. Conserva selección múltiple y carga de carátulas existente.
+- Clasificación individual reutiliza WorkManager; envío independiente del ciclo de vida de la ficha y exclusión mutua en encolado. Observación por etiqueta al regresar. No altera Room, Drive, claves ni reglas del motor.
+- Pruebas permanentes LibraryViewModeTest, LibraryHomeUxDeviceTest y AutoCatalogEngineTest (cancelación del observador). CI, integración, APK y comprobación física pendientes; entorno actual sin acceso a clon Git ni SDK, no se acredita build local.
+
 ## #162 — clasificación IA desde ficha (28/11/2026)
 - Rama feat/single-book-classification-162. Botón «Clasificar con IA» al lado de categorías, reutiliza AutoCatalogQueue y AutoCatalogEngine; petición explícita individual admite reprocesar y añadir género conservando asignaciones anteriores, evita leer original si ya hay argumento; no cambia sincronización, Room ni archivos. Estado de progreso y recarga al terminar. Sin clave abre configuración existente.
 - Pruebas AutoCatalogEngineTest (repetición, preservación, revisión, cola anterior) en startup y BookDetailOrganizationDeviceTest (botón visible sin scroll). Gates y APK pendientes. No certificar IA física hasta prueba con clave del propietario.

@@ -61,7 +61,7 @@
             android:layout_height="wrap_content"
             android:minHeight="56dp"
             android:layout_marginTop="2dp"
-            android:layout_marginBottom="7dp"
+            android:layout_marginBottom="2dp"
             android:visibility="gone"
             android:clickable="true"
             android:focusable="true"
@@ -82,8 +82,8 @@
                 android:importantForAccessibility="noHideDescendants">
                 <FrameLayout
                     android:id="@+id/recentCoverThumb"
-                    android:layout_width="32dp"
-                    android:layout_height="44dp"
+                    android:layout_width="28dp"
+                    android:layout_height="38dp"
                     android:background="@drawable/bg_premium_cover">
                     <TextView
                         android:id="@+id/txtRecentCoverFallback"
@@ -162,13 +162,23 @@
             android:text="Configurar copia y sincronización" android:textAllCaps="false"
             android:visibility="gone" />
 
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCentralLibrary"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="match_parent"
+            android:layout_width="0dp" android:layout_weight="1" android:minHeight="48dp" android:textSize="12sp" android:letterSpacing="0"
             android:layout_height="wrap_content"
             android:text="@string/central_complete"
             android:textAllCaps="false" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAutoCatalog"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1" android:minHeight="48dp" android:textSize="12sp" android:letterSpacing="0"
+            android:layout_height="wrap_content"
+            android:text="@string/catalog_auto_action"
+            android:textAllCaps="false" />
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnMissingOriginals"
@@ -179,16 +189,12 @@
             android:textAllCaps="false"
             android:visibility="gone" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnAutoCatalog"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/catalog_auto_action"
-            android:textAllCaps="false" />
+
 
         </LinearLayout>
 
+        <LinearLayout android:id="@+id/librarySearchControls"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -214,7 +220,7 @@
 
         <HorizontalScrollView android:id="@+id/scrollShelves"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="5dp" android:scrollbars="none">
+            android:layout_marginTop="0dp" android:scrollbars="none">
             <com.google.android.material.chip.ChipGroup android:id="@+id/chipShelves"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 app:singleSelection="true" app:selectionRequired="true" app:singleLine="true"
@@ -234,6 +240,7 @@
                     android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/shelf_abandoned"/>
             </com.google.android.material.chip.ChipGroup>
         </HorizontalScrollView>
+        </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="48dp"
             android:gravity="center_vertical" android:orientation="horizontal">
@@ -246,6 +253,10 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:minHeight="48dp" android:text="Filtros" android:textAllCaps="false"
                 android:contentDescription="Filtros y ordenación de libros"/>
+            <ImageButton android:id="@+id/btnLibraryControls" android:layout_width="48dp"
+                android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_ux_collapse_controls" android:padding="12dp" android:scaleType="fitCenter"
+                android:contentDescription="@string/library_controls_hide"/>
             <ImageButton android:id="@+id/btnViewMode" android:layout_width="48dp"
                 android:layout_height="48dp" android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_ux_list" android:padding="12dp" android:scaleType="fitCenter"
@@ -271,6 +282,7 @@
         android:visibility="gone">
         <TextView android:id="@+id/txtAutoCatalogProgress" android:layout_width="0dp"
             android:layout_height="wrap_content" android:layout_weight="1"
+            android:maxLines="1" android:ellipsize="end" android:textSize="12sp"
             android:textColor="@color/bia_text" android:accessibilityLiveRegion="polite"/>
         <com.google.android.material.button.MaterialButton android:id="@+id/btnCancelAutoCatalog"
             style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"

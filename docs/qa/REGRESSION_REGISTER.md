@@ -22,6 +22,9 @@ Causa de código: showNativeChapter revelaba la superficie antes del Runnable de
 ## #162 — clasificación individual IA
 Botón al lado de categorías, misma cola y motor #142; petición individual explícita, con argumento existente evita leer/descargar original, puede añadir categorías sin borrar anteriores ni duplicar; no cambia etiquetas manuales ni argumento; resultados dudosos no añaden asignaciones. Pruebas AutoCatalogEngineTest (modo explícito, compatibilidad de cola) incluida en startup smoke y BookDetailOrganizationDeviceTest (visibilidad/compactación). CI y aceptación física IA real pendientes.
 
+## Biblioteca compacta y clasificación individual en segundo plano (28/11/2026)
+LibraryViewModeTest (migración y ciclo de tres vistas), LibraryHomeUxDeviceTest (selección/reciclaje en tres vistas, ocultar/mostrar controles) y AutoCatalogEngineTest.explicitSubmissionSurvivesCancelledScreenWaiter (la entrega a WorkManager sobrevive a cancelación de la espera UI). Sin modificar modelo de datos ni contrato del motor. Gates y prueba física pendientes.
+
 ## Cierre de incidencias
 
 Registrar PR, SHA exacto, links de Actions, versión publicada y resultado de prueba física si aplica. Reabrir si el síntoma reaparece; reproducir primero y reforzar el test. No declarar verificado Drive real por un emulador con proveedor simulado.

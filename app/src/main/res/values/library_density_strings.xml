@@ -1,0 +1,5 @@
+<resources>
+    <string name="library_view_compact">Vista de lista compacta</string>
+    <string name="library_controls_hide">Ocultar controles de biblioteca</string>
+    <string name="library_controls_show">Mostrar controles de biblioteca</string>
+</resources>
