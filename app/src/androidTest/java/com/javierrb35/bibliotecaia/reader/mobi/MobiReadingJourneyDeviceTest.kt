@@ -1,5 +1,6 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
+import com.javierrb35.bibliotecaia.R
 import android.content.Intent
 import android.os.SystemClock
 import android.view.MotionEvent
