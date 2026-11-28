@@ -107,6 +107,9 @@ class BookDetailOrganizationDeviceTest {
                 viewport.canScrollVertically(1))
             assertTrue("Primary reader action must remain visible", primary.isShown)
             assertTrue("Metadata action must remain visible", edit.isShown)
+            val classify = activity.findViewById<android.widget.TextView>(R.id.btnClassifyBook)
+            assertTrue("Individual classification action must be visible", classify.isShown && classify.isEnabled)
+            assertEquals(activity.getString(R.string.detail_classify_ai), classify.text.toString())
 
             val buttons = listOf(R.id.btnEditCategories, R.id.btnEditTags,
                 R.id.btnEditCollections)
