@@ -6,6 +6,10 @@
 
 **Última actualización:** 2026-11-28 — Catalogación automática #142: argumento visible en la ficha, clasificación por lotes con IA y sincronización del estado por SHA-256.
 
+## #162 — clasificación IA desde ficha (28/11/2026)
+- Rama feat/single-book-classification-162. Botón «Clasificar con IA» al lado de categorías, reutiliza AutoCatalogQueue y AutoCatalogEngine; petición explícita individual admite reprocesar y añadir género conservando asignaciones anteriores, evita leer original si ya hay argumento; no cambia sincronización, Room ni archivos. Estado de progreso y recarga al terminar. Sin clave abre configuración existente.
+- Pruebas AutoCatalogEngineTest (repetición, preservación, revisión, cola anterior) en startup y BookDetailOrganizationDeviceTest (botón visible sin scroll). Gates y APK pendientes. No certificar IA física hasta prueba con clave del propietario.
+
 ## P0 #160 — recuperación directa de posición (28/11/2026)
 - Mandato propietario: agente único, mantener intacta la arquitectura de archivos de estado por dispositivo; corregir saltos visibles, compilar y publicar.
 - Rama fix/reader-position-160: EPUB nativo prepara layout oculto y aplica scroll en pre-draw antes de revelar; guarda solo después de restaurar, evita repintado redundante y emisiones iniciales Readium sin gesto/navegación explícita. No se cambia Room, SharedLibrary, SAF, retención, formatos ni originales. MOBI ya abre bloque desde offset absoluto; comprobación física pendiente.
