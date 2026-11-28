@@ -247,6 +247,29 @@ class EpubReaderLaunchTest {
                 assertTrue("Default selected-text highlight must not be bright cyan",
                     selectionView.highlightColor == 0x66D4B483)
             }
+            // Repeated size changes must not close the existing dialog.
+            val fontPrefs = context.getSharedPreferences("epub_reader", android.content.Context.MODE_PRIVATE)
+            val originalScale = fontPrefs.getFloat("font", 1.1f)
+            val initialPx = activity.findViewById<android.widget.TextView>(R.id.epub_native_text).textSize
+            try {
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(
+                    activity.getString(R.string.epub_settings))).perform(androidx.test.espresso.action.ViewActions.click())
+                val larger = originalScale <= 1.7f
+                val action = if (larger) R.string.reader_font_increase else R.string.reader_font_decrease
+                repeat(2) {
+                    androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(action))
+                        .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                        .perform(androidx.test.espresso.action.ViewActions.click())
+                }
+                val actual = fontPrefs.getFloat("font", 1.1f)
+                assertTrue("Two adjustments within one menu must persist", if (larger) actual > originalScale + .15f else actual < originalScale - .15f)
+                val finalPx = activity.findViewById<android.widget.TextView>(R.id.epub_native_text).textSize
+                assertTrue("Text must resize immediately", if (larger) finalPx > initialPx else finalPx < initialPx)
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText(R.string.reader_settings_done))
+                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(androidx.test.espresso.action.ViewActions.click())
+            } finally {
+                fontPrefs.edit().putFloat("font", originalScale).commit()
+            }
             // Focus must hide all controls; page turns require a deliberate
             // horizontal swipe rather than any on-screen chapter arrow.
             instrumentation.runOnMainSync {

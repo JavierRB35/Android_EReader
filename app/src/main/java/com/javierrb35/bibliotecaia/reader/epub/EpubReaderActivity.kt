@@ -27,6 +27,9 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import com.javierrb35.bibliotecaia.reader.ReaderPalette
+import com.javierrb35.bibliotecaia.ui.EditorialTypeface
+import org.readium.r2.navigator.epub.css.FontStyle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withResumed
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -131,6 +134,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeTouchY = 0f
     private var nativeGeneration = 0
     private var nativeRestoring = false
+    private var nativeFontReflowOffset: Int? = null
     private var nativeRestoreTarget: String? = null
     private var nativeMoved = false
     private var readiumMoved = false
@@ -177,7 +181,20 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         initialLocator = initial, initialPreferences = readerPreferences(), listener = this@EpubReaderActivity,
                         configuration = EpubNavigatorFragment.Configuration(
                             selectionActionModeCallback = selectionCallback
-                        )
+                        ).apply {
+                            addFontFamilyDeclaration(FontFamily("Literata"), listOf(FontFamily("serif"))) {
+                                addFontFace {
+                                    addSource(EditorialTypeface.REGULAR)
+                                    setFontWeight(200..900)
+                                    setFontStyle(FontStyle.NORMAL)
+                                }
+                                addFontFace {
+                                    addSource(EditorialTypeface.ITALIC)
+                                    setFontWeight(200..900)
+                                    setFontStyle(FontStyle.ITALIC)
+                                }
+                            }
+                        }
                     )
                     val created = supportFragmentManager.fragmentFactory.instantiate(classLoader, EpubNavigatorFragment::class.java.name)
                         as EpubNavigatorFragment
@@ -290,19 +307,23 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(14.dp, 8.dp, 16.dp, 3.dp)
         }
-        heading.addView(button("‹") { finish() }.apply {
-            textSize = 27f
+        heading.addView(button("") { finish() }.apply {
+            setIconResource(R.drawable.ic_editorial_back)
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            iconSize = 24.dp
+            iconPadding = 0
+            setPadding(0, 0, 0, 0)
             contentDescription = "Volver a la biblioteca"
             minimumWidth = 46.dp
             minWidth = 46.dp
-        }, LinearLayout.LayoutParams(48.dp, 46.dp))
+        }, LinearLayout.LayoutParams(48.dp, 48.dp))
         val identity = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(13.dp, 0, 0, 0)
         }
         identity.addView(TextView(this).apply {
             text = "BIBLIOTECAAI  /  LECTURA"
-            textSize = 10f
+            textSize = 11f
             letterSpacing = .16f
             setTextColor(getColor(R.color.bia_accent))
             typeface = Typeface.DEFAULT_BOLD
@@ -310,7 +331,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         readerBookTitle = TextView(this).apply {
             text = "Tu lectura"
             textSize = 19f
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setTextColor(getColor(R.color.bia_text))
@@ -323,7 +344,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setPadding(12.dp, 3.dp, 12.dp, 10.dp)
         }
         fun addAction(label: String, handler: () -> Unit) {
-            actions.addView(button(label, handler), LinearLayout.LayoutParams(-2, 42.dp).apply {
+            actions.addView(button(label, handler), LinearLayout.LayoutParams(-2, 48.dp).apply {
                 marginEnd = 6.dp
             })
         }
@@ -333,13 +354,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         addAction("Concentración") { toggleReadingControls() }
         addAction("Notas") { showAnnotations() }
         speechButton = button("Escuchar") { toggleSpeech() }
-        actions.addView(speechButton, LinearLayout.LayoutParams(-2, 42.dp).apply {
+        actions.addView(speechButton, LinearLayout.LayoutParams(-2, 48.dp).apply {
             marginEnd = 6.dp
         })
         nativeToggle = button(if (nativeMode) "Maquetación" else "Selección precisa") {
             setNativeMode(!nativeMode)
         }
-        actions.addView(nativeToggle, LinearLayout.LayoutParams(-2, 42.dp))
+        actions.addView(nativeToggle, LinearLayout.LayoutParams(-2, 48.dp))
         controls.addView(HorizontalScrollView(this).apply {
             addView(actions)
             isHorizontalScrollBarEnabled = false
@@ -358,7 +379,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
             setTextIsSelectable(true)
             isLongClickable = true
             setHighlightColor(0x66D4B483)
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             setLineSpacing(6.dp.toFloat(), 1.1f)
             textSize = 22f
         }
@@ -385,7 +406,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         positionLabel = TextView(this).apply {
             text = "0 %"
             textSize = 16f
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             gravity = Gravity.CENTER
             setTextColor(getColor(R.color.bia_text))
             maxLines = 1
@@ -610,6 +631,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeLoading?.cancel()
         nativeSave?.cancel()
         val generation = ++nativeGeneration
+        nativeFontReflowOffset = null
         nativeRestoring = true
         nativeMoved = false
         // INVISIBLE retains measurement/layout; GONE would prevent positioning.
@@ -797,7 +819,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         textSize = 14f
         minWidth = 40.dp
         minimumWidth = 40.dp
-        minHeight = 42.dp
+        minHeight = 48.dp
         insetTop = 0
         insetBottom = 0
         setPadding(12.dp, 0, 12.dp, 0)
@@ -954,18 +976,13 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         }
     }
 
-    private fun palette(): Pair<Int, Int> = when (themeIndex) {
-        1 -> Color.parseColor("#181A1B") to Color.parseColor("#E8DFCE")
-        2 -> Color.parseColor("#F1E5CC") to Color.parseColor("#332B20")
-        3 -> Color.parseColor("#FAF8F2") to Color.parseColor("#24221F")
-        else -> Color.BLACK to Color.parseColor("#E8DFCE")
-    }
+    private fun palette(): Pair<Int, Int> = ReaderPalette.at(themeIndex).let { it.background to it.foreground }
 
     private fun readerPreferences(): EpubPreferences {
         val (background, text) = palette()
         return EpubPreferences(backgroundColor = ReaderColor(background), textColor = ReaderColor(text),
             theme = if (themeIndex <= 1) Theme.DARK else if (themeIndex == 2) Theme.SEPIA else Theme.LIGHT,
-            fontSize = fontScale.toDouble(), fontFamily = FontFamily(if (serif) "serif" else "sans-serif"),
+            fontSize = fontScale.toDouble(), fontFamily = FontFamily(if (serif) "Literata" else "sans-serif"),
             publisherStyles = false, lineHeight = 1.55, pageMargins = 1.2, scroll = scroll)
     }
 
@@ -978,32 +995,75 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeText.setTextColor(text)
         nativeText.setHighlightColor(if (themeIndex <= 1) 0x66D4B483 else 0x55C7A264)
         nativeText.textSize = 20f * fontScale
-        nativeText.typeface = if (serif) Typeface.SERIF else Typeface.SANS_SERIF
-        controls.setBackgroundColor(getColor(R.color.bia_surface))
-        footer.setBackgroundColor(getColor(R.color.bia_surface))
-        positionLabel.setTextColor(getColor(R.color.bia_text))
-        window.statusBarColor = background; window.navigationBarColor = Color.BLACK
+        nativeText.typeface = if (serif) EditorialTypeface.serif(this) else Typeface.SANS_SERIF
+        val palette = ReaderPalette.at(themeIndex)
+        palette.applyChrome(controls)
+        palette.applyChrome(footer)
+        palette.applySystemBars(window)
         navigator?.submitPreferences(readerPreferences())
     }
 
     private fun settings() {
-        MaterialAlertDialogBuilder(this).setTitle("Tu lectura").setItems(arrayOf(
-            "Tema: ${arrayOf("OLED", "Oscuro", "Sepia", "Claro")[themeIndex]}",
-            "Letra más grande", "Letra más pequeña", if (serif) "Tipografía sin remates" else "Tipografía con remates",
-            if (scroll) "Cambiar a páginas" else "Desplazamiento vertical"
-        )) { _, which ->
+        val anchor = if (nativeMode && !nativeRestoring) visibleNativeOffset() else null
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.reader_font_percent, kotlin.math.round(fontScale * 100).toInt()))
+            .setItems(arrayOf(
+                "Tema: ${arrayOf("OLED", "Oscuro", "Sepia", "Claro")[themeIndex]}",
+                getString(R.string.reader_font_increase), getString(R.string.reader_font_decrease),
+                if (serif) "Tipografía sin remates" else "Tipografía con remates",
+                if (scroll) "Cambiar a páginas" else "Desplazamiento vertical"
+            ), null)
+            .setNegativeButton(R.string.reader_settings_done, null).show()
+        // A normal setItems listener dismisses the dialog after every tap.
+        // Only the size actions stay open; the remaining menu retains its existing behavior.
+        dialog.listView?.setOnItemClickListener { _, _, which, _ ->
             when (which) {
-                0 -> { MaterialAlertDialogBuilder(this).setTitle("Tema de lectura")
-                    .setSingleChoiceItems(arrayOf("OLED · negro puro", "Oscuro suave", "Sepia", "Claro"), themeIndex) { dialog, index ->
-                        themeIndex = index; savePreferences(); dialog.dismiss()
-                    }.show(); return@setItems }
-                1 -> fontScale = (fontScale + .1f).coerceAtMost(2f)
-                2 -> fontScale = (fontScale - .1f).coerceAtLeast(.75f)
-                3 -> serif = !serif
-                4 -> scroll = !scroll
+                0 -> {
+                    dialog.dismiss()
+                    MaterialAlertDialogBuilder(this).setTitle("Tema de lectura")
+                        .setSingleChoiceItems(arrayOf("OLED · negro puro", "Oscuro suave", "Sepia", "Claro"), themeIndex) { themeDialog, index ->
+                            themeIndex = index; savePreferences(); themeDialog.dismiss()
+                        }.show()
+                }
+                1, 2 -> {
+                    val next = (fontScale + if (which == 1) .1f else -.1f).coerceIn(.75f, 2f)
+                    if (next != fontScale) {
+                        // Reflow native text at the same logical character, not the old pixel offset.
+                        if (anchor != null && nativeMode && !nativeRestoring) {
+                            nativeRestoring = true
+                            nativeFontReflowOffset = anchor
+                            nativeRestoreTarget = nativeLocator(anchor, "")
+                            nativeSave?.cancel()
+                            val generation = nativeGeneration
+                            nativeScroll.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                                override fun onPreDraw(): Boolean {
+                                    if (generation != nativeGeneration || !nativeMode || isDestroyed) {
+                                        nativeScroll.viewTreeObserver.removeOnPreDrawListener(this)
+                                        return true
+                                    }
+                                    val layout = nativeText.layout ?: return true
+                                    if (nativeText.isLayoutRequested || nativeScroll.isLayoutRequested) return true
+                                    nativeScroll.viewTreeObserver.removeOnPreDrawListener(this)
+                                    nativeScroll.scrollTo(0, layout.getLineTop(layout.getLineForOffset(
+                                        anchor.coerceIn(0, nativeText.length()))) + nativeText.totalPaddingTop)
+                                    nativeRestoring = false
+                                    nativeFontReflowOffset = null
+                                    nativeRestoreTarget = null
+                                    updateNativeProgress()
+                                    if (nativeMoved) scheduleNativeSave()
+                                    return true
+                                }
+                            })
+                        }
+                        fontScale = next
+                        savePreferences()
+                    }
+                    dialog.setTitle(getString(R.string.reader_font_percent, kotlin.math.round(fontScale * 100).toInt()))
+                }
+                3 -> { dialog.dismiss(); serif = !serif; savePreferences() }
+                4 -> { dialog.dismiss(); scroll = !scroll; savePreferences() }
             }
-            savePreferences()
-        }.show()
+        }
     }
 
     private fun savePreferences() {
@@ -1366,7 +1426,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         pendingSave?.cancel()
         nativeSave?.cancel()
         if (nativeMode) {
-            if (!nativeRestoring && nativeMoved) saveNativePosition(visibleNativeOffset(), publishExit = true)
+            val reflowOffset = nativeFontReflowOffset
+            if (nativeMoved && (!nativeRestoring || reflowOffset != null))
+                saveNativePosition(reflowOffset ?: visibleNativeOffset(), publishExit = true)
             else saves.launch {
                 saveMutex.withLock { }
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)

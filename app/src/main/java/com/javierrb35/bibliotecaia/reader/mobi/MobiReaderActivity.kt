@@ -1,6 +1,8 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
 import com.javierrb35.bibliotecaia.R
+import com.javierrb35.bibliotecaia.reader.ReaderPalette
+import com.javierrb35.bibliotecaia.ui.EditorialTypeface
 
 import android.content.Context
 import android.content.Intent
@@ -14,6 +16,7 @@ import android.text.style.UnderlineSpan
 import android.text.style.BackgroundColorSpan
 import android.net.Uri
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.abs
@@ -96,6 +99,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var annotations = emptyList<AnnotationEntity>()
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
+    private var fontReflowAnchor: Int? = null
     @Volatile private var positionRevision = 0L
     @Volatile private var lastQueuedOffset: Int? = null
     private var touchX = 0f
@@ -113,12 +117,16 @@ class MobiReaderActivity : AppCompatActivity() {
         toolbar.addView(button("Aa") { settings() })
         speechButton = button("Escuchar") { toggleSpeech() }
         toolbar.addView(speechButton)
-        root.addView(toolbar)
+        root.addView(HorizontalScrollView(this).apply {
+            isFillViewport = true
+            isHorizontalScrollBarEnabled = false
+            addView(toolbar)
+        })
         status = TextView(this).apply { text = "Abriendo MOBI…"; setPadding(dp(20), dp(8), dp(20), dp(8)) }
         root.addView(status)
         content = TextView(this).apply {
             setPadding(dp(24), dp(16), dp(24), dp(32))
-            typeface = Typeface.create("serif", Typeface.NORMAL)
+            typeface = EditorialTypeface.serif(context)
             setLineSpacing(dp(5).toFloat(), 1.15f)
             setTextIsSelectable(true)
 
@@ -205,7 +213,7 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         }, maySwipe = { !selectionActive })
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
-            if (loaded) {
+            if (loaded && fontReflowAnchor == null) {
                 pendingPosition?.cancel()
                 pendingPosition = lifecycleScope.launch {
                     delay(850)
@@ -287,6 +295,7 @@ class MobiReaderActivity : AppCompatActivity() {
 
     private fun showChunk(at: Int, recordPosition: Boolean = true) {
         if (!loaded) return
+        fontReflowAnchor = null
         if (speech.active() && !automaticSpeechAdvance) speech.stop()
         offset = at.coerceIn(0, text.lastIndex)
         // Never split a UTF-16 surrogate pair between views or saved locators.
@@ -340,6 +349,7 @@ class MobiReaderActivity : AppCompatActivity() {
     }
 
     private fun visibleOffset(): Int {
+        fontReflowAnchor?.let { return it }
         val layout = content.layout ?: return offset
         val line = layout.getLineForVertical((scroll.scrollY - content.paddingTop).coerceAtLeast(0))
         return (offset + layout.getLineStart(line)).coerceAtMost(text.length)
@@ -413,32 +423,72 @@ class MobiReaderActivity : AppCompatActivity() {
             }.setNegativeButton("Cancelar", null).show()
     }
     private fun settings() {
-        val options = arrayOf("Letra más grande", "Letra más pequeña", "OLED", "Oscuro", "Sepia", "Claro")
-        MaterialAlertDialogBuilder(this).setTitle("Lectura").setItems(options) { _, which ->
-            val at = visibleOffset()
-            if (which < 2) preferences.edit().putFloat("size",
-                (preferences.getFloat("size", 20f) + if (which == 0) 2 else -2).coerceIn(14f, 36f)).apply()
-            else preferences.edit().putInt("theme", which - 2).apply()
-            applySettings()
-            if (loaded) showChunk(at)
-        }.show()
+        val at = visibleOffset()
+        val options = arrayOf(getString(R.string.reader_font_increase), getString(R.string.reader_font_decrease),
+            "OLED", "Oscuro", "Sepia", "Claro")
+        fun sizeTitle() = getString(R.string.reader_font_sp, preferences.getFloat("size", 20f).toInt())
+        val dialog = MaterialAlertDialogBuilder(this).setTitle(sizeTitle())
+            .setItems(options, null).setNegativeButton(R.string.reader_settings_done, null).show()
+        dialog.listView?.setOnItemClickListener { _, _, which, _ ->
+            if (which < 2) {
+                val old = preferences.getFloat("size", 20f)
+                val next = (old + if (which == 0) 2 else -2).coerceIn(14f, 36f)
+                if (next != old) {
+                    preferences.edit().putFloat("size", next).apply()
+                    applyFontSizeAt(at)
+                }
+                dialog.setTitle(sizeTitle())
+            } else {
+                dialog.dismiss()
+                preferences.edit().putInt("theme", which - 2).apply()
+                applySettings()
+            }
+        }
+    }
+    /** Resize the current chunk in place: annotations, speech and absolute text offsets survive. */
+    private fun applyFontSizeAt(anchor: Int) {
+        if (loaded && fontReflowAnchor == null) {
+            fontReflowAnchor = anchor
+            pendingPosition?.cancel()
+            val chunkStart = offset
+            scroll.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (isDestroyed || offset != chunkStart || fontReflowAnchor != anchor) {
+                        scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                        return true
+                    }
+                    val layout = content.layout ?: return true
+                    if (content.isLayoutRequested || scroll.isLayoutRequested) return true
+                    scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                    val local = (anchor - chunkStart).coerceIn(0, content.length())
+                    scroll.scrollTo(0, layout.getLineTop(layout.getLineForOffset(local)) + content.totalPaddingTop)
+                    fontReflowAnchor = null
+                    return true
+                }
+            })
+        }
+        applySettings()
     }
     private fun applySettings() {
         val theme = preferences.getInt("theme", 0).coerceIn(0, 3)
-        val backgrounds = intArrayOf(Color.BLACK, 0xff191b1d.toInt(), 0xfff4e7ce.toInt(), 0xfffaf9f5.toInt())
-        val foreground = if (theme < 2) 0xffe8dfce.toInt() else 0xff302a24.toInt()
-        root.setBackgroundColor(backgrounds[theme]); content.setTextColor(foreground); status.setTextColor(foreground)
+        val palette = ReaderPalette.at(theme)
+        root.setBackgroundColor(palette.background)
+        content.setTextColor(palette.foreground)
+        status.setTextColor(palette.foreground)
+        palette.applyChrome(toolbar)
+        palette.applyChrome(noteRow)
         content.setHighlightColor(if (theme < 2) 0x66D4B483 else 0x55C7A264)
         content.textSize = preferences.getFloat("size", 20f)
-        window.statusBarColor = backgrounds[theme]; window.navigationBarColor = backgrounds[theme]
-        window.decorView.systemUiVisibility = if (theme >= 2) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
+        palette.applySystemBars(window)
     }
     private fun button(label: String, action: () -> Unit) =
         com.google.android.material.button.MaterialButton(this).apply {
             text = label
             isAllCaps = false
             minHeight = dp(48)
-            cornerRadius = dp(14)
+            minWidth = dp(48)
+            minimumWidth = dp(48)
+            cornerRadius = resources.getDimensionPixelSize(R.dimen.bia_radius_button)
             backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_surface_high))
             setTextColor(getColor(R.color.bia_text))
             strokeWidth = dp(1)

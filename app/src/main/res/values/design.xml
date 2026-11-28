@@ -3,6 +3,9 @@
     <color name="bia_background">#080807</color>
     <color name="bia_surface">#1B1A18</color>
     <color name="bia_surface_high">#28241F</color>
+    <color name="bia_surface_container">#211F1C</color>
+    <color name="bia_selected_container">#42382A</color>
+    <color name="bia_secondary_container">#39362F</color>
     <color name="bia_text">#F4E8D7</color>
     <color name="bia_text_secondary">#B8B0A6</color>
     <color name="bia_accent">#E9C282</color>
@@ -30,8 +33,8 @@
     <string name="premium_import">Importar</string>
     <style name="Widget.BibliotecaIA.Filter" parent="Widget.Material3.Chip.Filter">
         <item name="ensureMinTouchTargetSize">true</item>
-        <item name="chipBackgroundColor">@color/bia_surface</item>
-        <item name="chipStrokeColor">@color/bia_outline</item>
+        <item name="chipBackgroundColor">@color/bia_filter_background</item>
+        <item name="chipStrokeColor">@color/bia_outline_interactive</item>
         <item name="chipStrokeWidth">1dp</item>
         <item name="chipCornerRadius">18dp</item>
         <item name="chipMinHeight">42dp</item>

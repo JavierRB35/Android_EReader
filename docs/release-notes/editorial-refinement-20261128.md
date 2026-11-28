@@ -1,0 +1,4 @@
+- Ajusta el tamaño de letra varias veces seguidas desde el menú del lector EPUB y MOBI, sin volver a abrirlo.
+- Temas de lectura unificados y controles adaptados a sus colores; botones del lector EPUB más cómodos y filtros de biblioteca más visibles.
+- Identidad de arranque coherente con la biblioteca, superficies y tarjetas más uniformes, tipografía de metadatos más legible e icono vectorial de importación.
+- Tipografía editorial Literata para lectura y títulos, Inter para la interfaz; fuentes incluidas sin conexión.

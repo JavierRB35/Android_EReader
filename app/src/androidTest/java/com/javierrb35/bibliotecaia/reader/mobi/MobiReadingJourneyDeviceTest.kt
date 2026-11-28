@@ -1,5 +1,6 @@
 package com.javierrb35.bibliotecaia.reader.mobi
 
+import com.javierrb35.bibliotecaia.R
 import android.content.Intent
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -132,6 +133,50 @@ class MobiReadingJourneyDeviceTest {
             .any { text.getSpanStart(it) <= start && text.getSpanEnd(it) >= end } &&
             text.getSpans(start, end, UnderlineSpan::class.java)
                 .any { text.getSpanStart(it) <= start && text.getSpanEnd(it) >= end }
+    }
+
+    @Test fun adjustsFontRepeatedlyWithoutReopeningMenu() {
+        val id = UUID.randomUUID().toString()
+        val file = fixture("Tamaño de lectura")
+        val prefs = context.getSharedPreferences("mobi_reader", android.content.Context.MODE_PRIVATE)
+        val original = prefs.all["size"] as? Float
+        prefs.edit().putFloat("size", 20f).commit()
+        setup(id, file)
+        var activity: MobiReaderActivity? = null
+        try {
+            val opened = open(id)
+            activity = opened
+            val reader = requireNotNull(findScroll(opened)).getChildAt(0) as TextView
+            val before = reader.textSize
+            val scroll = requireNotNull(findScroll(opened))
+            val originalText = reader.text.toString()
+            var anchor = 0
+            instrumentation.runOnMainSync {
+                val layout = requireNotNull(reader.layout)
+                scroll.scrollTo(0, layout.getLineTop(layout.lineCount / 4) + reader.totalPaddingTop)
+                val top = layout.getLineForVertical((scroll.scrollY - reader.totalPaddingTop).coerceAtLeast(0))
+                anchor = layout.getLineStart(top)
+            }
+            onView(withText("Aa")).perform(click())
+            repeat(2) { onView(withText(R.string.reader_font_increase)).inRoot(isDialog()).perform(click()) }
+            assertEquals(24f, prefs.getFloat("size", 20f), .01f)
+            assertTrue(reader.textSize > before)
+            onView(withText(R.string.reader_font_decrease)).inRoot(isDialog()).perform(click())
+            assertEquals(22f, prefs.getFloat("size", 20f), .01f)
+            onView(withText(R.string.reader_settings_done)).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                assertEquals("Font adjustment must not replace the reading chunk", originalText, reader.text.toString())
+                val layout = requireNotNull(reader.layout)
+                val top = layout.getLineForVertical((scroll.scrollY - reader.totalPaddingTop).coerceAtLeast(0))
+                assertTrue("Original reading anchor must remain on the first visible line",
+                    anchor in layout.getLineStart(top)..layout.getLineEnd(top))
+            }
+        } finally {
+            activity?.let(::finish)
+            if (original == null) prefs.edit().remove("size").commit() else prefs.edit().putFloat("size", original).commit()
+            file.delete()
+        }
     }
 
     @Test fun annotationPaintsInBookAndSurvivesReopenWithIndependentPositions() {

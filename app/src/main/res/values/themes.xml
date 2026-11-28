@@ -9,15 +9,17 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorBackground">@color/bia_background</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="fontFamily">@font/inter</item>
         <item name="colorPrimary">@color/bia_accent</item>
         <!-- Native Android TextView selection handles: gold, never stock cyan. -->
         <item name="colorControlActivated">@color/bia_accent</item>
         <item name="android:colorAccent">@color/bia_accent</item>
         <item name="colorOnPrimary">@color/bia_background</item>
-        <item name="colorPrimaryContainer">#42382A</item>
+        <item name="colorPrimaryContainer">@color/bia_selected_container</item>
         <item name="colorOnPrimaryContainer">@color/bia_text</item>
         <item name="colorSecondary">@color/bia_accent</item>
-        <item name="colorSecondaryContainer">#39362F</item>
+        <item name="colorSecondaryContainer">@color/bia_secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/bia_text</item>
         <item name="colorSurface">@color/bia_surface</item>
         <item name="colorSurfaceVariant">@color/bia_surface_high</item>

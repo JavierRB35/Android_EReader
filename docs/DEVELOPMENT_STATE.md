@@ -4,6 +4,14 @@
 
 > **Regla de continuidad:** todo agente debe (1) leer este documento al iniciar, (2) actualizarlo y hacer push al terminar cada sesión o unidad funcional verificable. La continuidad se reconstruye desde este documento + Git, nunca desde conversaciones previas. El «último commit» de una rama es, por definición, el commit que porta este documento.
 
+## #154 — Refinamiento editorial autorizado (28/11/2026)
+- Rama existente design/editorial-ui-ux-audit-20261127; base main 49c093a; se preserva la auditoría WIP histórica, no se autoriza rediseño integral. #156 ya integrado; #153 y #164 reservados.
+- Incremento: menú de tamaño abierto en EPUB/MOBI, cambio inmediato y persistente, paleta común y barras por tema, marco tonal, objetivos EPUB 48dp, chips seleccionados visibles. Sin cambios de gestos, Room, Drive, sincronización o dependencias.
+- Segundo incremento: splash grafito/oro preservando logotipo violeta, superficies tonales y radios centralizados, tipografía y miniaturas de tarjetas existentes, icono vectorial importar. No cambiar la tercera vista en desarrollo #164 ni introducir nuevos gestos.
+- Tercer incremento: fuentes originales Inter/Literata OFL, mismo asset serif en ambos lectores y Readium; títulos seleccionados, vector volver EPUB. Sin red ni nuevas dependencias; peso de binarios 2,734 MB, tamaño APK y renderizado pendientes de CI. Ver docs/ui-ux/font-sources.md.
+- Cuarto incremento: cuadrícula 2:3 con cap 172dp, ajuste MOBI en el mismo bloque, protección EPUB de ancla pendiente, icono vectorial Ajustes y pruebas visuales de fuentes/cubiertas/paleta. CI de aa69f8f: 3 éxitos, 1 fallo de descarga HTTP 429 Maven y 4 cancelados por nuevo HEAD. No certificar CI nuevo hasta completarlo. Se difieren animaciones adicionales sin medición y se coordinan zonas #153/#164.
+- Pruebas permanentes: EpubReaderLaunchTest y MobiReadingJourneyDeviceTest amplían el recorrido de tamaño repetido. Gates y prueba física pendientes; no fusionar WIP. Resto del alcance aprobado en docs/ui-ux/refinamiento-aprobado-20261128.md; continuar por incrementos sin duplicar #156 ni #164.
+
 **Última actualización:** 2026-11-28 — Catalogación automática #142: argumento visible en la ficha, clasificación por lotes con IA y sincronización del estado por SHA-256.
 
 ## #162 — clasificación IA desde ficha (28/11/2026)

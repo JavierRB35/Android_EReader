@@ -26,11 +26,11 @@
         </LinearLayout>
         <LinearLayout android:id="@+id/btnImport" style="@style/Widget.BibliotecaIA.NavItem"
             android:contentDescription="@string/action_import">
-            <TextView android:id="@+id/txtImportIcon"
+            <ImageView android:id="@+id/txtImportIcon"
                 android:layout_width="32dp" android:layout_height="32dp"
-                android:background="@drawable/bg_premium_import" android:gravity="center"
-                android:text="+" android:textSize="22sp" android:textColor="@color/bia_background"
-                android:importantForAccessibility="no"/>
+                android:background="@drawable/bg_premium_import"
+                android:padding="4dp" android:src="@drawable/ic_editorial_add"
+                android:contentDescription="@null" android:importantForAccessibility="no"/>
             <TextView android:id="@+id/txtImportLabel"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:gravity="center" android:layout_marginTop="1dp" android:text="@string/premium_import"
