@@ -42,6 +42,7 @@ internal object AutoCatalogQueue {
     const val TOTAL = "auto-catalog-total:"
     const val ORDER = "auto-catalog-order:"
     const val LABEL = "Catalogación automática"
+    fun explicitTag(bookId: String) = "auto-catalog-book:$bookId"
 
     data class Request(val all: Boolean, val ids: List<String>, val explicit: Boolean = false) {
         fun encode(): String = JSONObject()
@@ -80,8 +81,15 @@ internal object AutoCatalogQueue {
             val app = context.applicationContext
             require(all || ids.isNotEmpty()) { "No hay libros seleccionados." }
             require(!explicit || (!all && ids.distinct().size == 1)) { "La clasificación explícita requiere un libro." }
+            val manager = WorkManager.getInstance(app)
+            val singleTag = if (explicit) explicitTag(ids.distinct().single()) else null
+            if (singleTag != null) {
+                manager.getWorkInfosByTag(singleTag).get().firstOrNull { !it.state.isFinished }
+                    ?.let { return@withContext it.id }
+            }
             val work = OneTimeWorkRequestBuilder<AutoCatalogWorker>()
                 .addTag(TAG)
+                .apply { if (singleTag != null) addTag(singleTag) }
                 .addTag(TOTAL + (if (all) -1 else ids.size))
                 .addTag(ORDER + System.currentTimeMillis())
                 .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
@@ -96,8 +104,7 @@ internal object AutoCatalogQueue {
                 file.failWrite(stream)
                 throw e
             }
-            WorkManager.getInstance(app)
-                .enqueueUniqueWork(TAG, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
+            manager.enqueueUniqueWork(TAG, ExistingWorkPolicy.APPEND_OR_REPLACE, work)
                 .result.get()
             work.id
         }
