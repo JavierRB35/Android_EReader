@@ -162,6 +162,7 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
 
         db.withTransaction {
             requireNotNull(db.bookDao().findById(current.id)) { "El libro ya no existe." }
+            var explicitCategoryAssigned = false
             var assigned = db.refsDao().categoryIdsForBook(current.id).isNotEmpty() ||
                 db.refsDao().tagIdsForBook(current.id).isNotEmpty()
             // El argumento IA solo se guarda si sigue sin existir (contrato #142).
@@ -175,14 +176,16 @@ internal class AutoCatalogEngine(private val db: AppDatabase) {
                     spoilerSafe = false))
             }
             if ((explicit && !parsed.review) || (!explicit && db.refsDao().categoryIdsForBook(current.id).isEmpty())) {
-                assigned = assignCategories(current.id, parsed.categories, allowNew = !parsed.review) || assigned
+                val categoriesAssigned = assignCategories(current.id, parsed.categories, allowNew = !parsed.review)
+                explicitCategoryAssigned = categoriesAssigned
+                assigned = categoriesAssigned || assigned
             }
             if ((!explicit || !parsed.review) && db.refsDao().tagIdsForBook(current.id).isEmpty()) {
                 assigned = assignTags(current.id, parsed.tags) || assigned
             }
             val status = when {
                 parsed.review -> BookClassificationEntity.STATUS_REVIEW
-                assigned && (!explicit || parsed.categories.isNotEmpty()) -> BookClassificationEntity.STATUS_CLASSIFIED
+                (if (explicit) explicitCategoryAssigned else assigned) -> BookClassificationEntity.STATUS_CLASSIFIED
                 else -> BookClassificationEntity.STATUS_PENDING
             }
             db.classificationDao().save(BookClassificationEntity(
