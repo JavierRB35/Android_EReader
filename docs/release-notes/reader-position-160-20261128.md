@@ -1,0 +1,2 @@
+- El lector EPUB prepara y recupera la posición guardada antes de mostrar el texto, evitando saltos visibles al principio del capítulo en el modo de selección precisa.
+- Se evita guardar posiciones intermedias durante la apertura; se mantiene el sistema actual de sincronización y archivos de cada dispositivo.

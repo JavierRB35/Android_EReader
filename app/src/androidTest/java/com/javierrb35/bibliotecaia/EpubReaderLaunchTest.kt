@@ -110,6 +110,86 @@ class EpubReaderLaunchTest {
         }
     }
 
+    @Test fun firstVisibleNativeFrameIsAtSavedPositionWithoutChangingIt() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val database = AppDatabase.get(context)
+        val prefs = context.getSharedPreferences("epub_reader", android.content.Context.MODE_PRIVATE)
+        val previousMode = prefs.all["native_selection"] as? Boolean
+        prefs.edit().putBoolean("native_selection", true).commit()
+        val epub = File.createTempFile("book-resume-", ".epub", context.filesDir)
+        Epub2RegressionFixture.write(epub)
+        val id = UUID.randomUUID().toString()
+        var activity: EpubReaderActivity? = null
+        try {
+            val chapter = runBlocking {
+                val publication = com.javierrb35.bibliotecaia.reader.epub.EpubOpener.open(context, epub)
+                try {
+                    com.javierrb35.bibliotecaia.reader.epub.NativeEpubText.load(publication, publication.readingOrder[22])
+                } finally { publication.close() }
+            }
+            // Well inside a long chapter, not at its start/end or a clamped scroll boundary.
+            val offset = chapter.text.length / 3
+            val locator = com.javierrb35.bibliotecaia.reader.epub.NativeEpubAnchors.locator(
+                chapter.href, chapter.title, offset, chapter.text.length, .29)
+            val saved = runBlocking {
+                database.bookDao().insert(BookEntity(id = id, title = "Retomar lectura",
+                    authors = null, format = BookFormat.EPUB, fileName = epub.name,
+                    localPath = epub.absolutePath, contentHash = id.replace("-", ""),
+                    sizeBytes = epub.length(), addedAt = System.currentTimeMillis()))
+                com.javierrb35.bibliotecaia.data.ReadingRepository(database).savePosition(id, locator, .29f)
+                requireNotNull(database.readingDao().position(id))
+            }
+            val intent = Intent(context, EpubReaderActivity::class.java)
+                .putExtra("book_id", id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            val opened = instrumentation.startActivitySync(intent) as EpubReaderActivity
+            activity = opened
+            val first = java.util.concurrent.CountDownLatch(1)
+            val wrongFrame = java.util.concurrent.atomic.AtomicBoolean(false)
+            val frames = java.util.concurrent.atomic.AtomicInteger(0)
+            instrumentation.runOnMainSync {
+                val text = opened.findViewById<android.widget.TextView>(R.id.epub_native_text)
+                val scroll = text.parent as android.widget.ScrollView
+                fun inspectFrame() {
+                    if (!scroll.isShown) return
+                    val layout = text.layout
+                    if (layout == null || text.text.length != chapter.text.length) {
+                        wrongFrame.set(true)
+                    } else {
+                        val expected = layout.getLineTop(layout.getLineForOffset(offset)) + text.totalPaddingTop
+                        if (expected <= 0 || scroll.scrollY != expected) wrongFrame.set(true)
+                    }
+                    frames.incrementAndGet()
+                    first.countDown()
+                }
+                // Inspect an already-visible frame as well as the following draws.
+                inspectFrame()
+                scroll.viewTreeObserver.addOnDrawListener { inspectFrame() }
+            }
+            assertTrue("Native chapter was never revealed", first.await(30, java.util.concurrent.TimeUnit.SECONDS))
+            Thread.sleep(1300) // longer than the existing 850ms save debounce
+            instrumentation.waitForIdleSync()
+            assertTrue("Every visible frame must start at the saved line", frames.get() > 0 && !wrongFrame.get())
+            runBlocking {
+                org.junit.Assert.assertEquals("Opening is not a reading movement", saved, database.readingDao().position(id))
+            }
+            instrumentation.runOnMainSync { opened.finish() }
+            instrumentation.waitForIdleSync()
+            Thread.sleep(300)
+            runBlocking {
+                org.junit.Assert.assertEquals("Closing without movement must preserve the exact locator and timestamp",
+                    saved, database.readingDao().position(id))
+            }
+        } finally {
+            instrumentation.runOnMainSync { activity?.finish() }
+            instrumentation.waitForIdleSync()
+            if (previousMode == null) prefs.edit().remove("native_selection").commit()
+            else prefs.edit().putBoolean("native_selection", previousMode).commit()
+            epub.delete()
+        }
+    }
+
     private fun assertReaderLaunches(epub: File) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
