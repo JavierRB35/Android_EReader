@@ -43,9 +43,10 @@ internal object AutoCatalogQueue {
     const val ORDER = "auto-catalog-order:"
     const val LABEL = "Catalogación automática"
 
-    data class Request(val all: Boolean, val ids: List<String>) {
+    data class Request(val all: Boolean, val ids: List<String>, val explicit: Boolean = false) {
         fun encode(): String = JSONObject()
             .put("all", all)
+            .put("explicit", explicit)
             .put("ids", JSONArray(ids))
             .toString()
 
@@ -53,7 +54,8 @@ internal object AutoCatalogQueue {
             fun decode(raw: String): Request {
                 val json = JSONObject(raw)
                 val ids = json.getJSONArray("ids")
-                return Request(json.getBoolean("all"), (0 until ids.length()).map { ids.getString(it) })
+                return Request(json.getBoolean("all"), (0 until ids.length()).map { ids.getString(it) },
+                    json.optBoolean("explicit", false))
             }
         }
     }
@@ -73,10 +75,11 @@ internal object AutoCatalogQueue {
         stopFile(context, id).delete()
     }
 
-    suspend fun enqueue(context: Context, all: Boolean, ids: List<String>): UUID =
+    suspend fun enqueue(context: Context, all: Boolean, ids: List<String>, explicit: Boolean = false): UUID =
         withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             val app = context.applicationContext
             require(all || ids.isNotEmpty()) { "No hay libros seleccionados." }
+            require(!explicit || (!all && ids.distinct().size == 1)) { "La clasificación explícita requiere un libro." }
             val work = OneTimeWorkRequestBuilder<AutoCatalogWorker>()
                 .addTag(TAG)
                 .addTag(TOTAL + (if (all) -1 else ids.size))
@@ -87,7 +90,7 @@ internal object AutoCatalogQueue {
             val file = AtomicFile(requestFile(app, work.id))
             val stream = file.startWrite()
             try {
-                stream.write(Request(all, ids.distinct()).encode().toByteArray(Charsets.UTF_8))
+                stream.write(Request(all, ids.distinct(), explicit).encode().toByteArray(Charsets.UTF_8))
                 file.finishWrite(stream)
             } catch (e: Exception) {
                 file.failWrite(stream)
@@ -172,11 +175,11 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
                 }
                 // Las fichas ya clasificadas no se reprocesan (idempotencia).
                 val row = db.classificationDao().byBook(book.id)
-                if (row != null && row.status != BookClassificationEntity.STATUS_PENDING) {
+                if (!request.explicit && row != null && row.status != BookClassificationEntity.STATUS_PENDING) {
                     skip++
                     continue
                 }
-                if (System.currentTimeMillis() < retry.getLong("retry:" + book.contentHash, 0L)) {
+                if (!request.explicit && System.currentTimeMillis() < retry.getLong("retry:" + book.contentHash, 0L)) {
                     skip++
                     continue
                 }
@@ -185,12 +188,13 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
                     "phase" to book.title.take(180).ifBlank { book.fileName }))
                 var temp: File? = null
                 try {
-                    val original = if (book.format.name == "PDF") null else {
+                    val hasSynopsis = request.explicit && db.synopsisDao().byBook(book.id)?.text?.isNotBlank() == true
+                    val original = if (book.format.name == "PDF" || hasSynopsis) null else {
                         val target = File.createTempFile("catalog-original-", ".tmp", app.cacheDir)
                         temp = target
                         originalFor(book, target)
                     }
-                    val outcome = engine.process(book, original, if (aiDisabled) null else ask)
+                    val outcome = engine.process(book, original, if (aiDisabled) null else ask, explicit = request.explicit)
                     if (outcome == AutoCatalogEngine.Outcome.PROCESSED) {
                         done++
                         retry.edit().remove("retry:" + book.contentHash).apply()
@@ -221,8 +225,12 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
             return Batch(done, skip, failed, false, false)
         }
 
-        val batch = SharedLibrary.withStoreSession(app) { originalFor -> runBatch(originalFor) }
-            ?: runBatch(localOnly)
+        val hasSavedSynopsis = request.explicit && books.singleOrNull()?.let {
+            db.synopsisDao().byBook(it.id)?.text?.isNotBlank() == true
+        } == true
+        val batch = if (hasSavedSynopsis) runBatch(localOnly)
+            else SharedLibrary.withStoreSession(app) { originalFor -> runBatch(originalFor) }
+                ?: runBatch(localOnly)
         processed = batch.processed
         skipped = batch.skipped
         failures = batch.failures
@@ -253,7 +261,7 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
             if (review > 0) append(" ").append(review).append(" pendientes de revisión.")
             if (pending > 0) append(" ").append(pending)
                 .append(" sin información suficiente (sin argumento ni materias).")
-            if (aiDisabled && ask != null) append(" IA no disponible; comprueba las claves en Ajustes.")
+            if (aiDisabled) append(" IA no disponible; comprueba las claves en Ajustes.")
             failures.take(5).forEach { append("\n").append(it.take(180)) }
         }
         Result.success(workDataOf("summary" to summary.take(1800), "done" to processed))
