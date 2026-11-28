@@ -134,6 +134,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
     private var nativeTouchY = 0f
     private var nativeGeneration = 0
     private var nativeRestoring = false
+    private var nativeFontReflowOffset: Int? = null
     private var nativeRestoreTarget: String? = null
     private var nativeMoved = false
     private var readiumMoved = false
@@ -630,6 +631,7 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         nativeLoading?.cancel()
         nativeSave?.cancel()
         val generation = ++nativeGeneration
+        nativeFontReflowOffset = null
         nativeRestoring = true
         nativeMoved = false
         // INVISIBLE retains measurement/layout; GONE would prevent positioning.
@@ -1029,6 +1031,8 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                         // Reflow native text at the same logical character, not the old pixel offset.
                         if (anchor != null && nativeMode && !nativeRestoring) {
                             nativeRestoring = true
+                            nativeFontReflowOffset = anchor
+                            nativeRestoreTarget = nativeLocator(anchor, "")
                             nativeSave?.cancel()
                             val generation = nativeGeneration
                             nativeScroll.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
@@ -1043,7 +1047,10 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
                                     nativeScroll.scrollTo(0, layout.getLineTop(layout.getLineForOffset(
                                         anchor.coerceIn(0, nativeText.length()))) + nativeText.totalPaddingTop)
                                     nativeRestoring = false
+                                    nativeFontReflowOffset = null
+                                    nativeRestoreTarget = null
                                     updateNativeProgress()
+                                    if (nativeMoved) scheduleNativeSave()
                                     return true
                                 }
                             })
@@ -1419,7 +1426,9 @@ class EpubReaderActivity : AppCompatActivity(), EpubNavigatorFragment.Listener {
         pendingSave?.cancel()
         nativeSave?.cancel()
         if (nativeMode) {
-            if (!nativeRestoring && nativeMoved) saveNativePosition(visibleNativeOffset(), publishExit = true)
+            val reflowOffset = nativeFontReflowOffset
+            if (nativeMoved && (!nativeRestoring || reflowOffset != null))
+                saveNativePosition(reflowOffset ?: visibleNativeOffset(), publishExit = true)
             else saves.launch {
                 saveMutex.withLock { }
                 com.javierrb35.bibliotecaia.sync.SharedLibrary.publishReadingExit(applicationContext)

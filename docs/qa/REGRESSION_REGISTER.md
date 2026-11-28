@@ -87,3 +87,5 @@ ReaderRouter consultaba el catálogo remoto bajo el mutex de biblioteca antes de
 - Pruebas permanentes: MetadataReconciliationTest (JVM), CompleteBackupArchiveTest (portadas declaradas/ajenas/duplicadas/oversize/legado) y MetadataMigrationJourneyTest (instrumentado: ZIP migrador repara sin duplicados, conserva edición/posición/sinopsis del usuario, publica portadas, reimportación idempotente; reparación desde originales con convergencia A/B). CI pendiente de acreditar; prueba física en dos dispositivos con la biblioteca real pendiente hasta aceptación del propietario.
 
 | #154 — tamaño de letra y coherencia editorial | Los menús setItems cerraban cada toque; conservar preferencias, posición y anotaciones; mismo índice de tema para EPUB/MOBI; OLED puro | EpubReaderLaunchTest y MobiReadingJourneyDeviceTest: cambios consecutivos de tamaño sin reabrir; mantener pruebas de apertura/posición y gestos | Implementado en #154; CI y aceptación física pendientes. |
+
+- #154: EditorialVisualDeviceTest (fuentes/licencias, relación de portada, fitCenter y temas), startup smoke; MOBI prueba conservación de ancla y bloque en cambios repetidos. Gates del nuevo HEAD pendientes. 

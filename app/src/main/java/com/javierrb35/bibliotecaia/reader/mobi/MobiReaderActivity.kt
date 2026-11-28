@@ -16,6 +16,7 @@ import android.text.style.UnderlineSpan
 import android.text.style.BackgroundColorSpan
 import android.net.Uri
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.abs
@@ -98,6 +99,7 @@ class MobiReaderActivity : AppCompatActivity() {
     private var annotations = emptyList<AnnotationEntity>()
     private var selectedAbsoluteOffset = 0
     private var pendingPosition: Job? = null
+    private var fontReflowAnchor: Int? = null
     @Volatile private var positionRevision = 0L
     @Volatile private var lastQueuedOffset: Int? = null
     private var touchX = 0f
@@ -115,7 +117,11 @@ class MobiReaderActivity : AppCompatActivity() {
         toolbar.addView(button("Aa") { settings() })
         speechButton = button("Escuchar") { toggleSpeech() }
         toolbar.addView(speechButton)
-        root.addView(toolbar)
+        root.addView(HorizontalScrollView(this).apply {
+            isFillViewport = true
+            isHorizontalScrollBarEnabled = false
+            addView(toolbar)
+        })
         status = TextView(this).apply { text = "Abriendo MOBI…"; setPadding(dp(20), dp(8), dp(20), dp(8)) }
         root.addView(status)
         content = TextView(this).apply {
@@ -207,7 +213,7 @@ class MobiReaderActivity : AppCompatActivity() {
             }
         }, maySwipe = { !selectionActive })
         scroll.setOnScrollChangeListener { _, _, _, _, _ ->
-            if (loaded) {
+            if (loaded && fontReflowAnchor == null) {
                 pendingPosition?.cancel()
                 pendingPosition = lifecycleScope.launch {
                     delay(850)
@@ -289,6 +295,7 @@ class MobiReaderActivity : AppCompatActivity() {
 
     private fun showChunk(at: Int, recordPosition: Boolean = true) {
         if (!loaded) return
+        fontReflowAnchor = null
         if (speech.active() && !automaticSpeechAdvance) speech.stop()
         offset = at.coerceIn(0, text.lastIndex)
         // Never split a UTF-16 surrogate pair between views or saved locators.
@@ -342,6 +349,7 @@ class MobiReaderActivity : AppCompatActivity() {
     }
 
     private fun visibleOffset(): Int {
+        fontReflowAnchor?.let { return it }
         val layout = content.layout ?: return offset
         val line = layout.getLineForVertical((scroll.scrollY - content.paddingTop).coerceAtLeast(0))
         return (offset + layout.getLineStart(line)).coerceAtMost(text.length)
@@ -427,17 +435,39 @@ class MobiReaderActivity : AppCompatActivity() {
                 val next = (old + if (which == 0) 2 else -2).coerceIn(14f, 36f)
                 if (next != old) {
                     preferences.edit().putFloat("size", next).apply()
-                    applySettings()
-                    if (loaded) showChunk(at)
+                    applyFontSizeAt(at)
                 }
                 dialog.setTitle(sizeTitle())
             } else {
                 dialog.dismiss()
                 preferences.edit().putInt("theme", which - 2).apply()
                 applySettings()
-                if (loaded) showChunk(at)
             }
         }
+    }
+    /** Resize the current chunk in place: annotations, speech and absolute text offsets survive. */
+    private fun applyFontSizeAt(anchor: Int) {
+        if (loaded && fontReflowAnchor == null) {
+            fontReflowAnchor = anchor
+            pendingPosition?.cancel()
+            val chunkStart = offset
+            scroll.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (isDestroyed || offset != chunkStart || fontReflowAnchor != anchor) {
+                        scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                        return true
+                    }
+                    val layout = content.layout ?: return true
+                    if (content.isLayoutRequested || scroll.isLayoutRequested) return true
+                    scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                    val local = (anchor - chunkStart).coerceIn(0, content.length())
+                    scroll.scrollTo(0, layout.getLineTop(layout.getLineForOffset(local)) + content.totalPaddingTop)
+                    fontReflowAnchor = null
+                    return true
+                }
+            })
+        }
+        applySettings()
     }
     private fun applySettings() {
         val theme = preferences.getInt("theme", 0).coerceIn(0, 3)
@@ -456,7 +486,9 @@ class MobiReaderActivity : AppCompatActivity() {
             text = label
             isAllCaps = false
             minHeight = dp(48)
-            cornerRadius = dp(14)
+            minWidth = dp(48)
+            minimumWidth = dp(48)
+            cornerRadius = resources.getDimensionPixelSize(R.dimen.bia_radius_button)
             backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.bia_surface_high))
             setTextColor(getColor(R.color.bia_text))
             strokeWidth = dp(1)

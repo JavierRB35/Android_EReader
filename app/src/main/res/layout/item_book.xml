@@ -3,7 +3,7 @@
     android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_margin="4dp"
     android:clickable="true" android:focusable="true" app:cardBackgroundColor="@color/bia_surface" app:cardCornerRadius="@dimen/bia_radius_card" app:cardElevation="0dp" app:strokeWidth="0dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="8dp" android:gravity="center_vertical">
-        <FrameLayout android:layout_width="match_parent" android:layout_height="172dp" android:background="@drawable/bg_premium_cover" android:clipToOutline="true">
+        <com.javierrb35.bibliotecaia.ui.BookCoverFrame android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:background="@drawable/bg_premium_cover" android:clipToOutline="true">
             <LinearLayout android:id="@+id/coverFallback" android:layout_width="match_parent" android:layout_height="match_parent"
                 android:orientation="vertical" android:gravity="center" android:padding="10dp" android:importantForAccessibility="noHideDescendants">
                 <com.javierrb35.bibliotecaia.ui.EditorialTextView android:id="@+id/txtCoverTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -12,7 +12,7 @@
                     android:text="@string/bia_no_cover" android:textColor="@color/bia_text_secondary" android:textAppearance="@style/TextAppearance.BibliotecaIA.Overline"/>
             </LinearLayout>
             <ImageView android:id="@+id/imgBookCover" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:importantForAccessibility="no"/>
-        </FrameLayout>
+        </com.javierrb35.bibliotecaia.ui.BookCoverFrame>
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"  android:paddingTop="8dp" android:orientation="vertical">
             <TextView android:id="@+id/txtBookFormat" android:layout_width="match_parent" android:layout_height="wrap_content" android:textAppearance="@style/TextAppearance.BibliotecaIA.Overline" android:textColor="@color/bia_accent"/>
             <TextView android:id="@+id/txtBookTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"

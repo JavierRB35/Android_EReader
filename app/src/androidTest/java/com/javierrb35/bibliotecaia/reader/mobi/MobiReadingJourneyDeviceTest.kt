@@ -148,6 +148,15 @@ class MobiReadingJourneyDeviceTest {
             activity = opened
             val reader = requireNotNull(findScroll(opened)).getChildAt(0) as TextView
             val before = reader.textSize
+            val scroll = requireNotNull(findScroll(opened))
+            val originalText = reader.text.toString()
+            var anchor = 0
+            instrumentation.runOnMainSync {
+                val layout = requireNotNull(reader.layout)
+                scroll.scrollTo(0, layout.getLineTop(layout.lineCount / 4) + reader.totalPaddingTop)
+                val top = layout.getLineForVertical((scroll.scrollY - reader.totalPaddingTop).coerceAtLeast(0))
+                anchor = layout.getLineStart(top)
+            }
             onView(withText("Aa")).perform(click())
             repeat(2) { onView(withText(R.string.reader_font_increase)).inRoot(isDialog()).perform(click()) }
             assertEquals(24f, prefs.getFloat("size", 20f), .01f)
@@ -155,6 +164,14 @@ class MobiReadingJourneyDeviceTest {
             onView(withText(R.string.reader_font_decrease)).inRoot(isDialog()).perform(click())
             assertEquals(22f, prefs.getFloat("size", 20f), .01f)
             onView(withText(R.string.reader_settings_done)).inRoot(isDialog()).perform(click())
+            instrumentation.waitForIdleSync()
+            instrumentation.runOnMainSync {
+                assertEquals("Font adjustment must not replace the reading chunk", originalText, reader.text.toString())
+                val layout = requireNotNull(reader.layout)
+                val top = layout.getLineForVertical((scroll.scrollY - reader.totalPaddingTop).coerceAtLeast(0))
+                assertTrue("Original reading anchor must remain on the first visible line",
+                    anchor in layout.getLineStart(top)..layout.getLineEnd(top))
+            }
         } finally {
             activity?.let(::finish)
             if (original == null) prefs.edit().remove("size").commit() else prefs.edit().putFloat("size", original).commit()

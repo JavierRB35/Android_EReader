@@ -887,21 +887,19 @@ class SettingsActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        masthead.addView(TextView(this).apply {
-            text = "‹"
-            textSize = 30f
-            gravity = Gravity.CENTER
+        masthead.addView(android.widget.ImageButton(this).apply {
+            setImageResource(R.drawable.ic_editorial_back)
+            scaleType = android.widget.ImageView.ScaleType.CENTER
             contentDescription = "Volver"
             isClickable = true
             isFocusable = true
-            setTextColor(getColor(R.color.bia_accent))
             setBackgroundResource(R.drawable.bg_premium_note)
             setOnClickListener { finish() }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
         masthead.addView(TextView(this).apply {
             text = "BibliotecaAI"
             textSize = 20f
-            setTypeface(Typeface.SERIF, Typeface.BOLD)
+            setTypeface(EditorialTypeface.serif(context), Typeface.BOLD)
             setTextColor(getColor(R.color.bia_text))
             setPadding(dp(12), 0, 0, 0)
         })
@@ -909,7 +907,7 @@ class SettingsActivity : AppCompatActivity() {
         parent.addView(TextView(this).apply {
             text = value
             textSize = 33f
-            typeface = Typeface.SERIF
+            typeface = EditorialTypeface.serif(context)
             setTextColor(getColor(R.color.bia_text))
             androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
             setPadding(0, dp(14), 0, dp(4))
