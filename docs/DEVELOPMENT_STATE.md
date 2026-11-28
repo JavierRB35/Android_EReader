@@ -6,6 +6,11 @@
 
 **Última actualización:** 2026-11-28 — Catalogación automática #142: argumento visible en la ficha, clasificación por lotes con IA y sincronización del estado por SHA-256.
 
+## P0 #160 — recuperación directa de posición (28/11/2026)
+- Mandato propietario: agente único, mantener intacta la arquitectura de archivos de estado por dispositivo; corregir saltos visibles, compilar y publicar.
+- Rama fix/reader-position-160: EPUB nativo prepara layout oculto y aplica scroll en pre-draw antes de revelar; guarda solo después de restaurar, evita repintado redundante y emisiones iniciales Readium sin gesto/navegación explícita. No se cambia Room, SharedLibrary, SAF, retención, formatos ni originales. MOBI ya abre bloque desde offset absoluto; comprobación física pendiente.
+- Prueba permanente EpubReaderLaunchTest.firstVisibleNativeFrameIsAtSavedPositionWithoutChangingIt (incluida en startup smoke). CI, integración, publicación y aceptación física aún pendientes; no certificar hasta evidencia. Próximo: validar gates exactos, resolver fallos y publicar por workflow habitual.
+
 ## #142 — catalogación automática de la biblioteca (28/11/2026)
 - Rama feat/auto-catalog-142. Argumento visible directamente en la ficha bajo «Argumento» (ampliar/editar/copiar/exportar/borrar, sin diálogos para leer); acción «Obtener argumento» solo cuando falta: genera con IA si hay copia local, encola catalogación (metadatos del original sin instalarlo) si el libro no está descargado, edición manual en PDF.
 - Motor AutoCatalogEngine: argumento por prioridad guardado→dc:description/EXTH del original verificado→IA solo con copia local (fragmentos acotados, nunca el libro completo); categorías solo si faltan (vocabulario existente + máx. UNA nueva sin dudas), etiquetas solo si faltan (misma validación que manual); nunca sobrescribe argumentos, categorías, etiquetas ni ediciones. Casos dudosos→REVIEW; sin información→PENDING reintentable; fichas CLASSIFIED/REVIEW no se reprocesan (idempotencia).
