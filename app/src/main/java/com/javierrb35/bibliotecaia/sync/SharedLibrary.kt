@@ -1371,6 +1371,43 @@ object SharedLibrary {
     }
 
     /**
+     * Acción de solo lectura sobre el almacén compartido para catalogar sin
+     * instalar originales (Issue #142). Devuelve null si la carpeta compartida
+     * no está disponible ahora mismo; nunca bloquea la navegación.
+     *
+     * [block] recibe `originalFor(book, target)`: la copia local válida o una
+     * extracción temporal verificada por SHA-256 que EL LLAMADOR debe borrar.
+     */
+    internal suspend fun <T> withStoreSession(
+        context: Context,
+        block: suspend (originalFor: suspend (BookEntity, File) -> File?) -> T,
+    ): T? {
+        if (!namedFolderMode(context)) return null
+        val tree = uri(context) ?: return null
+        return try {
+            folderStore(context, tree, named = true).use { source ->
+                val inv = inventory(source)
+                if (inv.errors.isNotEmpty()) return null
+                val listing = source.list()
+                block { book, target ->
+                    val localFile = File(book.localPath)
+                    if (CentralCatalogue.local(book) && localFile.isFile &&
+                        localFile.length() == book.sizeBytes &&
+                        OriginalLinker(localFile.parentFile ?: File(".")).sha256Hex(localFile) == book.contentHash) {
+                        localFile
+                    } else try {
+                        repairCopy(source, listing, inv, book, target)
+                        target
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: InterruptedException) { throw e }
+                    catch (_: Exception) { target.delete(); null }
+                }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { null }
+    }
+
+    /**
      * Núcleo a nivel de almacén, reanudable e idempotente: procesa como máximo
      * 16 fichas o 60 s por invocación. Devuelve las fichas que siguen
      * pendientes de reparación (null si el inventario no está disponible).

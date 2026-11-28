@@ -548,6 +548,20 @@ class SettingsActivity : AppCompatActivity() {
         action(aiCard, "Configurar inteligencia artificial") {
             startActivity(Intent(this, AiSetupActivity::class.java))
         }
+        // Catalogación automática de libros nuevos (#142).
+        val autoCatalog = com.google.android.material.switchmaterial.SwitchMaterial(this).apply {
+            text = getString(R.string.settings_auto_catalog_new)
+            textSize = 14f
+            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.bia_text))
+            isChecked = com.javierrb35.bibliotecaia.catalog.AutoCatalogSettings
+                .newBooksEnabled(applicationContext)
+            setOnCheckedChangeListener { _, checked ->
+                com.javierrb35.bibliotecaia.catalog.AutoCatalogSettings
+                    .setNewBooksEnabled(applicationContext, checked)
+            }
+        }
+        aiCard.addView(autoCatalog, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        hint(aiCard, getString(R.string.settings_auto_catalog_hint))
         refreshAiStatus()
 
         section(layout, getString(R.string.settings_updates))

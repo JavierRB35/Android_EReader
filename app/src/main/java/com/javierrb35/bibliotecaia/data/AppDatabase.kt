@@ -27,13 +27,15 @@ import java.util.UUID
         BookSynopsisEntity::class,
         SyncQueueEntry::class,
         DeletedBookEntity::class,
+        BookClassificationEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun synopsisDao(): SynopsisDao
+    abstract fun classificationDao(): ClassificationDao
 
     abstract fun readingDao(): ReadingDao
 
@@ -56,6 +58,17 @@ abstract class AppDatabase : RoomDatabase() {
             "Economía", "Finanzas", "Empresa", "Psicología", "Biografías",
             "Formación", "Referencia", "Otros"
         )
+
+        /** v6→v7: estado de la catalogación automática (#142), una fila por ficha. */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS book_classifications (" +
+                        "bookId TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
+                        "basis TEXT NOT NULL, provider TEXT, processedAt INTEGER NOT NULL)"
+                )
+            }
+        }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -115,7 +128,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(appContext: Context): AppDatabase =
             Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
