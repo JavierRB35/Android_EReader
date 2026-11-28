@@ -103,8 +103,8 @@ class BookSynopsisActionDeviceTest {
             onView(withId(R.id.btnSynopsisDelete)).perform(click())
             onView(withText(R.string.detail_synopsis_delete_message)).check(matches(isDisplayed()))
             onView(withId(android.R.id.button1)).perform(click())
-            awaitBody(instrumentation, activity,
-                activity.getString(R.string.detail_synopsis_empty))
+            // Vacío: la sección vuelve a su fila compacta con «Obtener argumento».
+            awaitVisible(instrumentation, activity, R.id.btnSynopsisObtain)
             assertNull(runBlocking { db.synopsisDao().byBook(id) })
             assertNotNull(runBlocking { db.bookDao().findById(id) })
         } finally {

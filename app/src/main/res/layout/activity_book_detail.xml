@@ -333,7 +333,9 @@
                 android:importantForAccessibility="no" />
         </LinearLayout>
 
-        <!-- Argumento visible directamente en la ficha (#142): sin abrir diálogos. -->
+        <!-- Argumento visible directamente en la ficha (#142): sin abrir diálogos.
+             Sin argumento guardado la sección cabe en una fila compacta para no
+             romper el contrato de ficha sin desplazamiento en teléfono pequeño. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -356,9 +358,25 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:layout_marginStart="8dp"
                 android:gravity="end"
                 android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:textColor="@color/bia_text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSynopsisObtain"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="40dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/detail_synopsis_obtain"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:textColor="@color/bia_accent" />
         </LinearLayout>
 
         <TextView
@@ -400,16 +418,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSynopsisObtain"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minHeight="44dp"
-                android:text="@string/detail_synopsis_obtain"
-                android:textAllCaps="false"
-                android:textColor="@color/bia_accent" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSynopsisEdit"

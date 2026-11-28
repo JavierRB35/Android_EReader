@@ -216,14 +216,16 @@ class BookDetailActivity : AppCompatActivity() {
         val more = findViewById<View>(R.id.btnSynopsisMore)
         synopsisExpanded = if (saved == null) false else synopsisExpanded
         if (saved == null) {
-            body.text = getString(R.string.detail_synopsis_empty)
-            body.alpha = 0.6f
+            // Sin argumento: una fila compacta con el encabezado y la acción de
+            // obtención; la ficha sigue cabiendo sin desplazamiento (#142).
+            body.visibility = View.GONE
             obtain.visibility = View.VISIBLE
             edit.visibility = View.GONE
             delete.visibility = View.GONE
             more.visibility = View.GONE
             expand.visibility = View.GONE
         } else {
+            body.visibility = View.VISIBLE
             body.text = saved.text
             body.alpha = 1f
             obtain.visibility = View.GONE

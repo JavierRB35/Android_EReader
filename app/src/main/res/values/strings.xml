@@ -181,7 +181,6 @@
 
     <!-- Catalogación automática y argumento visible en la ficha (#142) -->
     <string name="detail_synopsis_section">Argumento</string>
-    <string name="detail_synopsis_empty">Sin argumento guardado. Se puede recuperar del propio libro o generar con IA.</string>
     <string name="detail_synopsis_obtain">Obtener argumento</string>
     <string name="detail_synopsis_expand">Más</string>
     <string name="detail_synopsis_collapse">Menos</string>
