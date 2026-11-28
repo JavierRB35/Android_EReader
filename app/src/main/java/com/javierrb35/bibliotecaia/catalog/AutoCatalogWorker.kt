@@ -264,7 +264,12 @@ class AutoCatalogWorker(context: Context, params: WorkerParameters) :
             if (aiDisabled) append(" IA no disponible; comprueba las claves en Ajustes.")
             failures.take(5).forEach { append("\n").append(it.take(180)) }
         }
-        Result.success(workDataOf("summary" to summary.take(1800), "done" to processed))
+        val explicitResult = if (request.explicit) {
+            if (stopped || failures.isNotEmpty() || aiDisabled || processed == 0) "FAILED"
+            else books.singleOrNull()?.let { db.classificationDao().byBook(it.id)?.status } ?: "FAILED"
+        } else ""
+        Result.success(workDataOf("summary" to summary.take(1800), "done" to processed,
+            "classification_result" to explicitResult))
     }
 
     private suspend fun scope(db: AppDatabase, request: AutoCatalogQueue.Request): List<BookEntity> =
