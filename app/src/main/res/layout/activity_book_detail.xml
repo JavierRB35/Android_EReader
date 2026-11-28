@@ -197,14 +197,21 @@
                 android:textSize="12sp"
                 android:textColor="@color/bia_text" />
 
-            <TextView
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClassifyBook"
+                style="@style/Widget.BibliotecaIA.Button.Outlined"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:gravity="end"
-                android:text="@string/detail_organization_hint"
-                android:textSize="11sp"
-                android:textColor="@color/bia_text_secondary" />
+                android:layout_marginStart="8dp"
+                android:minHeight="40dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="@string/detail_classify_ai"
+                android:textAllCaps="false"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
